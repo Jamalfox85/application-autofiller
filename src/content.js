@@ -12,10 +12,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 })
 
-// Main autofill function
 async function autofillPage() {
   try {
-    // Get stored personal info
     const data = await chrome.storage.local.get('personalInfo')
     const personalInfo = data.personalInfo
 
@@ -23,7 +21,6 @@ async function autofillPage() {
       return { success: false, message: 'No personal info saved' }
     }
 
-    // Find all input fields and textareas
     const inputs = document.querySelectorAll('input, textarea, select')
     let filledCount = 0
 
@@ -33,26 +30,21 @@ async function autofillPage() {
         return
       }
 
-      // Skip if already filled
       if (input.value && input.value.trim() !== '') {
         return
       }
 
-      // Get field identifiers
       const name = (input.name || '').toLowerCase()
       const id = (input.id || '').toLowerCase()
       const placeholder = (input.placeholder || '').toLowerCase()
       const label = getFieldLabel(input)
       const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase()
 
-      // Combine all identifiers
       const fieldText = `${name} ${id} ${placeholder} ${label} ${ariaLabel}`.toLowerCase()
 
-      // Try to match field to our data
       const fieldValue = matchFieldToData(fieldText, personalInfo)
 
       if (fieldValue) {
-        // Fill the field
         input.value = fieldValue
 
         // Trigger input events so the page recognizes the change
@@ -74,9 +66,7 @@ async function autofillPage() {
   }
 }
 
-// Match field text to personal data
 function matchFieldToData(fieldText, personalInfo) {
-  // Check each field pattern
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
     for (const pattern of patterns) {
       if (fieldText.includes(pattern)) {
@@ -100,9 +90,7 @@ function matchFieldToData(fieldText, personalInfo) {
   return null
 }
 
-// Get label text for an input field
 function getFieldLabel(input) {
-  // Try to find label by 'for' attribute
   if (input.id) {
     const label = document.querySelector(`label[for="${input.id}"]`)
     if (label) {
@@ -110,13 +98,11 @@ function getFieldLabel(input) {
     }
   }
 
-  // Try to find parent label
   const parentLabel = input.closest('label')
   if (parentLabel) {
     return parentLabel.textContent.toLowerCase()
   }
 
-  // Try to find previous sibling label
   let sibling = input.previousElementSibling
   while (sibling) {
     if (sibling.tagName === 'LABEL') {
@@ -188,17 +174,6 @@ function addExtensionIndicator() {
     setTimeout(() => indicator.remove(), 500)
   }, 5000)
 }
-
-// Initialize when page loads
-// if (document.readyState === 'loading') {
-//   document.addEventListener('DOMContentLoaded', addExtensionIndicator)
-//   document.addEventListener('DOMContentLoaded', () => {
-//     setTimeout(autofillPage, 500)
-//   })
-// } else {
-//   addExtensionIndicator()
-//   setTimeout(autofillPage, 500)
-// }
 
 function attachFormListeners() {
   const forms = document.querySelectorAll('form')

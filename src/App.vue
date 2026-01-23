@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { Linkedin, Globe, Github, Phone, Mail } from 'lucide-vue-next'
 
 // Types
 interface PersonalInfo {
@@ -11,8 +12,9 @@ interface PersonalInfo {
   city: string
   state: string
   zip: string
-  linkedin: string
+  linkedin?: string
   website: string
+  github?: string
   resumeFile?: string
 }
 
@@ -65,6 +67,18 @@ const displayPhone = computed(() => {
   return personalInfo.value.phone || '+1 234 567 890'
 })
 
+const displayLinkedin = computed(() => {
+  return personalInfo.value.linkedin || 'linkedin.com/in/johndoe-ux'
+})
+
+const displayWebsite = computed(() => {
+  return personalInfo.value.website || 'www.johndoe.com'
+})
+
+const displayGithub = computed(() => {
+  return personalInfo.value.github || 'github.com/johndoe'
+})
+
 // Methods
 const loadPersonalInfo = async () => {
   const data = await chrome.storage.local.get('personalInfo')
@@ -94,7 +108,7 @@ const autofillCurrentPage = async () => {
         activeView.value = 'main'
       }, 3000)
     } else {
-      showNotification('No fields found to autofill', 'error')
+      showNotification('No available fields found to autofill', 'error')
     }
   })
 }
@@ -120,11 +134,6 @@ const openSettings = () => {
   showNotification('Settings coming soon!')
 }
 
-const editProfile = () => {
-  // Toggle edit mode or open full form
-  showNotification('Click fields to edit')
-}
-
 const addPortfolioLink = () => {
   const link = prompt('Enter your portfolio URL:')
   if (link) {
@@ -148,12 +157,85 @@ const showNotification = (message: string, type: 'success' | 'error' = 'success'
   notification.value = { show: true, message, type }
   setTimeout(() => {
     notification.value.show = false
-  }, 2000)
+  }, 10000)
+}
+
+const showEditProfileDialog = ref(false)
+const editableProfile = ref<PersonalInfo>({
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  address: '',
+  city: '',
+  state: '',
+  zip: '',
+  linkedin: '',
+  website: '',
+  github: '',
+  resumeFile: '',
+})
+
+const editProfile = () => {
+  // Copy current profile to editable version
+  editableProfile.value = { ...personalInfo.value }
+  showEditProfileDialog.value = true
+}
+
+const saveProfileFromDialog = async () => {
+  // Save the edited profile
+  personalInfo.value = { ...editableProfile.value }
+  await chrome.storage.local.set({ personalInfo: personalInfo.value })
+  showEditProfileDialog.value = false
+  showNotification('Profile updated!')
 }
 
 // Check for missing fields
 const checkMissingFields = () => {
   showMissingField.value = !personalInfo.value.website
+}
+
+const showQuestionsDialog = ref(false)
+const newResponse = ref({
+  title: '',
+  text: '',
+  tags: '',
+})
+
+const showCreateResponseForm = ref(false)
+
+const addResponseFromDialog = async () => {
+  if (!newResponse.value.title.trim() || !newResponse.value.text.trim()) {
+    showNotification('Please fill in title and response', 'error')
+    return
+  }
+
+  const response: SavedResponse = {
+    id: Date.now(),
+    title: newResponse.value.title.trim(),
+    text: newResponse.value.text.trim(),
+    tags: newResponse.value.tags
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t),
+    createdAt: new Date().toISOString(),
+  }
+
+  savedResponses.value.push(response)
+  await chrome.storage.local.set({ savedResponses: savedResponses.value })
+
+  // Clear form
+  newResponse.value = { title: '', text: '', tags: '' }
+  showCreateResponseForm.value = false
+
+  showNotification('Response saved!')
+}
+
+const closeDialog = () => {
+  showQuestionsDialog.value = false
+  showCreateResponseForm.value = false
+  // Clear form when closing
+  newResponse.value = { title: '', text: '', tags: '' }
 }
 
 // Lifecycle
@@ -192,51 +274,8 @@ onMounted(async () => {
 
     <!-- Main View -->
     <div v-if="activeView === 'main'" class="content">
-      <!-- Profile Card -->
-      <div class="profile-card">
-        <div class="profile-info">
-          <div>
-            <h2 class="profile-name">{{ fullName }}</h2>
-            <p class="profile-email">{{ displayEmail }}</p>
-            <p class="profile-phone">{{ displayPhone }}</p>
-            <button class="edit-btn" @click="editProfile">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path
-                  d="M0 11.083V14h2.917l8.6-8.6-2.917-2.917-8.6 8.6zM13.733 2.483a.774.774 0 000-1.096L12.613.267a.774.774 0 00-1.096 0l-.88.88 2.917 2.916.88-.88z"
-                />
-              </svg>
-              Edit Profile
-            </button>
-          </div>
-          <div class="profile-avatar">
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-              <circle cx="24" cy="24" r="24" fill="#2D3748" />
-              <circle cx="24" cy="20" r="8" fill="#4F7CFF" />
-              <path d="M8 40c0-8.837 7.163-16 16-16s16 7.163 16 16" fill="#4F7CFF" />
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      <!-- Autofill Button -->
-      <button class="autofill-btn" @click="autofillCurrentPage">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
-          />
-        </svg>
-        Auto-fill Current Page
-      </button>
-
-      <!-- Fields Detected -->
-      <div class="fields-detected">
-        <div class="detected-info">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="#10B981">
-            <circle cx="8" cy="8" r="8" fill="currentColor" />
-            <path d="M6.5 9.5L5 8l-.7.7L6.5 11 12 5.5 11.3 4.8z" fill="#1F2937" />
-          </svg>
-          <span>{{ fieldsDetected }} fields detected</span>
-        </div>
+      <!-- Switch -->
+      <div class="switch-container">
         <div class="auto-detect">
           <span>Auto-detect</span>
           <button
@@ -246,6 +285,212 @@ onMounted(async () => {
           >
             <span class="toggle-slider"></span>
           </button>
+        </div>
+      </div>
+      <!-- Profile Card -->
+      <div class="section">
+        <h3 class="section-title">PROFILE</h3>
+        <div class="profile-card">
+          <div class="profile-info">
+            <div>
+              <h2 class="profile-name">{{ fullName }}</h2>
+              <div class="profile-details">
+                <div class="primary-details">
+                  <div class="detail-group" v-if="displayEmail">
+                    <Mail :size="14" />
+                    <p class="">{{ displayEmail }}</p>
+                  </div>
+                  <div class="detail-group" v-if="displayPhone">
+                    <Phone :size="14" />
+                    <p class="">{{ displayPhone }}</p>
+                  </div>
+                </div>
+                <!-- <div class="detail-group" v-if="displayLinkedin">
+                  <Linkedin :size="14" />
+                  <p class="">{{ displayLinkedin }}</p>
+                </div>
+                <div class="detail-group" v-if="displayWebsite">
+                  <Globe :size="14" />
+                  <p class="">{{ displayWebsite }}</p>
+                </div>
+                <div class="detail-group" v-if="displayGithub">
+                  <Github :size="14" />
+                  <p class="">{{ displayGithub }}</p>
+                </div> -->
+              </div>
+              <button class="edit-btn" @click="editProfile">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <path
+                    d="M0 11.083V14h2.917l8.6-8.6-2.917-2.917-8.6 8.6zM13.733 2.483a.774.774 0 000-1.096L12.613.267a.774.774 0 00-1.096 0l-.88.88 2.917 2.916.88-.88z"
+                  />
+                </svg>
+                Edit Profile
+              </button>
+              <!-- Edit Profile Dialog Overlay -->
+              <Transition name="dialog">
+                <div
+                  v-if="showEditProfileDialog"
+                  class="dialog-overlay"
+                  @click.self="showEditProfileDialog = false"
+                >
+                  <div class="dialog">
+                    <div class="dialog-header">
+                      <h2>Edit Profile</h2>
+                      <button class="close-btn" @click="showEditProfileDialog = false">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                          <path
+                            fill-rule="evenodd"
+                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                            clip-rule="evenodd"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+
+                    <div class="dialog-content">
+                      <form @submit.prevent="saveProfileFromDialog" class="edit-profile-form">
+                        <div class="form-section">
+                          <h3>Basic Information</h3>
+                          <div class="form-row">
+                            <div class="form-group">
+                              <label for="editFirstName">First Name</label>
+                              <input
+                                type="text"
+                                id="editFirstName"
+                                v-model="editableProfile.firstName"
+                                placeholder="John"
+                              />
+                            </div>
+                            <div class="form-group">
+                              <label for="editLastName">Last Name</label>
+                              <input
+                                type="text"
+                                id="editLastName"
+                                v-model="editableProfile.lastName"
+                                placeholder="Doe"
+                              />
+                            </div>
+                          </div>
+
+                          <div class="form-group">
+                            <label for="editEmail">Email</label>
+                            <input
+                              type="email"
+                              id="editEmail"
+                              v-model="editableProfile.email"
+                              placeholder="john@example.com"
+                            />
+                          </div>
+
+                          <div class="form-group">
+                            <label for="editPhone">Phone</label>
+                            <input
+                              type="tel"
+                              id="editPhone"
+                              v-model="editableProfile.phone"
+                              placeholder="(555) 123-4567"
+                            />
+                          </div>
+                        </div>
+
+                        <div class="form-section">
+                          <h3>Address</h3>
+                          <div class="form-group">
+                            <label for="editAddress">Street Address</label>
+                            <input
+                              type="text"
+                              id="editAddress"
+                              v-model="editableProfile.address"
+                              placeholder="123 Main St"
+                            />
+                          </div>
+
+                          <div class="form-row">
+                            <div class="form-group">
+                              <label for="editCity">City</label>
+                              <input
+                                type="text"
+                                id="editCity"
+                                v-model="editableProfile.city"
+                                placeholder="New York"
+                              />
+                            </div>
+                            <div class="form-group form-group-small">
+                              <label for="editState">State</label>
+                              <input
+                                type="text"
+                                id="editState"
+                                v-model="editableProfile.state"
+                                placeholder="NY"
+                              />
+                            </div>
+                            <div class="form-group form-group-small">
+                              <label for="editZip">ZIP</label>
+                              <input
+                                type="text"
+                                id="editZip"
+                                v-model="editableProfile.zip"
+                                placeholder="10001"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="form-section">
+                          <h3>Social & Portfolio</h3>
+                          <div class="form-group">
+                            <label for="editLinkedin">LinkedIn URL</label>
+                            <input
+                              type="url"
+                              id="editLinkedin"
+                              v-model="editableProfile.linkedin"
+                              placeholder="https://linkedin.com/in/johndoe"
+                            />
+                          </div>
+
+                          <div class="form-group">
+                            <label for="editWebsite">Portfolio/Website</label>
+                            <input
+                              type="url"
+                              id="editWebsite"
+                              v-model="editableProfile.website"
+                              placeholder="https://johndoe.com"
+                            />
+                          </div>
+
+                          <div class="form-group">
+                            <label for="editGithub">GitHub URL</label>
+                            <input
+                              type="url"
+                              id="editGithub"
+                              v-model="editableProfile.github"
+                              placeholder="https://github.com/johndoe"
+                            />
+                          </div>
+                        </div>
+                      </form>
+                    </div>
+
+                    <div class="dialog-footer">
+                      <button class="btn-secondary-dialog" @click="showEditProfileDialog = false">
+                        Cancel
+                      </button>
+                      <button class="btn-primary-dialog" @click="saveProfileFromDialog">
+                        Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </Transition>
+            </div>
+            <div class="profile-avatar">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <circle cx="24" cy="24" r="24" fill="#2D3748" />
+                <circle cx="24" cy="20" r="8" fill="#4F7CFF" />
+                <path d="M8 40c0-8.837 7.163-16 16-16s16 7.163 16 16" fill="#4F7CFF" />
+              </svg>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -265,22 +510,137 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Missing Field Warning -->
-      <div v-if="showMissingField" class="missing-field">
-        <div class="missing-header">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="#F59E0B">
-            <path
-              fill-rule="evenodd"
-              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-            />
-          </svg>
-          <span class="missing-text">MISSING FIELD</span>
-        </div>
-        <div class="missing-content">
-          <span>Portfolio Link</span>
-          <button class="add-now-btn" @click="addPortfolioLink">Add Now</button>
+      <!-- Saved Questions Section -->
+      <div class="section">
+        <h3 class="section-title">QUESTIONS</h3>
+        <div class="questions-item">
+          <div class="questions-info">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="#4F7CFF">
+              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+              <path
+                fill-rule="evenodd"
+                d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <span
+              >{{ savedResponses.length }} saved response{{
+                savedResponses.length !== 1 ? 's' : ''
+              }}</span
+            >
+          </div>
+          <button class="view-btn" @click="showQuestionsDialog = true">View Questions</button>
         </div>
       </div>
+
+      <!-- Questions Dialog Overlay -->
+      <Transition name="dialog">
+        <div
+          v-if="showQuestionsDialog"
+          class="dialog-overlay"
+          @click.self="showQuestionsDialog = false"
+        >
+          <div class="dialog">
+            <div class="dialog-header">
+              <h2>Saved Responses</h2>
+              <button class="close-btn" @click="showQuestionsDialog = false">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fill-rule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            <div class="dialog-content">
+              <!-- Create New Response Form -->
+              <div v-if="showCreateResponseForm" class="create-response-form">
+                <h3>Create New Response</h3>
+                <form @submit.prevent="addResponseFromDialog">
+                  <div class="form-group">
+                    <label for="dialogResponseTitle">Question/Title</label>
+                    <input
+                      type="text"
+                      id="dialogResponseTitle"
+                      v-model="newResponse.title"
+                      placeholder="e.g., Why do you want this job?"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for="dialogResponseText">Your Response</label>
+                    <textarea
+                      id="dialogResponseText"
+                      v-model="newResponse.text"
+                      rows="4"
+                      placeholder="Enter your response..."
+                    ></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="dialogResponseTags">Tags (comma-separated)</label>
+                    <input
+                      type="text"
+                      id="dialogResponseTags"
+                      v-model="newResponse.tags"
+                      placeholder="e.g., motivation, culture-fit"
+                    />
+                  </div>
+                  <div class="form-actions">
+                    <button
+                      type="button"
+                      class="btn-cancel"
+                      @click="showCreateResponseForm = false"
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" class="btn-save">Save Response</button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- Responses List -->
+              <div v-else>
+                <div v-if="savedResponses.length === 0" class="empty-state">
+                  <p>No saved responses yet.</p>
+                  <p class="hint">
+                    Responses are automatically saved when you submit job applications.
+                  </p>
+                </div>
+
+                <div v-else class="responses-list">
+                  <div v-for="response in savedResponses" :key="response.id" class="response-item">
+                    <div class="response-header">
+                      <h4>{{ response.title }}</h4>
+                      <button class="delete-btn" title="Delete response">×</button>
+                    </div>
+                    <p class="response-text">{{ response.text }}</p>
+                    <div v-if="response.tags.length > 0" class="response-tags">
+                      <span v-for="tag in response.tags" :key="tag" class="tag">
+                        {{ tag }}
+                      </span>
+                    </div>
+                    <button class="use-response-btn" @click="showQuestionsDialog = false">
+                      Use This Response
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dialog-footer">
+              <button
+                v-if="!showCreateResponseForm"
+                class="btn-primary-dialog"
+                @click="showCreateResponseForm = true"
+              >
+                + Create New Response
+              </button>
+              <button class="btn-secondary-dialog" @click="closeDialog">Close</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
     </div>
 
     <!-- Success View -->
@@ -351,20 +711,23 @@ onMounted(async () => {
     </div>
 
     <!-- Footer -->
+
+    <div class="autofill-bttn-container">
+      <button class="autofill-btn" @click="autofillCurrentPage">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+          <path
+            d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
+          />
+        </svg>
+        Auto-fill Current Page
+      </button>
+    </div>
+
     <footer class="footer">
       <button class="footer-link">Support</button>
       <button class="footer-link">Documentation</button>
-      <span class="version">v1.2.4</span>
+      <span class="version">v1.0.0</span>
     </footer>
-
-    <button class="share-btn" @click="shareWithFriend">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-        <path
-          d="M13.5 3a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM13 7.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm-8 5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM11.5 7.5L5 11"
-        />
-      </svg>
-      Share with a Friend
-    </button>
 
     <!-- Notification -->
     <Transition name="notification">
@@ -375,7 +738,7 @@ onMounted(async () => {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 * {
   box-sizing: border-box;
 }
@@ -385,7 +748,7 @@ onMounted(async () => {
   background: #1a202c;
   color: #e2e8f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
-  min-height: 600px;
+  //   min-height: 600px;
   display: flex;
   flex-direction: column;
 }
@@ -450,6 +813,20 @@ onMounted(async () => {
   overflow-y: auto;
 }
 
+/* Switch */
+.switch-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+  .auto-detect {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #a0aec0;
+  }
+}
+
 /* Profile Card */
 .profile-card {
   background: #2d3748;
@@ -477,6 +854,28 @@ onMounted(async () => {
   color: #a0aec0;
   margin: 2px 0;
 }
+.profile-details {
+  margin-top: 8px;
+  margin-bottom: 1em;
+  .detail-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    color: #a0aec0;
+    font-size: 13px;
+    * {
+      margin-right: 2px;
+    }
+  }
+  .primary-details {
+    margin-bottom: 1em;
+    .detail-group {
+      color: #e2e8f0;
+      font-weight: 500;
+    }
+  }
+}
 
 .edit-btn {
   display: inline-flex;
@@ -499,58 +898,6 @@ onMounted(async () => {
 
 .profile-avatar {
   flex-shrink: 0;
-}
-
-/* Autofill Button */
-.autofill-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 16px;
-  background: #4f7cff;
-  color: white;
-  border: none;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  margin-bottom: 16px;
-  transition: all 0.2s;
-}
-
-.autofill-btn:hover {
-  background: #4169e1;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
-}
-
-/* Fields Detected */
-.fields-detected {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: #2d3748;
-  border-radius: 8px;
-  margin-bottom: 20px;
-}
-
-.detected-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #e2e8f0;
-}
-
-.auto-detect {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #a0aec0;
 }
 
 .toggle-btn {
@@ -793,6 +1140,35 @@ onMounted(async () => {
 }
 
 /* Footer */
+
+/* Autofill Button */
+.autofill-bttn-container {
+  padding: 0 20px;
+  margin-bottom: 12px;
+  .autofill-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px;
+    background: #4f7cff;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 16px;
+    transition: all 0.2s;
+    &:hover {
+      background: #4169e1;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
+    }
+  }
+}
+
 .footer {
   display: flex;
   align-items: center;
@@ -871,5 +1247,358 @@ onMounted(async () => {
 .notification-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(-10px);
+}
+
+/* Questions Item */
+.questions-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #2d3748;
+  border-radius: 8px;
+}
+
+.questions-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.view-btn {
+  background: none;
+  border: none;
+  color: #4f7cff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.view-btn:hover {
+  opacity: 0.8;
+}
+
+/* Dialog Overlay */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.dialog {
+  background: #1a202c;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #2d3748;
+}
+
+.dialog-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #f7fafc;
+  margin: 0;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #a0aec0;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #e2e8f0;
+}
+
+.dialog-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.dialog-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #2d3748;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-secondary-dialog {
+  padding: 10px 20px;
+  background: #2d3748;
+  color: #e2e8f0;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-secondary-dialog:hover {
+  background: #4a5568;
+}
+
+/* Empty State in Dialog */
+.dialog-content .empty-state {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.dialog-content .empty-state p {
+  color: #a0aec0;
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+.dialog-content .empty-state .hint {
+  font-size: 13px;
+  color: #718096;
+}
+
+/* Responses List in Dialog */
+.responses-list .response-item {
+  background: #2d3748;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 1px solid #4a5568;
+}
+
+/* Dialog Transitions */
+.dialog-enter-active,
+.dialog-leave-active {
+  transition: all 0.3s ease;
+}
+
+.dialog-enter-from,
+.dialog-leave-to {
+  opacity: 0;
+}
+
+.dialog-enter-from .dialog,
+.dialog-leave-to .dialog {
+  transform: scale(0.9) translateY(20px);
+}
+
+.dialog-enter-active .dialog,
+.dialog-leave-active .dialog {
+  transition: all 0.3s ease;
+}
+
+/* Create Response Form */
+.create-response-form {
+  background: #2d3748;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.create-response-form h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f7fafc;
+  margin: 0 0 16px 0;
+}
+
+.create-response-form .form-group {
+  margin-bottom: 16px;
+}
+
+.create-response-form label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #e2e8f0;
+}
+
+.create-response-form input[type='text'],
+.create-response-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: #1a202c;
+  border: 1px solid #4a5568;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e2e8f0;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.create-response-form input:focus,
+.create-response-form textarea:focus {
+  outline: none;
+  border-color: #4f7cff;
+}
+
+.create-response-form textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.btn-cancel {
+  padding: 10px 20px;
+  background: #2d3748;
+  color: #e2e8f0;
+  border: 1px solid #4a5568;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-cancel:hover {
+  background: #4a5568;
+}
+
+.btn-save {
+  padding: 10px 20px;
+  background: #4f7cff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-save:hover {
+  background: #4169e1;
+}
+
+.btn-primary-dialog {
+  padding: 10px 20px;
+  background: #4f7cff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-right: auto;
+}
+
+.btn-primary-dialog:hover {
+  background: #4169e1;
+}
+
+.dialog-footer {
+  display: flex;
+  gap: 10px;
+}
+
+/* Edit Profile Form */
+.edit-profile-form {
+  width: 100%;
+}
+
+.form-section {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #4a5568;
+}
+
+.form-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.form-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f7fafc;
+  margin: 0 0 16px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-row .form-group-small {
+  grid-column: span 1;
+}
+
+.edit-profile-form .form-group {
+  margin-bottom: 16px;
+}
+
+.edit-profile-form label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #e2e8f0;
+}
+
+.edit-profile-form input[type='text'],
+.edit-profile-form input[type='email'],
+.edit-profile-form input[type='tel'],
+.edit-profile-form input[type='url'] {
+  width: 100%;
+  padding: 10px 12px;
+  background: #1a202c;
+  border: 1px solid #4a5568;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e2e8f0;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.edit-profile-form input:focus {
+  outline: none;
+  border-color: #4f7cff;
+}
+
+.edit-profile-form input::placeholder {
+  color: #718096;
+}
+
+/* Make dialog wider for the form */
+.dialog-overlay:has(.edit-profile-form) .dialog {
+  max-width: 550px;
 }
 </style>
