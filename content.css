@@ -1,0 +1,22 @@
+/* Styles for content script injected elements */
+
+#job-autofill-indicator {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Highlight autofilled fields (optional visual feedback) */
+.job-autofill-filled {
+  background-color: rgba(102, 126, 234, 0.1) !important;
+  transition: background-color 0.3s ease;
+}

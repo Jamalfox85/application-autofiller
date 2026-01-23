@@ -1,55 +1,40 @@
-import { fileURLToPath, URL } from 'node:url'
-
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import vueDevTools from 'vite-plugin-vue-devtools'
-import { viteStaticCopy } from 'vite-plugin-static-copy'
+import { resolve } from 'path'
+import { fileURLToPath } from 'url'
 
-// https://vite.dev/config/
+// ES module equivalent of __dirname
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
+
 export default defineConfig({
-  plugins: [
-    vue(),
-    vueDevTools(),
-    viteStaticCopy({
-      targets: [
-        {
-          src: 'src/background/background.js', // Source path
-          dest: 'background', // Destination folder inside dist
-        },
-        {
-          src: 'index.html', // Source path
-          dest: '', // Destination folder is dist itself
-        },
-      ],
-    }),
-  ],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
-  },
+  plugins: [vue()],
   build: {
     rollupOptions: {
       input: {
-        content: 'src/main.js', // Build `main.js` as the content script
-        background: 'src/background/background.js', // Add `background.js` as another entry point
+        popup: resolve(__dirname, 'popup.html'),
+        content: resolve(__dirname, 'src/content.js'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          // Dynamically name files based on their entry point
-          if (chunkInfo.name === 'content') {
-            return 'main.js' // Output content script as `main.js`
+          // Content script goes to root, not assets/
+          return chunkInfo.name === 'content' ? '[name].js' : 'assets/[name].js'
+        },
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: (assetInfo) => {
+          // CSS for content script goes to root
+          if (assetInfo.name === 'content.css') {
+            return '[name].[ext]'
           }
-          if (chunkInfo.name === 'background') {
-            return 'background/background.js' // Output background script into `background/`
-          }
-          return '[name].js' // Default naming for other files
+          return 'assets/[name].[ext]'
         },
       },
-      external: [],
     },
-    commonjsOptions: {
-      include: [/node_modules/], // Include dependencies in the bundle
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
     },
   },
 })
