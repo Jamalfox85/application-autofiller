@@ -109,6 +109,37 @@ export const FIELD_PATTERNS = {
     'additional_website',
     'additional-website',
   ],
+  // Education fields
+  schoolName: [
+    'school',
+    'university',
+    'college',
+    'institution',
+    'school_name',
+    'schoolname',
+    'university_name',
+    'universityname',
+  ],
+  degreeType: ['degree', 'degree_type', 'degreetype', 'degree_level', 'education_level'],
+  major: [
+    'major',
+    'field',
+    'study',
+    'field_of_study',
+    'fieldofstudy',
+    'major_subject',
+    'concentration',
+  ],
+  graduationYear: [
+    'graduation',
+    'grad_year',
+    'gradyear',
+    'graduation_year',
+    'graduationyear',
+    'year_graduated',
+    'completion_year',
+  ],
+  gpa: ['gpa', 'grade', 'grade_point', 'gradepoint', 'average'],
 }
 
 // // Helper function to match field names (bonus!)

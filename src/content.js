@@ -87,6 +87,38 @@ function matchFieldToData(fieldText, personalInfo) {
     return `${firstName} ${lastName}`.trim()
   }
 
+  // Special case: Current loccation (May only be jobs.lever.co)
+  if (fieldText.includes('location-input')) {
+    console.log('PING')
+    const city = personalInfo.city || ''
+    const state = personalInfo.state || ''
+    return `${city}, ${state}`.trim()
+  }
+
+  // Education fields - use most recent education entry
+  if (personalInfo.education && personalInfo.education.length > 0) {
+    const latestEducation = personalInfo.education[0]
+
+    // Check education patterns
+    const educationFields = {
+      schoolName: latestEducation.schoolName,
+      degreeType: latestEducation.degreeType,
+      major: latestEducation.major,
+      graduationYear: latestEducation.graduationYear,
+      gpa: latestEducation.gpa,
+    }
+
+    for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
+      if (!educationFields.hasOwnProperty(fieldName)) continue
+
+      for (const pattern of patterns) {
+        if (fieldText.includes(pattern)) {
+          return educationFields[fieldName] || null
+        }
+      }
+    }
+  }
+
   return null
 }
 
@@ -214,31 +246,61 @@ async function saveLearnedData(capturedData) {
   const existingInfo = data.personalInfo || {}
 
   const learnedInfo = {}
+  const learnedEducation = {}
 
   Object.entries(capturedData).forEach(([key, value]) => {
-    const lowerKey = key.toLowerCase().replace(/\s+/g, '') // Remove spaces for better matching
+    const lowerKey = key.toLowerCase().replace(/[\s_-]/g, '')
 
-    for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
-      const matches = patterns.some((pattern) => lowerKey.includes(pattern))
-
-      if (matches) {
-        learnedInfo[fieldName] = value
-        break // Stop checking other patterns once we find a match
+    // Check for education fields
+    if (lowerKey.includes('school') || lowerKey.includes('university')) {
+      learnedEducation.schoolName = value
+    } else if (lowerKey.includes('degree') && !lowerKey.includes('type')) {
+      learnedEducation.degreeType = value
+    } else if (lowerKey.includes('major') || lowerKey.includes('field')) {
+      learnedEducation.major = value
+    } else if (lowerKey.includes('graduation') || lowerKey.includes('gradyear')) {
+      learnedEducation.graduationYear = value
+    } else if (lowerKey.includes('gpa')) {
+      learnedEducation.gpa = value
+    } else {
+      // Match against FIELD_PATTERNS for other fields
+      for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
+        const matches = patterns.some((pattern) => lowerKey.includes(pattern))
+        if (matches) {
+          learnedInfo[fieldName] = value
+          break
+        }
       }
     }
   })
 
-  const mergedInfo = { ...existingInfo }
-  Object.entries(learnedInfo).forEach(([key, value]) => {
-    if (value && value.trim() !== '') {
-      // skip empty values
-      mergedInfo[key] = value
+  // If we learned education fields, add to education array
+  if (Object.keys(learnedEducation).length > 0) {
+    const education = existingInfo.education || []
+
+    // Check if this school already exists
+    const existingSchool = education.find((e) => e.schoolName === learnedEducation.schoolName)
+
+    if (!existingSchool && learnedEducation.schoolName) {
+      education.unshift({
+        id: Date.now(),
+        schoolName: learnedEducation.schoolName || '',
+        degreeType: learnedEducation.degreeType || '',
+        major: learnedEducation.major || '',
+        graduationYear: learnedEducation.graduationYear || '',
+        gpa: learnedEducation.gpa || '',
+      })
+      learnedInfo.education = education
     }
-  })
+  }
 
+  // Merge and save
+  const mergedInfo = { ...existingInfo, ...learnedInfo }
   await chrome.storage.local.set({ personalInfo: mergedInfo })
-}
 
+  const totalLearned = Object.keys(learnedInfo).length + (learnedEducation.schoolName ? 1 : 0)
+  showLearnNotification(totalLearned)
+}
 function initialize() {
   addExtensionIndicator()
   attachFormListeners()

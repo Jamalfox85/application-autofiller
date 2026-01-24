@@ -16,6 +16,16 @@ interface PersonalInfo {
   website: string
   github?: string
   resumeFile?: string
+  education: Education[]
+}
+
+interface Education {
+  id: number
+  schoolName: string
+  degreeType: string
+  major: string
+  graduationYear: string
+  gpa?: string
 }
 
 interface SavedResponse {
@@ -39,7 +49,9 @@ const personalInfo = ref<PersonalInfo>({
   zip: '',
   linkedin: '',
   website: '',
+  github: '',
   resumeFile: '',
+  education: [],
 })
 
 const savedResponses = ref<SavedResponse[]>([])
@@ -83,8 +95,34 @@ const displayGithub = computed(() => {
 const loadPersonalInfo = async () => {
   const data = await chrome.storage.local.get('personalInfo')
   if (data.personalInfo) {
-    personalInfo.value = { ...personalInfo.value, ...data.personalInfo }
+    personalInfo.value = {
+      ...personalInfo.value,
+      ...data.personalInfo,
+      education: data.personalInfo.education || [],
+    }
   }
+}
+
+const loadSavedResponses = async () => {
+  const data = await chrome.storage.local.get('savedResponses')
+  if (data.savedResponses) {
+    savedResponses.value = data.savedResponses
+  }
+}
+
+const addEducation = () => {
+  editableProfile.value.education.push({
+    id: Date.now(),
+    schoolName: '',
+    degreeType: '',
+    major: '',
+    graduationYear: '',
+    gpa: '',
+  })
+}
+
+const removeEducation = (index: number) => {
+  editableProfile.value.education = editableProfile.value.education.filter((_, i) => i !== index)
 }
 
 const savePersonalInfo = async () => {
@@ -147,12 +185,6 @@ const replaceResume = () => {
   showNotification('Resume upload coming soon!')
 }
 
-const shareWithFriend = () => {
-  const shareText = 'Check out RapidApply - it autofills job applications instantly!'
-  navigator.clipboard.writeText(shareText)
-  showNotification('Share link copied!')
-}
-
 const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
   notification.value = { show: true, message, type }
   setTimeout(() => {
@@ -174,16 +206,20 @@ const editableProfile = ref<PersonalInfo>({
   website: '',
   github: '',
   resumeFile: '',
+  education: [],
 })
 
 const editProfile = () => {
-  // Copy current profile to editable version
-  editableProfile.value = { ...personalInfo.value }
+  const educationArray = Object.values(personalInfo.value.education)
+
+  editableProfile.value = {
+    ...personalInfo.value,
+    education: educationArray,
+  }
   showEditProfileDialog.value = true
 }
 
 const saveProfileFromDialog = async () => {
-  // Save the edited profile
   personalInfo.value = { ...editableProfile.value }
   await chrome.storage.local.set({ personalInfo: personalInfo.value })
   showEditProfileDialog.value = false
@@ -222,13 +258,23 @@ const addResponseFromDialog = async () => {
   }
 
   savedResponses.value.push(response)
-  await chrome.storage.local.set({ savedResponses: savedResponses.value })
+  await chrome.storage.local.set({
+    savedResponses: JSON.parse(JSON.stringify(savedResponses.value)),
+  })
 
   // Clear form
   newResponse.value = { title: '', text: '', tags: '' }
   showCreateResponseForm.value = false
 
   showNotification('Response saved!')
+}
+
+const deleteSavedResponse = async (responseId: number) => {
+  savedResponses.value = savedResponses.value.filter((r) => r.id !== responseId)
+  await chrome.storage.local.set({
+    savedResponses: JSON.parse(JSON.stringify(savedResponses.value)),
+  })
+  showNotification('Response deleted!')
 }
 
 const closeDialog = () => {
@@ -240,8 +286,8 @@ const closeDialog = () => {
 
 // Lifecycle
 onMounted(async () => {
-  console.log('ping')
   await loadPersonalInfo()
+  await loadSavedResponses()
   detectCurrentPlatform()
   checkMissingFields()
 })
@@ -437,6 +483,97 @@ onMounted(async () => {
                         </div>
 
                         <div class="form-section">
+                          <div class="section-header">
+                            <h3>Education</h3>
+                            <button type="button" class="btn-add-small" @click="addEducation">
+                              + Add School
+                            </button>
+                          </div>
+
+                          <div
+                            v-if="editableProfile.education.length === 0"
+                            class="empty-education"
+                          >
+                            <p>No education added yet. Click "+ Add School" to get started.</p>
+                          </div>
+
+                          <div
+                            v-for="(edu, index) in editableProfile.education"
+                            :key="edu.id"
+                            class="education-item"
+                          >
+                            <div class="education-header">
+                              <span class="education-number">School {{ index + 1 }}</span>
+                              <button
+                                type="button"
+                                class="btn-remove-small"
+                                @click="removeEducation(index)"
+                              >
+                                Remove
+                              </button>
+                            </div>
+
+                            <div class="form-group">
+                              <label :for="'schoolName' + index">School Name</label>
+                              <input
+                                type="text"
+                                :id="'schoolName' + index"
+                                v-model="edu.schoolName"
+                                placeholder="University of Example"
+                              />
+                            </div>
+
+                            <div class="form-row">
+                              <div class="form-group">
+                                <label :for="'degreeType' + index">Degree Type</label>
+                                <select :id="'degreeType' + index" v-model="edu.degreeType">
+                                  <option value="">Select degree...</option>
+                                  <option value="High School Diploma">High School Diploma</option>
+                                  <option value="Associate's">Associate's</option>
+                                  <option value="Bachelor's">Bachelor's</option>
+                                  <option value="Master's">Master's</option>
+                                  <option value="PhD">PhD</option>
+                                  <option value="Certificate">Certificate</option>
+                                  <option value="Bootcamp">Bootcamp</option>
+                                </select>
+                              </div>
+
+                              <div class="form-group">
+                                <label :for="'major' + index">Major/Field of Study</label>
+                                <input
+                                  type="text"
+                                  :id="'major' + index"
+                                  v-model="edu.major"
+                                  placeholder="Computer Science"
+                                />
+                              </div>
+                            </div>
+
+                            <div class="form-row">
+                              <div class="form-group">
+                                <label :for="'gradYear' + index">Graduation Year</label>
+                                <input
+                                  type="text"
+                                  :id="'gradYear' + index"
+                                  v-model="edu.graduationYear"
+                                  placeholder="2024"
+                                />
+                              </div>
+
+                              <div class="form-group">
+                                <label :for="'gpa' + index">GPA (optional)</label>
+                                <input
+                                  type="text"
+                                  :id="'gpa' + index"
+                                  v-model="edu.gpa"
+                                  placeholder="3.8"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="form-section">
                           <h3>Social & Portfolio</h3>
                           <div class="form-group">
                             <label for="editLinkedin">LinkedIn URL</label>
@@ -510,9 +647,9 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Saved Questions Section -->
+      <!-- Saved Responses Section -->
       <div class="section">
-        <h3 class="section-title">QUESTIONS</h3>
+        <h3 class="section-title">SAVED RESPONSES</h3>
         <div class="questions-item">
           <div class="questions-info">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="#4F7CFF">
@@ -523,13 +660,11 @@ onMounted(async () => {
                 clip-rule="evenodd"
               />
             </svg>
-            <span
-              >{{ savedResponses.length }} saved response{{
-                savedResponses.length !== 1 ? 's' : ''
-              }}</span
-            >
+            <span>
+              {{ savedResponses.length }} saved response{{ savedResponses.length !== 1 ? 's' : '' }}
+            </span>
           </div>
-          <button class="view-btn" @click="showQuestionsDialog = true">View Questions</button>
+          <button class="view-btn" @click="showQuestionsDialog = true">View Responses</button>
         </div>
       </div>
 
@@ -612,7 +747,13 @@ onMounted(async () => {
                   <div v-for="response in savedResponses" :key="response.id" class="response-item">
                     <div class="response-header">
                       <h4>{{ response.title }}</h4>
-                      <button class="delete-btn" title="Delete response">×</button>
+                      <button
+                        class="delete-btn"
+                        title="Delete response"
+                        @click="deleteSavedResponse(response.id)"
+                      >
+                        ×
+                      </button>
                     </div>
                     <p class="response-text">{{ response.text }}</p>
                     <div v-if="response.tags.length > 0" class="response-tags">
@@ -620,9 +761,6 @@ onMounted(async () => {
                         {{ tag }}
                       </span>
                     </div>
-                    <button class="use-response-btn" @click="showQuestionsDialog = false">
-                      Use This Response
-                    </button>
                   </div>
                 </div>
               </div>
@@ -1390,6 +1528,50 @@ onMounted(async () => {
   padding: 16px;
   margin-bottom: 12px;
   border: 1px solid #4a5568;
+  .response-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    h4 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #f7fafc;
+      margin: 0;
+    }
+    .delete-btn {
+      background: none;
+      border: none;
+      color: #e53e3e;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 16px;
+      transition: color 0.2s;
+      &:hover {
+        color: #c53030;
+      }
+    }
+  }
+  .response-text {
+    font-size: 14px;
+    color: #e2e8f0;
+    margin: 0 0 8px 0;
+  }
+  .response-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+    .tag {
+      background: #4a5568;
+      color: #e2e8f0;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+  }
 }
 
 /* Dialog Transitions */
@@ -1600,5 +1782,113 @@ onMounted(async () => {
 /* Make dialog wider for the form */
 .dialog-overlay:has(.edit-profile-form) .dialog {
   max-width: 550px;
+}
+
+/* Education Section */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.section-header h3 {
+  margin: 0;
+}
+
+.btn-add-small {
+  padding: 6px 12px;
+  background: #4f7cff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-add-small:hover {
+  background: #4169e1;
+}
+
+.empty-education {
+  text-align: center;
+  padding: 24px;
+  background: #2d3748;
+  border-radius: 8px;
+  border: 2px dashed #4a5568;
+}
+
+.empty-education p {
+  color: #a0aec0;
+  font-size: 13px;
+  margin: 0;
+}
+
+.education-item {
+  background: #2d3748;
+  border: 1px solid #4a5568;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.education-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #4a5568;
+}
+
+.education-number {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4f7cff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn-remove-small {
+  padding: 4px 10px;
+  background: none;
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-remove-small:hover {
+  background: #ef4444;
+  color: white;
+}
+
+/* Select dropdown styling */
+.edit-profile-form select {
+  width: 100%;
+  padding: 10px 12px;
+  background: #1a202c;
+  border: 1px solid #4a5568;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e2e8f0;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.edit-profile-form select:focus {
+  outline: none;
+  border-color: #4f7cff;
+}
+
+.edit-profile-form select option {
+  background: #1a202c;
+  color: #e2e8f0;
 }
 </style>
