@@ -14,8 +14,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function autofillPage() {
   try {
-    const data = await chrome.storage.local.get('personalInfo')
-    const personalInfo = data.personalInfo
+    const personalInfoData = await chrome.storage.local.get('personalInfo')
+    const personalInfo = personalInfoData.personalInfo
+
+    const savedResponsesData = await chrome.storage.local.get('savedResponses')
+    const savedResponses = savedResponsesData.savedResponses || {}
 
     if (!personalInfo) {
       return { success: false, message: 'No personal info saved' }
@@ -42,7 +45,7 @@ async function autofillPage() {
 
       const fieldText = `${name} ${id} ${placeholder} ${label} ${ariaLabel}`.toLowerCase()
 
-      const fieldValue = matchFieldToData(fieldText, personalInfo)
+      const fieldValue = matchFieldToData(fieldText, personalInfo, savedResponses)
 
       if (fieldValue) {
         input.value = fieldValue
@@ -66,7 +69,8 @@ async function autofillPage() {
   }
 }
 
-function matchFieldToData(fieldText, personalInfo) {
+function matchFieldToData(fieldText, personalInfo, savedResponses) {
+  console.log('Matching field:', fieldText)
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
     for (const pattern of patterns) {
       if (fieldText.includes(pattern)) {
@@ -89,7 +93,6 @@ function matchFieldToData(fieldText, personalInfo) {
 
   // Special case: Current loccation (May only be jobs.lever.co)
   if (fieldText.includes('location-input')) {
-    console.log('PING')
     const city = personalInfo.city || ''
     const state = personalInfo.state || ''
     return `${city}, ${state}`.trim()
@@ -119,7 +122,95 @@ function matchFieldToData(fieldText, personalInfo) {
     }
   }
 
+  // Check special cases for saved responses
+  const saved = matchSavedResponse(fieldText, savedResponses)
+  if (saved != null) return saved
+
   return null
+}
+
+/**
+
+ * Autopopulate if:
+ *  - >= 3 tags appear in fieldText (substring or token hit), OR
+ *  - >= 80% of title tokens appear in fieldText
+ *
+ * Returns best matching savedResponse.text, else null
+ */
+function matchSavedResponse(fieldText, savedResponses) {
+  if (!fieldText || !Array.isArray(savedResponses) || savedResponses.length === 0) {
+    return null
+  }
+
+  // Build token set once for fast membership checks
+  const fieldTokens = new Set(tokenize(fieldText))
+
+  let best = null
+
+  for (const r of savedResponses) {
+    const text = String(r?.text ?? '').trim()
+    if (!text) continue
+
+    // Keep this small and tuned to your domain; expand as needed.
+    const STOPWORDS = new Set([])
+
+    const titleNorm = normalizeText(r?.title ?? '')
+    const titleTokens = tokenize(titleNorm).filter((t) => !STOPWORDS.has(t))
+    const titleCoverage = coverageRatio(titleTokens, fieldTokens) // 0..1
+
+    // Tag hits (>= 3)
+    // Treat "tag found" as: any token from that tag exists in fieldTokens.
+    const tags = Array.isArray(r?.tags) ? r.tags : []
+    const tagTokens = tags.map(normalizeText).flatMap(tokenize).filter(Boolean)
+
+    const uniqueTagTokens = [...new Set(tagTokens)]
+    let tagHits = 0
+    for (const t of uniqueTagTokens) {
+      if (fieldTokens.has(t)) tagHits++
+    }
+
+    const passes = tagHits >= 3 || titleCoverage >= 0.8
+    if (!passes) continue
+
+    // Prefer title match strongly; tags are secondary
+    const score = titleCoverage * 1000 + tagHits * 10 + titleTokens.length
+
+    if (!best || score > best.score) {
+      best = { score, text }
+    }
+  }
+
+  return best ? best.text : null
+}
+
+// ---- helpers (keep consistent with your normalizer) ----
+
+function tokenize(normStr) {
+  if (!normStr) return []
+  return String(normStr)
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+}
+
+function normalizeText(s) {
+  // Use only if your saved response title/tags are not already normalized
+  return String(s ?? '')
+    .toLowerCase()
+    .replace(/[_\-]+/g, ' ')
+    .replace(/[^\p{L}\p{N} ]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function coverageRatio(titleTokens, fieldTokenSet) {
+  if (!Array.isArray(titleTokens) || titleTokens.length === 0) return 0
+
+  let hit = 0
+  for (const t of titleTokens) {
+    if (fieldTokenSet.has(t)) hit++
+  }
+  return hit / titleTokens.length
 }
 
 function getFieldLabel(input) {
@@ -301,14 +392,95 @@ async function saveLearnedData(capturedData) {
   const totalLearned = Object.keys(learnedInfo).length + (learnedEducation.schoolName ? 1 : 0)
   showLearnNotification(totalLearned)
 }
+
+// function initialize() {
+//   addExtensionIndicator()
+//   attachFormListeners()
+
+//   // Wait for real job form to appear (not captcha)
+//   const foundForm = await waitForJobForm()
+
+//   if (foundForm) {
+//     // Add a small delay to ensure everything is loaded
+//     setTimeout(autofillPage, 1000)
+//   }
+
+//   // Watch for dynamically added forms
+//   const observer = new MutationObserver(() => {
+//     attachFormListeners()
+//   })
+
+//   observer.observe(document.body, {
+//     childList: true,
+//     subtree: true,
+//   })
+// }
+
+// // Initialize when page loads
+// if (document.readyState === 'loading') {
+//   document.addEventListener('DOMContentLoaded', initialize)
+// } else {
+//   initialize()
+// }
+
+let lastFormHtml = ''
+let autofillDebounceTimer = null
+
+function hasFormChanged() {
+  const forms = document.querySelectorAll('form')
+  const currentFormHtml = Array.from(forms)
+    .map((f) => f.innerHTML)
+    .join('')
+
+  if (currentFormHtml !== lastFormHtml && currentFormHtml.length > 100) {
+    lastFormHtml = currentFormHtml
+    return true
+  }
+  return false
+}
+
+function debounceAutofill() {
+  // Clear existing timer
+  if (autofillDebounceTimer) {
+    clearTimeout(autofillDebounceTimer)
+  }
+
+  // Wait 500ms after changes stop before autofilling
+  autofillDebounceTimer = setTimeout(() => {
+    console.log('🟡 CONTENT: Form changed, auto-filling...')
+    autofillPage()
+  }, 500)
+}
+
 function initialize() {
   addExtensionIndicator()
   attachFormListeners()
-  setTimeout(autofillPage, 500)
 
-  // Watch for dynamically added forms
-  const observer = new MutationObserver(() => {
-    attachFormListeners()
+  // Initial autofill after page loads
+  setTimeout(() => {
+    autofillPage()
+  }, 1000)
+
+  // Watch for form changes (multi-step forms)
+  const observer = new MutationObserver((mutations) => {
+    // Check if forms were added or changed
+    const hasFormMutation = mutations.some((mutation) => {
+      return Array.from(mutation.addedNodes).some((node) => {
+        return (
+          node.nodeType === 1 &&
+          (node.tagName === 'FORM' ||
+            node.querySelector('form') ||
+            node.querySelector('input') ||
+            node.querySelector('textarea'))
+        )
+      })
+    })
+
+    if (hasFormMutation || hasFormChanged()) {
+      console.log('🟡 CONTENT: Form structure changed!')
+      attachFormListeners()
+      debounceAutofill() // Auto-fill after changes settle
+    }
   })
 
   observer.observe(document.body, {

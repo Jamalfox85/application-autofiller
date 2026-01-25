@@ -1,133 +1,46 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import EditProfileDialog from './components/dialogs/EditProfileDialog.vue'
+import SavedResponsesDialog from './components/dialogs/SavedResponsesDialog.vue'
 import { Linkedin, Globe, Github, Phone, Mail } from 'lucide-vue-next'
+import type { PersonalInfo, Education, SavedResponse } from './types'
+import { usePersonalInfo } from './composables/usePersonalInfo'
+import { useSavedResponses } from './composables/useSavedResponses'
+import { useNotification } from './composables/useNotification'
 
-// Types
-interface PersonalInfo {
-  firstName: string
-  lastName: string
-  email: string
-  phone: string
-  address: string
-  city: string
-  state: string
-  zip: string
-  linkedin?: string
-  website: string
-  github?: string
-  resumeFile?: string
-  education: Education[]
-}
+// Composables
+const { personalInfo, fullName, displayEmail, displayPhone, loadPersonalInfo, savePersonalInfo } =
+  usePersonalInfo()
+const { savedResponses, loadSavedResponses, addSavedResponse, deleteSavedResponse } =
+  useSavedResponses()
+const { notification, showNotification } = useNotification()
 
-interface Education {
-  id: number
-  schoolName: string
-  degreeType: string
-  major: string
-  graduationYear: string
-  gpa?: string
-}
-
-interface SavedResponse {
-  id: number
-  title: string
-  text: string
-  tags: string[]
-  createdAt: string
-}
+// Dialog state
+const showEditProfileDialog = ref(false)
+const showQuestionsDialog = ref(false)
 
 // State
 const activeView = ref<'main' | 'success'>('main')
-const personalInfo = ref<PersonalInfo>({
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  address: '',
-  city: '',
-  state: '',
-  zip: '',
-  linkedin: '',
-  website: '',
-  github: '',
-  resumeFile: '',
-  education: [],
-})
 
-const savedResponses = ref<SavedResponse[]>([])
 const autoDetectEnabled = ref(true)
 const fieldsDetected = ref(0)
 const platformDetected = ref('LINKEDIN')
-const showMissingField = ref(false)
-
-const notification = ref({
-  show: false,
-  message: '',
-  type: 'success' as 'success' | 'error',
-})
-
-// Computed
-const fullName = computed(() => {
-  return `${personalInfo.value.firstName} ${personalInfo.value.lastName}`.trim() || 'John Doe'
-})
-
-const displayEmail = computed(() => {
-  return personalInfo.value.email || 'john.doe@email.com'
-})
-
-const displayPhone = computed(() => {
-  return personalInfo.value.phone || '+1 234 567 890'
-})
-
-const displayLinkedin = computed(() => {
-  return personalInfo.value.linkedin || 'linkedin.com/in/johndoe-ux'
-})
-
-const displayWebsite = computed(() => {
-  return personalInfo.value.website || 'www.johndoe.com'
-})
-
-const displayGithub = computed(() => {
-  return personalInfo.value.github || 'github.com/johndoe'
-})
 
 // Methods
-const loadPersonalInfo = async () => {
-  const data = await chrome.storage.local.get('personalInfo')
-  if (data.personalInfo) {
-    personalInfo.value = {
-      ...personalInfo.value,
-      ...data.personalInfo,
-      education: data.personalInfo.education || [],
-    }
-  }
-}
-
-const loadSavedResponses = async () => {
-  const data = await chrome.storage.local.get('savedResponses')
-  if (data.savedResponses) {
-    savedResponses.value = data.savedResponses
-  }
-}
-
-const addEducation = () => {
-  editableProfile.value.education.push({
-    id: Date.now(),
-    schoolName: '',
-    degreeType: '',
-    major: '',
-    graduationYear: '',
-    gpa: '',
-  })
-}
-
-const removeEducation = (index: number) => {
-  editableProfile.value.education = editableProfile.value.education.filter((_, i) => i !== index)
-}
-
-const savePersonalInfo = async () => {
-  await chrome.storage.local.set({ personalInfo: personalInfo.value })
+const handleSaveProfile = async (updatedProfile: PersonalInfo) => {
+  await savePersonalInfo(updatedProfile)
+  showEditProfileDialog.value = false
   showNotification('Profile updated!')
+}
+
+const handleAddResponse = async (response: SavedResponse) => {
+  await addSavedResponse(response)
+  showNotification('Response saved!')
+}
+
+const handleDeleteResponse = async (id: number) => {
+  await deleteSavedResponse(id)
+  showNotification('Response deleted!')
 }
 
 const autofillCurrentPage = async () => {
@@ -172,116 +85,8 @@ const openSettings = () => {
   showNotification('Settings coming soon!')
 }
 
-const addPortfolioLink = () => {
-  const link = prompt('Enter your portfolio URL:')
-  if (link) {
-    personalInfo.value.website = link
-    savePersonalInfo()
-    showMissingField.value = false
-  }
-}
-
 const replaceResume = () => {
   showNotification('Resume upload coming soon!')
-}
-
-const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
-  notification.value = { show: true, message, type }
-  setTimeout(() => {
-    notification.value.show = false
-  }, 10000)
-}
-
-const showEditProfileDialog = ref(false)
-const editableProfile = ref<PersonalInfo>({
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  address: '',
-  city: '',
-  state: '',
-  zip: '',
-  linkedin: '',
-  website: '',
-  github: '',
-  resumeFile: '',
-  education: [],
-})
-
-const editProfile = () => {
-  const educationArray = Object.values(personalInfo.value.education)
-
-  editableProfile.value = {
-    ...personalInfo.value,
-    education: educationArray,
-  }
-  showEditProfileDialog.value = true
-}
-
-const saveProfileFromDialog = async () => {
-  personalInfo.value = { ...editableProfile.value }
-  await chrome.storage.local.set({ personalInfo: personalInfo.value })
-  showEditProfileDialog.value = false
-  showNotification('Profile updated!')
-}
-
-// Check for missing fields
-const checkMissingFields = () => {
-  showMissingField.value = !personalInfo.value.website
-}
-
-const showQuestionsDialog = ref(false)
-const newResponse = ref({
-  title: '',
-  text: '',
-  tags: '',
-})
-
-const showCreateResponseForm = ref(false)
-
-const addResponseFromDialog = async () => {
-  if (!newResponse.value.title.trim() || !newResponse.value.text.trim()) {
-    showNotification('Please fill in title and response', 'error')
-    return
-  }
-
-  const response: SavedResponse = {
-    id: Date.now(),
-    title: newResponse.value.title.trim(),
-    text: newResponse.value.text.trim(),
-    tags: newResponse.value.tags
-      .split(',')
-      .map((t) => t.trim())
-      .filter((t) => t),
-    createdAt: new Date().toISOString(),
-  }
-
-  savedResponses.value.push(response)
-  await chrome.storage.local.set({
-    savedResponses: JSON.parse(JSON.stringify(savedResponses.value)),
-  })
-
-  // Clear form
-  newResponse.value = { title: '', text: '', tags: '' }
-  showCreateResponseForm.value = false
-
-  showNotification('Response saved!')
-}
-
-const deleteSavedResponse = async (responseId: number) => {
-  savedResponses.value = savedResponses.value.filter((r) => r.id !== responseId)
-  await chrome.storage.local.set({
-    savedResponses: JSON.parse(JSON.stringify(savedResponses.value)),
-  })
-  showNotification('Response deleted!')
-}
-
-const closeDialog = () => {
-  showQuestionsDialog.value = false
-  showCreateResponseForm.value = false
-  // Clear form when closing
-  newResponse.value = { title: '', text: '', tags: '' }
 }
 
 // Lifecycle
@@ -289,7 +94,6 @@ onMounted(async () => {
   await loadPersonalInfo()
   await loadSavedResponses()
   detectCurrentPlatform()
-  checkMissingFields()
 })
 </script>
 
@@ -351,20 +155,8 @@ onMounted(async () => {
                     <p class="">{{ displayPhone }}</p>
                   </div>
                 </div>
-                <!-- <div class="detail-group" v-if="displayLinkedin">
-                  <Linkedin :size="14" />
-                  <p class="">{{ displayLinkedin }}</p>
-                </div>
-                <div class="detail-group" v-if="displayWebsite">
-                  <Globe :size="14" />
-                  <p class="">{{ displayWebsite }}</p>
-                </div>
-                <div class="detail-group" v-if="displayGithub">
-                  <Github :size="14" />
-                  <p class="">{{ displayGithub }}</p>
-                </div> -->
               </div>
-              <button class="edit-btn" @click="editProfile">
+              <button class="edit-btn" @click="showEditProfileDialog = true">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                   <path
                     d="M0 11.083V14h2.917l8.6-8.6-2.917-2.917-8.6 8.6zM13.733 2.483a.774.774 0 000-1.096L12.613.267a.774.774 0 00-1.096 0l-.88.88 2.917 2.916.88-.88z"
@@ -372,253 +164,12 @@ onMounted(async () => {
                 </svg>
                 Edit Profile
               </button>
-              <!-- Edit Profile Dialog Overlay -->
-              <Transition name="dialog">
-                <div
-                  v-if="showEditProfileDialog"
-                  class="dialog-overlay"
-                  @click.self="showEditProfileDialog = false"
-                >
-                  <div class="dialog">
-                    <div class="dialog-header">
-                      <h2>Edit Profile</h2>
-                      <button class="close-btn" @click="showEditProfileDialog = false">
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                          <path
-                            fill-rule="evenodd"
-                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                            clip-rule="evenodd"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-
-                    <div class="dialog-content">
-                      <form @submit.prevent="saveProfileFromDialog" class="edit-profile-form">
-                        <div class="form-section">
-                          <h3>Basic Information</h3>
-                          <div class="form-row">
-                            <div class="form-group">
-                              <label for="editFirstName">First Name</label>
-                              <input
-                                type="text"
-                                id="editFirstName"
-                                v-model="editableProfile.firstName"
-                                placeholder="John"
-                              />
-                            </div>
-                            <div class="form-group">
-                              <label for="editLastName">Last Name</label>
-                              <input
-                                type="text"
-                                id="editLastName"
-                                v-model="editableProfile.lastName"
-                                placeholder="Doe"
-                              />
-                            </div>
-                          </div>
-
-                          <div class="form-group">
-                            <label for="editEmail">Email</label>
-                            <input
-                              type="email"
-                              id="editEmail"
-                              v-model="editableProfile.email"
-                              placeholder="john@example.com"
-                            />
-                          </div>
-
-                          <div class="form-group">
-                            <label for="editPhone">Phone</label>
-                            <input
-                              type="tel"
-                              id="editPhone"
-                              v-model="editableProfile.phone"
-                              placeholder="(555) 123-4567"
-                            />
-                          </div>
-                        </div>
-
-                        <div class="form-section">
-                          <h3>Address</h3>
-                          <div class="form-group">
-                            <label for="editAddress">Street Address</label>
-                            <input
-                              type="text"
-                              id="editAddress"
-                              v-model="editableProfile.address"
-                              placeholder="123 Main St"
-                            />
-                          </div>
-
-                          <div class="form-row">
-                            <div class="form-group">
-                              <label for="editCity">City</label>
-                              <input
-                                type="text"
-                                id="editCity"
-                                v-model="editableProfile.city"
-                                placeholder="New York"
-                              />
-                            </div>
-                            <div class="form-group form-group-small">
-                              <label for="editState">State</label>
-                              <input
-                                type="text"
-                                id="editState"
-                                v-model="editableProfile.state"
-                                placeholder="NY"
-                              />
-                            </div>
-                            <div class="form-group form-group-small">
-                              <label for="editZip">ZIP</label>
-                              <input
-                                type="text"
-                                id="editZip"
-                                v-model="editableProfile.zip"
-                                placeholder="10001"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div class="form-section">
-                          <div class="section-header">
-                            <h3>Education</h3>
-                            <button type="button" class="btn-add-small" @click="addEducation">
-                              + Add School
-                            </button>
-                          </div>
-
-                          <div
-                            v-if="editableProfile.education.length === 0"
-                            class="empty-education"
-                          >
-                            <p>No education added yet. Click "+ Add School" to get started.</p>
-                          </div>
-
-                          <div
-                            v-for="(edu, index) in editableProfile.education"
-                            :key="edu.id"
-                            class="education-item"
-                          >
-                            <div class="education-header">
-                              <span class="education-number">School {{ index + 1 }}</span>
-                              <button
-                                type="button"
-                                class="btn-remove-small"
-                                @click="removeEducation(index)"
-                              >
-                                Remove
-                              </button>
-                            </div>
-
-                            <div class="form-group">
-                              <label :for="'schoolName' + index">School Name</label>
-                              <input
-                                type="text"
-                                :id="'schoolName' + index"
-                                v-model="edu.schoolName"
-                                placeholder="University of Example"
-                              />
-                            </div>
-
-                            <div class="form-row">
-                              <div class="form-group">
-                                <label :for="'degreeType' + index">Degree Type</label>
-                                <select :id="'degreeType' + index" v-model="edu.degreeType">
-                                  <option value="">Select degree...</option>
-                                  <option value="High School Diploma">High School Diploma</option>
-                                  <option value="Associate's">Associate's</option>
-                                  <option value="Bachelor's">Bachelor's</option>
-                                  <option value="Master's">Master's</option>
-                                  <option value="PhD">PhD</option>
-                                  <option value="Certificate">Certificate</option>
-                                  <option value="Bootcamp">Bootcamp</option>
-                                </select>
-                              </div>
-
-                              <div class="form-group">
-                                <label :for="'major' + index">Major/Field of Study</label>
-                                <input
-                                  type="text"
-                                  :id="'major' + index"
-                                  v-model="edu.major"
-                                  placeholder="Computer Science"
-                                />
-                              </div>
-                            </div>
-
-                            <div class="form-row">
-                              <div class="form-group">
-                                <label :for="'gradYear' + index">Graduation Year</label>
-                                <input
-                                  type="text"
-                                  :id="'gradYear' + index"
-                                  v-model="edu.graduationYear"
-                                  placeholder="2024"
-                                />
-                              </div>
-
-                              <div class="form-group">
-                                <label :for="'gpa' + index">GPA (optional)</label>
-                                <input
-                                  type="text"
-                                  :id="'gpa' + index"
-                                  v-model="edu.gpa"
-                                  placeholder="3.8"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div class="form-section">
-                          <h3>Social & Portfolio</h3>
-                          <div class="form-group">
-                            <label for="editLinkedin">LinkedIn URL</label>
-                            <input
-                              type="url"
-                              id="editLinkedin"
-                              v-model="editableProfile.linkedin"
-                              placeholder="https://linkedin.com/in/johndoe"
-                            />
-                          </div>
-
-                          <div class="form-group">
-                            <label for="editWebsite">Portfolio/Website</label>
-                            <input
-                              type="url"
-                              id="editWebsite"
-                              v-model="editableProfile.website"
-                              placeholder="https://johndoe.com"
-                            />
-                          </div>
-
-                          <div class="form-group">
-                            <label for="editGithub">GitHub URL</label>
-                            <input
-                              type="url"
-                              id="editGithub"
-                              v-model="editableProfile.github"
-                              placeholder="https://github.com/johndoe"
-                            />
-                          </div>
-                        </div>
-                      </form>
-                    </div>
-
-                    <div class="dialog-footer">
-                      <button class="btn-secondary-dialog" @click="showEditProfileDialog = false">
-                        Cancel
-                      </button>
-                      <button class="btn-primary-dialog" @click="saveProfileFromDialog">
-                        Save Changes
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </Transition>
+              <EditProfileDialog
+                :show="showEditProfileDialog"
+                :personal-info="personalInfo"
+                @close="showEditProfileDialog = false"
+                @save="handleSaveProfile"
+              />
             </div>
             <div class="profile-avatar">
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
@@ -632,7 +183,7 @@ onMounted(async () => {
       </div>
 
       <!-- Resume Section -->
-      <div class="section">
+      <!-- <div class="section">
         <h3 class="section-title">RESUME</h3>
         <div class="resume-item">
           <div class="file-info">
@@ -645,7 +196,7 @@ onMounted(async () => {
           </div>
           <button class="replace-btn" @click="replaceResume">Replace</button>
         </div>
-      </div>
+      </div> -->
 
       <!-- Saved Responses Section -->
       <div class="section">
@@ -668,117 +219,13 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Questions Dialog Overlay -->
-      <Transition name="dialog">
-        <div
-          v-if="showQuestionsDialog"
-          class="dialog-overlay"
-          @click.self="showQuestionsDialog = false"
-        >
-          <div class="dialog">
-            <div class="dialog-header">
-              <h2>Saved Responses</h2>
-              <button class="close-btn" @click="showQuestionsDialog = false">
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fill-rule="evenodd"
-                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            <div class="dialog-content">
-              <!-- Create New Response Form -->
-              <div v-if="showCreateResponseForm" class="create-response-form">
-                <h3>Create New Response</h3>
-                <form @submit.prevent="addResponseFromDialog">
-                  <div class="form-group">
-                    <label for="dialogResponseTitle">Question/Title</label>
-                    <input
-                      type="text"
-                      id="dialogResponseTitle"
-                      v-model="newResponse.title"
-                      placeholder="e.g., Why do you want this job?"
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label for="dialogResponseText">Your Response</label>
-                    <textarea
-                      id="dialogResponseText"
-                      v-model="newResponse.text"
-                      rows="4"
-                      placeholder="Enter your response..."
-                    ></textarea>
-                  </div>
-                  <div class="form-group">
-                    <label for="dialogResponseTags">Tags (comma-separated)</label>
-                    <input
-                      type="text"
-                      id="dialogResponseTags"
-                      v-model="newResponse.tags"
-                      placeholder="e.g., motivation, culture-fit"
-                    />
-                  </div>
-                  <div class="form-actions">
-                    <button
-                      type="button"
-                      class="btn-cancel"
-                      @click="showCreateResponseForm = false"
-                    >
-                      Cancel
-                    </button>
-                    <button type="submit" class="btn-save">Save Response</button>
-                  </div>
-                </form>
-              </div>
-
-              <!-- Responses List -->
-              <div v-else>
-                <div v-if="savedResponses.length === 0" class="empty-state">
-                  <p>No saved responses yet.</p>
-                  <p class="hint">
-                    Responses are automatically saved when you submit job applications.
-                  </p>
-                </div>
-
-                <div v-else class="responses-list">
-                  <div v-for="response in savedResponses" :key="response.id" class="response-item">
-                    <div class="response-header">
-                      <h4>{{ response.title }}</h4>
-                      <button
-                        class="delete-btn"
-                        title="Delete response"
-                        @click="deleteSavedResponse(response.id)"
-                      >
-                        ×
-                      </button>
-                    </div>
-                    <p class="response-text">{{ response.text }}</p>
-                    <div v-if="response.tags.length > 0" class="response-tags">
-                      <span v-for="tag in response.tags" :key="tag" class="tag">
-                        {{ tag }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="dialog-footer">
-              <button
-                v-if="!showCreateResponseForm"
-                class="btn-primary-dialog"
-                @click="showCreateResponseForm = true"
-              >
-                + Create New Response
-              </button>
-              <button class="btn-secondary-dialog" @click="closeDialog">Close</button>
-            </div>
-          </div>
-        </div>
-      </Transition>
+      <SavedResponsesDialog
+        :show="showQuestionsDialog"
+        :saved-responses="savedResponses"
+        @close="showQuestionsDialog = false"
+        @add-response="handleAddResponse"
+        @delete-response="handleDeleteResponse"
+      />
     </div>
 
     <!-- Success View -->
@@ -862,8 +309,8 @@ onMounted(async () => {
     </div>
 
     <footer class="footer">
-      <button class="footer-link">Support</button>
-      <button class="footer-link">Documentation</button>
+      <!-- <button class="footer-link">Support</button>
+      <button class="footer-link">Documentation</button> -->
       <span class="version">v1.0.0</span>
     </footer>
 
@@ -886,7 +333,6 @@ onMounted(async () => {
   background: #1a202c;
   color: #e2e8f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
-  //   min-height: 600px;
   display: flex;
   flex-direction: column;
 }
@@ -992,6 +438,7 @@ onMounted(async () => {
   color: #a0aec0;
   margin: 2px 0;
 }
+
 .profile-details {
   margin-top: 8px;
   margin-bottom: 1em;
@@ -1105,6 +552,38 @@ onMounted(async () => {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+}
+
+/* Questions Item */
+.questions-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #2d3748;
+  border-radius: 8px;
+}
+
+.questions-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.view-btn {
+  background: none;
+  border: none;
+  color: #4f7cff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.view-btn:hover {
+  opacity: 0.8;
 }
 
 /* Missing Field */
@@ -1277,8 +756,6 @@ onMounted(async () => {
   background: #059669;
 }
 
-/* Footer */
-
 /* Autofill Button */
 .autofill-bttn-container {
   padding: 0 20px;
@@ -1307,6 +784,7 @@ onMounted(async () => {
   }
 }
 
+/* Footer */
 .footer {
   display: flex;
   align-items: center;
@@ -1387,193 +865,6 @@ onMounted(async () => {
   transform: translateX(-50%) translateY(-10px);
 }
 
-/* Questions Item */
-.questions-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: #2d3748;
-  border-radius: 8px;
-}
-
-.questions-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: #e2e8f0;
-}
-
-.view-btn {
-  background: none;
-  border: none;
-  color: #4f7cff;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.view-btn:hover {
-  opacity: 0.8;
-}
-
-/* Dialog Overlay */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.dialog {
-  background: #1a202c;
-  border-radius: 12px;
-  width: 100%;
-  max-width: 500px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-}
-
-.dialog-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #2d3748;
-}
-
-.dialog-header h2 {
-  font-size: 18px;
-  font-weight: 600;
-  color: #f7fafc;
-  margin: 0;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  color: #a0aec0;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  transition: color 0.2s;
-}
-
-.close-btn:hover {
-  color: #e2e8f0;
-}
-
-.dialog-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-.dialog-footer {
-  padding: 16px 20px;
-  border-top: 1px solid #2d3748;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.btn-secondary-dialog {
-  padding: 10px 20px;
-  background: #2d3748;
-  color: #e2e8f0;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.btn-secondary-dialog:hover {
-  background: #4a5568;
-}
-
-/* Empty State in Dialog */
-.dialog-content .empty-state {
-  text-align: center;
-  padding: 40px 20px;
-}
-
-.dialog-content .empty-state p {
-  color: #a0aec0;
-  font-size: 14px;
-  margin: 8px 0;
-}
-
-.dialog-content .empty-state .hint {
-  font-size: 13px;
-  color: #718096;
-}
-
-/* Responses List in Dialog */
-.responses-list .response-item {
-  background: #2d3748;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 12px;
-  border: 1px solid #4a5568;
-  .response-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-    h4 {
-      font-size: 16px;
-      font-weight: 600;
-      color: #f7fafc;
-      margin: 0;
-    }
-    .delete-btn {
-      background: none;
-      border: none;
-      color: #e53e3e;
-      font-size: 20px;
-      cursor: pointer;
-      padding: 0;
-      line-height: 16px;
-      transition: color 0.2s;
-      &:hover {
-        color: #c53030;
-      }
-    }
-  }
-  .response-text {
-    font-size: 14px;
-    color: #e2e8f0;
-    margin: 0 0 8px 0;
-  }
-  .response-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    font-size: 12px;
-    .tag {
-      background: #4a5568;
-      color: #e2e8f0;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-    }
-  }
-}
-
 /* Dialog Transitions */
 .dialog-enter-active,
 .dialog-leave-active {
@@ -1588,307 +879,5 @@ onMounted(async () => {
 .dialog-enter-from .dialog,
 .dialog-leave-to .dialog {
   transform: scale(0.9) translateY(20px);
-}
-
-.dialog-enter-active .dialog,
-.dialog-leave-active .dialog {
-  transition: all 0.3s ease;
-}
-
-/* Create Response Form */
-.create-response-form {
-  background: #2d3748;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 16px;
-}
-
-.create-response-form h3 {
-  font-size: 16px;
-  font-weight: 600;
-  color: #f7fafc;
-  margin: 0 0 16px 0;
-}
-
-.create-response-form .form-group {
-  margin-bottom: 16px;
-}
-
-.create-response-form label {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 6px;
-  color: #e2e8f0;
-}
-
-.create-response-form input[type='text'],
-.create-response-form textarea {
-  width: 100%;
-  padding: 10px 12px;
-  background: #1a202c;
-  border: 1px solid #4a5568;
-  border-radius: 6px;
-  font-size: 14px;
-  color: #e2e8f0;
-  font-family: inherit;
-  transition: border-color 0.2s;
-}
-
-.create-response-form input:focus,
-.create-response-form textarea:focus {
-  outline: none;
-  border-color: #4f7cff;
-}
-
-.create-response-form textarea {
-  resize: vertical;
-  min-height: 80px;
-}
-
-.form-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.btn-cancel {
-  padding: 10px 20px;
-  background: #2d3748;
-  color: #e2e8f0;
-  border: 1px solid #4a5568;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.btn-cancel:hover {
-  background: #4a5568;
-}
-
-.btn-save {
-  padding: 10px 20px;
-  background: #4f7cff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.btn-save:hover {
-  background: #4169e1;
-}
-
-.btn-primary-dialog {
-  padding: 10px 20px;
-  background: #4f7cff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-  margin-right: auto;
-}
-
-.btn-primary-dialog:hover {
-  background: #4169e1;
-}
-
-.dialog-footer {
-  display: flex;
-  gap: 10px;
-}
-
-/* Edit Profile Form */
-.edit-profile-form {
-  width: 100%;
-}
-
-.form-section {
-  margin-bottom: 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid #4a5568;
-}
-
-.form-section:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-
-.form-section h3 {
-  font-size: 14px;
-  font-weight: 600;
-  color: #f7fafc;
-  margin: 0 0 16px 0;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.form-row .form-group-small {
-  grid-column: span 1;
-}
-
-.edit-profile-form .form-group {
-  margin-bottom: 16px;
-}
-
-.edit-profile-form label {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 6px;
-  color: #e2e8f0;
-}
-
-.edit-profile-form input[type='text'],
-.edit-profile-form input[type='email'],
-.edit-profile-form input[type='tel'],
-.edit-profile-form input[type='url'] {
-  width: 100%;
-  padding: 10px 12px;
-  background: #1a202c;
-  border: 1px solid #4a5568;
-  border-radius: 6px;
-  font-size: 14px;
-  color: #e2e8f0;
-  font-family: inherit;
-  transition: border-color 0.2s;
-}
-
-.edit-profile-form input:focus {
-  outline: none;
-  border-color: #4f7cff;
-}
-
-.edit-profile-form input::placeholder {
-  color: #718096;
-}
-
-/* Make dialog wider for the form */
-.dialog-overlay:has(.edit-profile-form) .dialog {
-  max-width: 550px;
-}
-
-/* Education Section */
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.section-header h3 {
-  margin: 0;
-}
-
-.btn-add-small {
-  padding: 6px 12px;
-  background: #4f7cff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.btn-add-small:hover {
-  background: #4169e1;
-}
-
-.empty-education {
-  text-align: center;
-  padding: 24px;
-  background: #2d3748;
-  border-radius: 8px;
-  border: 2px dashed #4a5568;
-}
-
-.empty-education p {
-  color: #a0aec0;
-  font-size: 13px;
-  margin: 0;
-}
-
-.education-item {
-  background: #2d3748;
-  border: 1px solid #4a5568;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-.education-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #4a5568;
-}
-
-.education-number {
-  font-size: 13px;
-  font-weight: 600;
-  color: #4f7cff;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.btn-remove-small {
-  padding: 4px 10px;
-  background: none;
-  color: #ef4444;
-  border: 1px solid #ef4444;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-remove-small:hover {
-  background: #ef4444;
-  color: white;
-}
-
-/* Select dropdown styling */
-.edit-profile-form select {
-  width: 100%;
-  padding: 10px 12px;
-  background: #1a202c;
-  border: 1px solid #4a5568;
-  border-radius: 6px;
-  font-size: 14px;
-  color: #e2e8f0;
-  font-family: inherit;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.edit-profile-form select:focus {
-  outline: none;
-  border-color: #4f7cff;
-}
-
-.edit-profile-form select option {
-  background: #1a202c;
-  color: #e2e8f0;
 }
 </style>
