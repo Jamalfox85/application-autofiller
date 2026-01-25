@@ -11,6 +11,7 @@ defineProps<{
 const emit = defineEmits<{
   close: []
   addResponse: [response: SavedResponse]
+  updateResponse: [response: SavedResponse]
   deleteResponse: [id: number]
 }>()
 
@@ -81,6 +82,86 @@ const handleAddResponse = () => {
   newResponse.value = { title: '', text: '', tags: [] }
   tagInput.value = ''
   showCreateResponseForm.value = false
+}
+
+const editingResponseId = ref<number | null>(null)
+const editingResponse = ref<{
+  title: string
+  text: string
+  tags: string[]
+}>({
+  title: '',
+  text: '',
+  tags: [],
+})
+
+const startEditingResponse = (response: SavedResponse) => {
+  editingResponseId.value = response.id
+  editingResponse.value = {
+    title: response.title,
+    text: response.text,
+    tags: [...response.tags],
+  }
+}
+
+const cancelEditingResponse = () => {
+  editingResponseId.value = null
+  editingResponse.value = {
+    title: '',
+    text: '',
+    tags: [],
+  }
+}
+
+const saveEditedResponse = () => {
+  if (!editingResponse.value.title.trim() || !editingResponse.value.text.trim()) {
+    return
+  }
+
+  const response: SavedResponse = {
+    id: editingResponseId.value!,
+    title: editingResponse.value.title.trim(),
+    text: editingResponse.value.text.trim(),
+    tags: editingResponse.value.tags,
+    createdAt: new Date().toISOString(),
+  }
+
+  emit('updateResponse', response)
+
+  cancelEditingResponse()
+}
+
+const editTagInput = ref('')
+
+function addEditTagFromInput() {
+  const raw = editTagInput.value.trim()
+  if (!raw) return
+
+  const parts = raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+
+  for (const p of parts) {
+    const normalized = p.toLowerCase()
+    if (!editingResponse.value.tags.includes(normalized)) {
+      editingResponse.value.tags.push(normalized)
+    }
+  }
+
+  editTagInput.value = ''
+}
+
+function removeEditTag(tag: string) {
+  editingResponse.value.tags = editingResponse.value.tags.filter((t) => t !== tag)
+}
+
+function handleEditTagInputKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    e.stopPropagation()
+    addEditTagFromInput()
+  }
 }
 
 const handleClose = () => {
@@ -181,21 +262,89 @@ const handleDelete = (id: number) => {
 
             <div v-else class="responses-list">
               <div v-for="response in savedResponses" :key="response.id" class="response-item">
-                <div class="response-header">
-                  <h4>{{ response.title }}</h4>
-                  <button
-                    class="delete-btn"
-                    title="Delete response"
-                    @click="handleDelete(response.id)"
-                  >
-                    ×
-                  </button>
+                <!-- View Mode -->
+                <div v-if="editingResponseId !== response.id">
+                  <div class="response-header">
+                    <h4>{{ response.title }}</h4>
+                    <div class="response-actions">
+                      <button
+                        class="edit-btn-small"
+                        title="Edit response"
+                        @click="startEditingResponse(response)"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                          <path
+                            d="M0 11.083V14h2.917l8.6-8.6-2.917-2.917-8.6 8.6zM13.733 2.483a.774.774 0 000-1.096L12.613.267a.774.774 0 00-1.096 0l-.88.88 2.917 2.916.88-.88z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        class="delete-btn"
+                        title="Delete response"
+                        @click="handleDelete(response.id)"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                  <p class="response-text">{{ response.text }}</p>
+                  <div v-if="response.tags.length > 0" class="response-tags">
+                    <span v-for="tag in response.tags" :key="tag" class="tag">
+                      {{ tag }}
+                    </span>
+                  </div>
                 </div>
-                <p class="response-text">{{ response.text }}</p>
-                <div v-if="response.tags.length > 0" class="response-tags">
-                  <span v-for="tag in response.tags" :key="tag" class="tag">
-                    {{ tag }}
-                  </span>
+
+                <!-- Edit Mode -->
+                <div v-else class="edit-response-form">
+                  <div class="form-group">
+                    <label>Question/Title</label>
+                    <input
+                      type="text"
+                      v-model="editingResponse.title"
+                      placeholder="e.g., Why do you want this job?"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>Your Response</label>
+                    <textarea
+                      v-model="editingResponse.text"
+                      rows="4"
+                      placeholder="Enter your response..."
+                    ></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label>Tags</label>
+                    <div
+                      v-if="editingResponse.tags.length > 0"
+                      class="tags-list"
+                      style="margin-bottom: 8px"
+                    >
+                      <NTag
+                        v-for="tag in editingResponse.tags"
+                        :key="tag"
+                        closable
+                        @close="removeEditTag(tag)"
+                        style="margin-right: 6px; margin-bottom: 6px"
+                      >
+                        {{ tag }}
+                      </NTag>
+                    </div>
+                    <NInput
+                      v-model:value="editTagInput"
+                      placeholder="Type a tag and press Enter"
+                      @keydown="handleEditTagInputKeydown"
+                      @blur="addEditTagFromInput"
+                    />
+                  </div>
+                  <div class="form-actions">
+                    <button type="button" class="btn-cancel" @click="cancelEditingResponse">
+                      Cancel
+                    </button>
+                    <button type="button" class="btn-save" @click="saveEditedResponse">
+                      Save Changes
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -561,5 +710,72 @@ const handleDelete = (id: number) => {
 :deep(.n-input__state-border) {
   border: none !important;
   box-shadow: none !important;
+}
+
+/* Response Actions */
+.response-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-btn-small {
+  background: none;
+  border: none;
+  color: #4f7cff;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.edit-btn-small:hover {
+  color: #4169e1;
+}
+
+/* Edit Response Form */
+.edit-response-form {
+  width: 100%;
+}
+
+.edit-response-form .form-group {
+  margin-bottom: 12px;
+}
+
+.edit-response-form label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #e2e8f0;
+}
+
+.edit-response-form input[type='text'],
+.edit-response-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: #1a202c;
+  border: 1px solid #4a5568;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e2e8f0;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.edit-response-form input:focus,
+.edit-response-form textarea:focus {
+  outline: none;
+  border-color: #4f7cff;
+}
+
+.edit-response-form textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.edit-response-form .form-actions {
+  margin-top: 12px;
 }
 </style>

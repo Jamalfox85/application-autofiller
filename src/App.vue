@@ -38,6 +38,17 @@ const handleAddResponse = async (response: SavedResponse) => {
   showNotification('Response saved!')
 }
 
+const handleUpdateResponse = async (response: SavedResponse) => {
+  const index = savedResponses.value.findIndex((r) => r.id === response.id)
+  if (index !== -1) {
+    savedResponses.value[index] = response
+    await chrome.storage.local.set({
+      savedResponses: JSON.parse(JSON.stringify(savedResponses.value)),
+    })
+    showNotification('Response updated!')
+  }
+}
+
 const handleDeleteResponse = async (id: number) => {
   await deleteSavedResponse(id)
   showNotification('Response deleted!')
@@ -224,6 +235,7 @@ onMounted(async () => {
         :saved-responses="savedResponses"
         @close="showQuestionsDialog = false"
         @add-response="handleAddResponse"
+        @update-response="handleUpdateResponse"
         @delete-response="handleDeleteResponse"
       />
     </div>

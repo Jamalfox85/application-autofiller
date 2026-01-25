@@ -12,6 +12,17 @@ export interface PersonalInfo {
   github?: string
   resumeFile?: string
   education: Education[]
+
+  // Demographic Information
+  gender?: string
+  raceEthnicity?: string
+  disabilityStatus?: string
+  veteranStatus?: string
+  age18OrOlder?: string
+
+  // Other Information
+  desiredSalary?: number
+  workAuthorization?: string
 }
 
 export interface Education {

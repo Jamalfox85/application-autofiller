@@ -16,6 +16,13 @@ export function usePersonalInfo() {
     github: '',
     resumeFile: '',
     education: [],
+    gender: '',
+    raceEthnicity: '',
+    disabilityStatus: '',
+    veteranStatus: '',
+    age18OrOlder: '',
+    desiredSalary: 0,
+    workAuthorization: '',
   })
 
   const fullName = computed(() => {

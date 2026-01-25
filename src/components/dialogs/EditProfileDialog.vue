@@ -26,6 +26,13 @@ const editableProfile = ref<PersonalInfo>({
   github: '',
   resumeFile: '',
   education: [],
+  gender: '',
+  raceEthnicity: '',
+  disabilityStatus: '',
+  veteranStatus: '',
+  age18OrOlder: '',
+  desiredSalary: 0,
+  workAuthorization: '',
 })
 
 // Watch for when dialog opens to populate form
@@ -288,6 +295,105 @@ const handleClose = () => {
                 />
               </div>
             </div>
+
+            <!-- Demographic Information -->
+            <div class="form-section">
+              <h3>Demographic Information</h3>
+              <p class="section-note">
+                This information is optional and used for Equal Employment Opportunity (EEO)
+                reporting.
+              </p>
+
+              <div class="form-group">
+                <label for="editGender">Gender</label>
+                <select id="editGender" v-model="editableProfile.gender">
+                  <option value="">Prefer not to answer</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Non-binary">Non-binary</option>
+                  <option value="Decline">Decline to self-identify</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="editRaceEthnicity">Race/Ethnicity</label>
+                <select id="editRaceEthnicity" v-model="editableProfile.raceEthnicity">
+                  <option value="">Prefer not to answer</option>
+                  <option value="Hispanic or Latino">Hispanic or Latino</option>
+                  <option value="White">White</option>
+                  <option value="Black or African American">Black or African American</option>
+                  <option value="Native Hawaiian or Other Pacific Islander">
+                    Native Hawaiian or Other Pacific Islander
+                  </option>
+                  <option value="Asian">Asian</option>
+                  <option value="American Indian or Alaska Native">
+                    American Indian or Alaska Native
+                  </option>
+                  <option value="Two or More Races">Two or More Races</option>
+                  <option value="Decline">Decline to self-identify</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="editDisabilityStatus">Disability Status</label>
+                <select id="editDisabilityStatus" v-model="editableProfile.disabilityStatus">
+                  <option value="">Prefer not to answer</option>
+                  <option value="Yes">
+                    Yes, I have a disability (or previously had a disability)
+                  </option>
+                  <option value="No">No, I do not have a disability</option>
+                  <option value="Decline">Decline to self-identify</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="editVeteranStatus">Veteran Status</label>
+                <select id="editVeteranStatus" v-model="editableProfile.veteranStatus">
+                  <option value="">Prefer not to answer</option>
+                  <option value="Not a Veteran">I am not a protected veteran</option>
+                  <option value="Veteran">
+                    I identify as one or more of the classifications of protected veteran
+                  </option>
+                  <option value="Decline">Decline to self-identify</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="editAge18OrOlder">Are you 18 years of age or older?</label>
+                <select id="editAge18OrOlder" v-model="editableProfile.age18OrOlder">
+                  <option value="">Prefer not to answer</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Other Information -->
+            <div class="form-section">
+              <h3>Other Information</h3>
+
+              <div class="form-group">
+                <label for="editDesiredSalary">Desired Salary</label>
+                <input
+                  type="number"
+                  min="0"
+                  id="editDesiredSalary"
+                  v-model="editableProfile.desiredSalary"
+                  placeholder="80,000"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="editWorkAuthorization">Work Authorization</label>
+                <select id="editWorkAuthorization" v-model="editableProfile.workAuthorization">
+                  <option value="">Select...</option>
+                  <option value="US Citizen">U.S. Citizen</option>
+                  <option value="Green Card">Green Card Holder (Permanent Resident)</option>
+                  <option value="Work Visa">Work Visa (H1B, etc.)</option>
+                  <option value="Need Sponsorship">Will require sponsorship</option>
+                </select>
+              </div>
+            </div>
           </form>
         </div>
 
@@ -428,6 +534,7 @@ const handleClose = () => {
 }
 
 .form-group input[type='text'],
+.form-group input[type='number'],
 .form-group input[type='email'],
 .form-group input[type='tel'],
 .form-group input[type='url'],
@@ -579,5 +686,13 @@ const handleClose = () => {
 
 .btn-primary-dialog:hover {
   background: #4169e1;
+}
+
+.section-note {
+  font-size: 12px;
+  color: #a0aec0;
+  margin: 0 0 16px 0;
+  font-style: italic;
+  line-height: 1.4;
 }
 </style>

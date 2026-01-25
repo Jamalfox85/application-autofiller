@@ -42,19 +42,42 @@ async function autofillPage() {
       const placeholder = (input.placeholder || '').toLowerCase()
       const label = getFieldLabel(input)
       const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase()
+      const autoComplete = (input.autocomplete || '').toLowerCase().replace(/\s+/g, '_')
 
-      const fieldText = `${name} ${id} ${placeholder} ${label} ${ariaLabel}`.toLowerCase()
+      const fieldText =
+        `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete}`.toLowerCase()
 
       const fieldValue = matchFieldToData(fieldText, personalInfo, savedResponses)
 
       if (fieldValue) {
-        input.value = fieldValue
+        // Handle SELECT elements differently
+        if (input.tagName === 'SELECT') {
+          if (setSelectValue(input, fieldValue)) {
+            filledCount++
+          }
+        } else if (input.type === 'checkbox' || input.type === 'radio') {
+          const normalizedFieldValue = String(fieldValue).toLowerCase()
+          const isChecked =
+            normalizedFieldValue === 'true' ||
+            normalizedFieldValue === 'yes' ||
+            normalizedFieldValue === '1'
 
-        // Trigger input events so the page recognizes the change
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-        input.dispatchEvent(new Event('change', { bubbles: true }))
+          input.checked = isChecked
 
-        filledCount++
+          // Trigger change event
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+
+          filledCount++
+        } else {
+          // Handle regular inputs and textareas
+          input.value = fieldValue
+
+          // Trigger input events so the page recognizes the change
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+
+          filledCount++
+        }
       }
     })
 
@@ -70,29 +93,43 @@ async function autofillPage() {
 }
 
 function matchFieldToData(fieldText, personalInfo, savedResponses) {
-  console.log('Matching field:', fieldText)
+  const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_-]/g, '')
+
+  // Special exclusion checks  i.e. - Don't match "city" if field contains these
+  const exclusions = {
+    address: ['2'],
+    city: ['ethnicity', 'ethnic', 'race'],
+    state: ['estate', 'statement', 'realestate'],
+  }
+
+  // Check standard fields
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
     for (const pattern of patterns) {
-      if (fieldText.includes(pattern)) {
+      const normalizedPattern = pattern.toLowerCase().replace(/[\s_-]/g, '')
+      if (normalizedFieldText.includes(normalizedPattern)) {
+        if (exclusions[key]) {
+          const hasExclusion = exclusions[key].some((excl) =>
+            normalizedFieldText.includes(excl.toLowerCase()),
+          )
+          if (hasExclusion) {
+            continue // Skip this pattern match
+          }
+        }
+
         return personalInfo[key] || null
       }
     }
   }
 
   // Special case: full name
-  if (
-    fieldText.includes('fullname') ||
-    fieldText.includes('full_name') ||
-    fieldText.includes('full-name') ||
-    (fieldText.includes('name') && !fieldText.includes('user'))
-  ) {
+  if (normalizedFieldText.includes('fullname')) {
     const firstName = personalInfo.firstName || ''
     const lastName = personalInfo.lastName || ''
     return `${firstName} ${lastName}`.trim()
   }
 
   // Special case: Current loccation (May only be jobs.lever.co)
-  if (fieldText.includes('location-input')) {
+  if (normalizedFieldText.includes('location-input')) {
     const city = personalInfo.city || ''
     const state = personalInfo.state || ''
     return `${city}, ${state}`.trim()
@@ -102,23 +139,31 @@ function matchFieldToData(fieldText, personalInfo, savedResponses) {
   if (personalInfo.education && personalInfo.education.length > 0) {
     const latestEducation = personalInfo.education[0]
 
-    // Check education patterns
-    const educationFields = {
-      schoolName: latestEducation.schoolName,
-      degreeType: latestEducation.degreeType,
-      major: latestEducation.major,
-      graduationYear: latestEducation.graduationYear,
-      gpa: latestEducation.gpa,
+    if (
+      normalizedFieldText.includes('school') ||
+      normalizedFieldText.includes('university') ||
+      normalizedFieldText.includes('college')
+    ) {
+      return latestEducation.schoolName || null
     }
 
-    for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
-      if (!educationFields.hasOwnProperty(fieldName)) continue
+    if (normalizedFieldText.includes('degree') && !normalizedFieldText.includes('type')) {
+      return latestEducation.degreeType || null
+    }
 
-      for (const pattern of patterns) {
-        if (fieldText.includes(pattern)) {
-          return educationFields[fieldName] || null
-        }
-      }
+    if (normalizedFieldText.includes('major') || normalizedFieldText.includes('study')) {
+      return latestEducation.major || null
+    }
+
+    if (
+      normalizedFieldText.includes('graduation') ||
+      (normalizedFieldText.includes('year') && normalizedFieldText.includes('grad'))
+    ) {
+      return latestEducation.graduationYear || null
+    }
+
+    if (normalizedFieldText.includes('gpa')) {
+      return latestEducation.gpa || null
     }
   }
 
@@ -181,6 +226,47 @@ function matchSavedResponse(fieldText, savedResponses) {
   }
 
   return best ? best.text : null
+}
+
+function setSelectValue(selectElement, desiredValue) {
+  const options = Array.from(selectElement.options)
+  const normalizedDesired = desiredValue.toLowerCase().trim()
+
+  // Try 1: Exact match (case-insensitive)
+  let matchedOption = options.find(
+    (opt) =>
+      opt.value.toLowerCase() === normalizedDesired || opt.text.toLowerCase() === normalizedDesired,
+  )
+
+  // Try 2: Partial match - option contains desired value
+  if (!matchedOption) {
+    matchedOption = options.find(
+      (opt) =>
+        opt.value.toLowerCase().includes(normalizedDesired) ||
+        opt.text.toLowerCase().includes(normalizedDesired),
+    )
+  }
+
+  // Try 3: Partial match - desired value contains option
+  if (!matchedOption) {
+    matchedOption = options.find(
+      (opt) =>
+        normalizedDesired.includes(opt.value.toLowerCase()) ||
+        normalizedDesired.includes(opt.text.toLowerCase()),
+    )
+  }
+
+  if (matchedOption) {
+    selectElement.value = matchedOption.value
+
+    // Trigger change events
+    selectElement.dispatchEvent(new Event('change', { bubbles: true }))
+    selectElement.dispatchEvent(new Event('input', { bubbles: true }))
+
+    return true
+  }
+
+  return false
 }
 
 // ---- helpers (keep consistent with your normalizer) ----
@@ -356,7 +442,11 @@ async function saveLearnedData(capturedData) {
     } else {
       // Match against FIELD_PATTERNS for other fields
       for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
-        const matches = patterns.some((pattern) => lowerKey.includes(pattern))
+        const matches = patterns.some((pattern) => {
+          // IMPORTANT: Strip pattern of special chars too!
+          const normalizedPattern = pattern.toLowerCase().replace(/[\s_-]/g, '')
+          return lowerKey.includes(normalizedPattern)
+        })
         if (matches) {
           learnedInfo[fieldName] = value
           break
@@ -447,7 +537,6 @@ function debounceAutofill() {
 
   // Wait 500ms after changes stop before autofilling
   autofillDebounceTimer = setTimeout(() => {
-    console.log('🟡 CONTENT: Form changed, auto-filling...')
     autofillPage()
   }, 500)
 }
@@ -477,7 +566,6 @@ function initialize() {
     })
 
     if (hasFormMutation || hasFormChanged()) {
-      console.log('🟡 CONTENT: Form structure changed!')
       attachFormListeners()
       debounceAutofill() // Auto-fill after changes settle
     }

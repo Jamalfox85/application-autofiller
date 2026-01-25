@@ -123,7 +123,7 @@ export const FIELD_PATTERNS = {
   degreeType: ['degree', 'degree_type', 'degreetype', 'degree_level', 'education_level'],
   major: [
     'major',
-    'field',
+    // 'field',  // Too generic, causes false if site uses "field" in input attributes (i.e. id=jv-field-yhdqzfwb)
     'study',
     'field_of_study',
     'fieldofstudy',
@@ -140,6 +140,88 @@ export const FIELD_PATTERNS = {
     'completion_year',
   ],
   gpa: ['gpa', 'grade', 'grade_point', 'gradepoint', 'average'],
+  // ... existing patterns ...
+
+  // Demographic fields
+  gender: ['gender', 'sex', 'gender_identity', 'genderidentity', 'gender-identity'],
+
+  raceEthnicity: [
+    'race',
+    'ethnicity',
+    'race_ethnicity',
+    'raceethnicity',
+    'race-ethnicity',
+    'ethnic',
+    'raceethnic',
+    'race_ethnic',
+  ],
+
+  disabilityStatus: [
+    'disability',
+    'disability_status',
+    'disabilitystatus',
+    'disability-status',
+    'disabled',
+    'disability_self_id',
+    'eeo_disability',
+    'eeoc-disability',
+  ],
+
+  veteranStatus: [
+    'veteran',
+    'veteran_status',
+    'veteranstatus',
+    'veteran-status',
+    'military',
+    'military_status',
+    'protected_veteran',
+    'protectedveteran',
+    'eeo_veteran',
+  ],
+
+  age18OrOlder: [
+    'age',
+    'age_18',
+    'over_18',
+    'over18',
+    'age18',
+    'legal_age',
+    'legalage',
+    'atleast18',
+    'at_least_18',
+  ],
+
+  // Other information fields
+  desiredSalary: [
+    'salary',
+    'desired_salary',
+    'desiredsalary',
+    'desired-salary',
+    'expected_salary',
+    'expectedsalary',
+    'salary_expectation',
+    'salaryexpectation',
+    'compensation',
+    'pay',
+    'wage',
+    'salary_requirement',
+  ],
+
+  workAuthorization: [
+    'authorization',
+    'work_authorization',
+    'workauthorization',
+    'work-authorization',
+    'work_permit',
+    'workpermit',
+    'legal_work',
+    'legalwork',
+    'eligible',
+    'eligible_work',
+    'visa',
+    'visa_status',
+    'sponsorship',
+  ],
 }
 
 // // Helper function to match field names (bonus!)

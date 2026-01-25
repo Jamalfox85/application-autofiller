@@ -3,8 +3,6 @@
 // Installation event
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    console.log('Job Application Autofill installed!')
-
     // Set default storage
     chrome.storage.local.set({
       personalInfo: {},
@@ -18,7 +16,6 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 
   if (details.reason === 'update') {
-    console.log('Job Application Autofill updated!')
   }
 
   // Create context menus only if API is available
@@ -36,9 +33,7 @@ chrome.runtime.onInstalled.addListener((details) => {
         contexts: ['selection'],
       })
     }
-  } catch (err) {
-    console.log('Context menus not available:', err)
-  }
+  } catch (err) {}
 })
 
 // Handle messages from content scripts or popup
@@ -128,5 +123,3 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     }
   }
 })
-
-console.log('Job Application Autofill background service worker loaded')
