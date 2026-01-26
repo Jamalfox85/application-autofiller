@@ -10,7 +10,23 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "*://*.indeed.com/*",
+        "*://*.linkedin.com/*",
+        "*://*.greenhouse.io/*",
+        "*://*.lever.co/*",
+        "*://*.workday.com/*",
+        "*://*.myworkdayjobs.com/*",
+        "*://*.icims.com/*",
+        "*://*.resumator.com/*",
+        "*://*.ultipro.com/*",
+        "*://*.paylocity.com/*",
+        "*://*.SuccessFactors.com/*",
+        "*://*.taleo.net/*",
+        "*://*.smartrecruiters.com/*",
+        "*://*.breezy.hr/*",
+        "*://*.bamboohr.com/*"
+      ],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
@@ -22,7 +38,23 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/*.png"],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "*://*.indeed.com/*",
+        "*://*.linkedin.com/*",
+        "*://*.greenhouse.io/*",
+        "*://*.lever.co/*",
+        "*://*.workday.com/*",
+        "*://*.myworkdayjobs.com/*",
+        "*://*.icims.com/*",
+        "*://*.resumator.com/*",
+        "*://*.ultipro.com/*",
+        "*://*.paylocity.com/*",
+        "*://*.SuccessFactors.com/*",
+        "*://*.taleo.net/*",
+        "*://*.smartrecruiters.com/*",
+        "*://*.breezy.hr/*",
+        "*://*.bamboohr.com/*"
+      ]
     }
   ]
 }

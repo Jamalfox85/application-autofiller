@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, Ref, watch } from 'vue'
 import EditProfileDialog from './components/dialogs/EditProfileDialog.vue'
 import SavedResponsesDialog from './components/dialogs/SavedResponsesDialog.vue'
 import { Linkedin, Globe, Github, Phone, Mail } from 'lucide-vue-next'
@@ -104,7 +104,17 @@ const replaceResume = () => {
 onMounted(async () => {
   await loadPersonalInfo()
   await loadSavedResponses()
+
+  // Load auto-detect setting
+  const settings = await chrome.storage.local.get('autoDetectEnabled')
+  autoDetectEnabled.value = settings.autoDetectEnabled ?? true
+
   detectCurrentPlatform()
+})
+
+watch(autoDetectEnabled, async (newValue) => {
+  await chrome.storage.local.set({ autoDetectEnabled: newValue })
+  console.log('🔵 Auto-detect setting saved:', newValue)
 })
 </script>
 

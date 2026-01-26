@@ -324,6 +324,66 @@ function getFieldLabel(input) {
 }
 
 // Add a subtle indicator when extension is ready
+// function addExtensionIndicator() {
+//   // Only add on job application sites
+//   const url = window.location.href.toLowerCase()
+//   const jobSites = [
+//     'greenhouse',
+//     'workday',
+//     'lever',
+//     'indeed',
+//     'linkedin',
+//     'apply',
+//     'careers',
+//     'jobs',
+//   ]
+
+//   if (!jobSites.some((site) => url.includes(site))) {
+//     return
+//   }
+
+//   const indicator = document.createElement('div')
+//   indicator.id = 'job-autofill-indicator'
+//   indicator.innerHTML = '⚡ Autofill Ready'
+//   indicator.style.cssText = `
+//     position: fixed;
+//     bottom: 20px;
+//     right: 20px;
+//     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+//     color: white;
+//     padding: 8px 16px;
+//     border-radius: 20px;
+//     font-size: 12px;
+//     font-weight: 600;
+//     z-index: 999999;
+//     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+//     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+//     cursor: pointer;
+//     transition: transform 0.2s;
+//   `
+
+//   indicator.addEventListener('mouseenter', () => {
+//     indicator.style.transform = 'scale(1.05)'
+//   })
+
+//   indicator.addEventListener('mouseleave', () => {
+//     indicator.style.transform = 'scale(1)'
+//   })
+
+//   indicator.addEventListener('click', () => {
+//     chrome.runtime.sendMessage({ action: 'openPopup' })
+//   })
+
+//   document.body.appendChild(indicator)
+
+//   // Auto-hide after 5 seconds
+//   setTimeout(() => {
+//     indicator.style.opacity = '0'
+//     indicator.style.transition = 'opacity 0.5s'
+//     setTimeout(() => indicator.remove(), 500)
+//   }, 5000)
+// }
+
 function addExtensionIndicator() {
   // Only add on job application sites
   const url = window.location.href.toLowerCase()
@@ -342,46 +402,118 @@ function addExtensionIndicator() {
     return
   }
 
-  const indicator = document.createElement('div')
-  indicator.id = 'job-autofill-indicator'
-  indicator.innerHTML = '⚡ Autofill Ready'
-  indicator.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 8px 16px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    z-index: 999999;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    cursor: pointer;
-    transition: transform 0.2s;
+  // Add notification and prompt styles
+  const styles = document.createElement('style')
+  styles.textContent = `
+    /* Autofill Notification */
+    .rapidapply-autofill-notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 999999;
+      background: white;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      padding: 16px 20px;
+      opacity: 0;
+      transform: translateY(-20px);
+      transition: all 0.3s ease;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+    }
+    
+    .rapidapply-autofill-notification.rapidapply-error {
+      background: #FEE2E2;
+    }
+    
+    .rapidapply-notification-content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #1a202c;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    /* Autofill Prompt */
+    .rapidapply-autofill-prompt {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      z-index: 999999;
+      background: white;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+      border-radius: 16px;
+      padding: 0;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+      max-width: 360px;
+    }
+    
+    .rapidapply-prompt-content {
+      padding: 20px;
+    }
+    
+    .rapidapply-prompt-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a202c;
+    }
+    
+    .rapidapply-prompt-content p {
+      margin: 0 0 16px 0;
+      color: #4a5568;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    
+    .rapidapply-prompt-actions {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .rapidapply-btn-secondary {
+      flex: 1;
+      padding: 10px 16px;
+      background: #f7fafc;
+      color: #4a5568;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-family: inherit;
+    }
+    
+    .rapidapply-btn-secondary:hover {
+      background: #e2e8f0;
+    }
+    
+    .rapidapply-btn-primary {
+      flex: 1;
+      padding: 10px 16px;
+      background: #4f7cff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-family: inherit;
+    }
+    
+    .rapidapply-btn-primary:hover {
+      background: #4169e1;
+    }
   `
-
-  indicator.addEventListener('mouseenter', () => {
-    indicator.style.transform = 'scale(1.05)'
-  })
-
-  indicator.addEventListener('mouseleave', () => {
-    indicator.style.transform = 'scale(1)'
-  })
-
-  indicator.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ action: 'openPopup' })
-  })
-
-  document.body.appendChild(indicator)
-
-  // Auto-hide after 5 seconds
-  setTimeout(() => {
-    indicator.style.opacity = '0'
-    indicator.style.transition = 'opacity 0.5s'
-    setTimeout(() => indicator.remove(), 500)
-  }, 5000)
+  document.head.appendChild(styles)
 }
 
 function attachFormListeners() {
@@ -483,36 +615,8 @@ async function saveLearnedData(capturedData) {
   showLearnNotification(totalLearned)
 }
 
-// function initialize() {
-//   addExtensionIndicator()
-//   attachFormListeners()
-
-//   // Wait for real job form to appear (not captcha)
-//   const foundForm = await waitForJobForm()
-
-//   if (foundForm) {
-//     // Add a small delay to ensure everything is loaded
-//     setTimeout(autofillPage, 1000)
-//   }
-
-//   // Watch for dynamically added forms
-//   const observer = new MutationObserver(() => {
-//     attachFormListeners()
-//   })
-
-//   observer.observe(document.body, {
-//     childList: true,
-//     subtree: true,
-//   })
-// }
-
-// // Initialize when page loads
-// if (document.readyState === 'loading') {
-//   document.addEventListener('DOMContentLoaded', initialize)
-// } else {
-//   initialize()
-// }
-
+let hasShownPopup = false
+let lastUrl = window.location.href
 let lastFormHtml = ''
 let autofillDebounceTimer = null
 
@@ -529,30 +633,169 @@ function hasFormChanged() {
   return false
 }
 
-function debounceAutofill() {
+function debounceAutofill(autoDetectEnabled) {
   // Clear existing timer
   if (autofillDebounceTimer) {
     clearTimeout(autofillDebounceTimer)
   }
 
-  // Wait 500ms after changes stop before autofilling
-  autofillDebounceTimer = setTimeout(() => {
-    autofillPage()
-  }, 500)
+  // Wait 800ms after changes stop before autofilling
+  autofillDebounceTimer = setTimeout(async () => {
+    console.log('🟡 CONTENT: Form changed, checking autofill...')
+
+    if (autoDetectEnabled) {
+      // Auto-fill the new form
+      const result = await autofillPage()
+      if (result.success) {
+        showAutofillNotification(result.fieldsCount)
+      }
+    } else {
+      // Show prompt if we haven't already for this form
+      if (!hasShownPopup) {
+        showAutofillPrompt()
+        hasShownPopup = true
+      }
+    }
+  }, 800)
 }
 
-function initialize() {
+// function initialize() {
+//   addExtensionIndicator()
+//   attachFormListeners()
+
+//   // Initial autofill after page loads
+//   setTimeout(() => {
+//     autofillPage()
+//   }, 1000)
+
+//   // Watch for form changes (multi-step forms)
+//   const observer = new MutationObserver((mutations) => {
+//     // Check if forms were added or changed
+//     const hasFormMutation = mutations.some((mutation) => {
+//       return Array.from(mutation.addedNodes).some((node) => {
+//         return (
+//           node.nodeType === 1 &&
+//           (node.tagName === 'FORM' ||
+//             node.querySelector('form') ||
+//             node.querySelector('input') ||
+//             node.querySelector('textarea'))
+//         )
+//       })
+//     })
+
+//     if (hasFormMutation || hasFormChanged()) {
+//       attachFormListeners()
+//       debounceAutofill() // Auto-fill after changes settle
+//     }
+//   })
+
+//   observer.observe(document.body, {
+//     childList: true,
+//     subtree: true,
+//   })
+// }
+// Add this function to your content.js
+function isLikelyJobApplicationPage() {
+  // Check URL for job-related keywords
+  const url = window.location.href.toLowerCase()
+  const jobKeywords = [
+    'job',
+    'career',
+    'apply',
+    'application',
+    'applications',
+    'recruit',
+    'hiring',
+    'employment',
+    'position',
+    'vacancy',
+    'vacancies',
+    'greenhouse',
+    'workday',
+    'lever',
+    'indeed',
+    'linkedin',
+    'icims',
+    'taleo',
+    'smartrecruiters',
+    'bamboohr',
+  ]
+
+  const hasJobKeyword = jobKeywords.some((keyword) => url.includes(keyword))
+
+  // Check page content for job-related forms
+  const forms = document.querySelectorAll('form')
+  const inputs = document.querySelectorAll('input, textarea, select')
+
+  // Look for job application field patterns
+  const hasJobInputs = Array.from(inputs).some((input) => {
+    const text =
+      `${input.name} ${input.id} ${input.placeholder} ${input.getAttribute('aria-label') || ''}`.toLowerCase()
+    return (
+      text.includes('resume') ||
+      text.includes('cover') ||
+      text.includes('application') ||
+      text.includes('first name') ||
+      text.includes('last name') ||
+      text.includes('firstname') ||
+      text.includes('lastname') ||
+      text.includes('phone') ||
+      text.includes('experience') ||
+      text.includes('education')
+    )
+  })
+
+  // Only consider it a job page if:
+  // 1. URL has job keywords, OR
+  // 2. Page has forms AND job-related input fields
+  return hasJobKeyword || (forms.length > 0 && hasJobInputs)
+}
+
+async function initialize() {
+  // Check if this is a job application page
+  if (!isLikelyJobApplicationPage()) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.action === 'autofill') {
+        sendResponse({
+          success: false,
+          message: 'This does not appear to be a job application page',
+        })
+      }
+    })
+    return
+  }
+
+  console.log('🟢 CONTENT: Job application page detected')
+
   addExtensionIndicator()
   attachFormListeners()
 
-  // Initial autofill after page loads
-  setTimeout(() => {
-    autofillPage()
-  }, 1000)
+  // Get user's auto-detect preference
+  const settings = await chrome.storage.local.get('autoDetectEnabled')
+  const autoDetectEnabled = settings.autoDetectEnabled ?? true
+
+  console.log('🔵 CONTENT: Auto-detect enabled:', autoDetectEnabled)
+
+  if (autoDetectEnabled) {
+    // Auto-detect is ON - auto-fill after delay
+    setTimeout(async () => {
+      const result = await autofillPage()
+      if (result.success) {
+        showAutofillNotification(result.fieldsCount)
+      }
+    }, 1000)
+  } else {
+    // Auto-detect is OFF - show popup prompt to user
+    setTimeout(() => {
+      if (!hasShownPopup) {
+        showAutofillPrompt()
+        hasShownPopup = true
+      }
+    }, 1000)
+  }
 
   // Watch for form changes (multi-step forms)
   const observer = new MutationObserver((mutations) => {
-    // Check if forms were added or changed
     const hasFormMutation = mutations.some((mutation) => {
       return Array.from(mutation.addedNodes).some((node) => {
         return (
@@ -566,8 +809,10 @@ function initialize() {
     })
 
     if (hasFormMutation || hasFormChanged()) {
+      console.log('🟡 CONTENT: Form mutation detected!')
+      hasShownPopup = false
       attachFormListeners()
-      debounceAutofill() // Auto-fill after changes settle
+      debounceAutofill(autoDetectEnabled)
     }
   })
 
@@ -575,6 +820,28 @@ function initialize() {
     childList: true,
     subtree: true,
   })
+
+  // Watch for URL changes (SPA navigation)
+  setInterval(() => {
+    const currentUrl = window.location.href
+    if (currentUrl !== lastUrl) {
+      console.log('🟡 CONTENT: URL changed (SPA navigation)')
+      lastUrl = currentUrl
+      hasShownPopup = false
+
+      setTimeout(async () => {
+        if (autoDetectEnabled) {
+          const result = await autofillPage()
+          if (result.success) {
+            showAutofillNotification(result.fieldsCount)
+          }
+        } else {
+          showAutofillPrompt()
+          hasShownPopup = true
+        }
+      }, 1000)
+    }
+  }, 500)
 }
 
 // Initialize when page loads
@@ -582,4 +849,124 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initialize)
 } else {
   initialize()
+}
+
+function showAutofillNotification(fieldsCount) {
+  // Remove existing notification if present
+  const existing = document.querySelector('.rapidapply-autofill-notification')
+  if (existing) {
+    existing.remove()
+  }
+
+  const notification = document.createElement('div')
+  notification.className = 'rapidapply-autofill-notification'
+  notification.innerHTML = `
+    <div class="rapidapply-notification-content">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="flex-shrink: 0;">
+        <circle cx="10" cy="10" r="10" fill="#10B981"/>
+        <path d="M6 10l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>✨ Auto-filled ${fieldsCount} field${fieldsCount !== 1 ? 's' : ''}</span>
+    </div>
+  `
+
+  document.body.appendChild(notification)
+
+  // Fade in
+  setTimeout(() => {
+    notification.style.opacity = '1'
+    notification.style.transform = 'translateY(0)'
+  }, 10)
+
+  // Auto-remove after 4 seconds
+  setTimeout(() => {
+    notification.style.opacity = '0'
+    notification.style.transform = 'translateY(-20px)'
+    setTimeout(() => notification.remove(), 300)
+  }, 4000)
+}
+
+function showAutofillPrompt() {
+  // Remove existing prompt if present
+  const existing = document.querySelector('.rapidapply-autofill-prompt')
+  if (existing) {
+    existing.remove()
+  }
+
+  const prompt = document.createElement('div')
+  prompt.className = 'rapidapply-autofill-prompt'
+  prompt.innerHTML = `
+    <div class="rapidapply-prompt-content">
+      <div class="rapidapply-prompt-header">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
+          <rect x="3" y="14" width="7" height="7" rx="1" fill="#4F7CFF" />
+          <rect x="14" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
+          <rect x="14" y="14" width="7" height="7" rx="1" fill="#4F7CFF" opacity="0.4" />
+        </svg>
+        <span>RapidApply</span>
+      </div>
+      <p>Job application detected! Would you like to auto-fill this form?</p>
+      <div class="rapidapply-prompt-actions">
+        <button class="rapidapply-btn-secondary" data-action="dismiss">Not now</button>
+        <button class="rapidapply-btn-primary" data-action="autofill">Auto-fill Form</button>
+      </div>
+    </div>
+  `
+
+  document.body.appendChild(prompt)
+
+  // Fade in
+  setTimeout(() => {
+    prompt.style.opacity = '1'
+    prompt.style.transform = 'translateY(0)'
+  }, 10)
+
+  // Handle button clicks
+  prompt.querySelector('[data-action="dismiss"]').addEventListener('click', () => {
+    prompt.style.opacity = '0'
+    prompt.style.transform = 'translateY(-20px)'
+    setTimeout(() => prompt.remove(), 300)
+  })
+
+  prompt.querySelector('[data-action="autofill"]').addEventListener('click', async () => {
+    prompt.style.opacity = '0'
+    prompt.style.transform = 'translateY(-20px)'
+    setTimeout(() => prompt.remove(), 300)
+
+    // Run autofill
+    const result = await autofillPage()
+    if (result.success) {
+      showAutofillNotification(result.fieldsCount)
+    } else {
+      showErrorNotification(result.message)
+    }
+  })
+}
+
+function showErrorNotification(message) {
+  const notification = document.createElement('div')
+  notification.className = 'rapidapply-autofill-notification rapidapply-error'
+  notification.innerHTML = `
+    <div class="rapidapply-notification-content">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="flex-shrink: 0;">
+        <circle cx="10" cy="10" r="10" fill="#EF4444"/>
+        <path d="M6 6l8 8M14 6l-8 8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>${message}</span>
+    </div>
+  `
+
+  document.body.appendChild(notification)
+
+  setTimeout(() => {
+    notification.style.opacity = '1'
+    notification.style.transform = 'translateY(0)'
+  }, 10)
+
+  setTimeout(() => {
+    notification.style.opacity = '0'
+    notification.style.transform = 'translateY(-20px)'
+    setTimeout(() => notification.remove(), 300)
+  }, 4000)
 }
