@@ -114,7 +114,6 @@ onMounted(async () => {
 
 watch(autoDetectEnabled, async (newValue) => {
   await chrome.storage.local.set({ autoDetectEnabled: newValue })
-  console.log('🔵 Auto-detect setting saved:', newValue)
 })
 </script>
 

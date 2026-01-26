@@ -641,8 +641,6 @@ function debounceAutofill(autoDetectEnabled) {
 
   // Wait 800ms after changes stop before autofilling
   autofillDebounceTimer = setTimeout(async () => {
-    console.log('🟡 CONTENT: Form changed, checking autofill...')
-
     if (autoDetectEnabled) {
       // Auto-fill the new form
       const result = await autofillPage()
@@ -765,16 +763,12 @@ async function initialize() {
     return
   }
 
-  console.log('🟢 CONTENT: Job application page detected')
-
   addExtensionIndicator()
   attachFormListeners()
 
   // Get user's auto-detect preference
   const settings = await chrome.storage.local.get('autoDetectEnabled')
   const autoDetectEnabled = settings.autoDetectEnabled ?? true
-
-  console.log('🔵 CONTENT: Auto-detect enabled:', autoDetectEnabled)
 
   if (autoDetectEnabled) {
     // Auto-detect is ON - auto-fill after delay
@@ -809,7 +803,6 @@ async function initialize() {
     })
 
     if (hasFormMutation || hasFormChanged()) {
-      console.log('🟡 CONTENT: Form mutation detected!')
       hasShownPopup = false
       attachFormListeners()
       debounceAutofill(autoDetectEnabled)
@@ -825,7 +818,6 @@ async function initialize() {
   setInterval(() => {
     const currentUrl = window.location.href
     if (currentUrl !== lastUrl) {
-      console.log('🟡 CONTENT: URL changed (SPA navigation)')
       lastUrl = currentUrl
       hasShownPopup = false
 
