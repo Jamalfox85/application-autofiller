@@ -189,8 +189,8 @@ watch(autoDetectEnabled, async (newValue) => {
             <div class="profile-avatar">
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
                 <circle cx="24" cy="24" r="24" fill="#2D3748" />
-                <circle cx="24" cy="20" r="8" fill="#B9E3C6;" />
-                <path d="M8 40c0-8.837 7.163-16 16-16s16 7.163 16 16" fill="#B9E3C6;" />
+                <circle cx="24" cy="20" r="8" fill="#59C9A5;" />
+                <path d="M8 40c0-8.837 7.163-16 16-16s16 7.163 16 16" fill="#59C9A5;" />
               </svg>
             </div>
           </div>
@@ -202,7 +202,7 @@ watch(autoDetectEnabled, async (newValue) => {
         <h3 class="section-title">RESUME</h3>
         <div class="resume-item">
           <div class="file-info">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="#B9E3C6;">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="#59C9A5;">
               <path
                 d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
               />
@@ -218,7 +218,7 @@ watch(autoDetectEnabled, async (newValue) => {
         <h3 class="section-title">SAVED RESPONSES</h3>
         <div class="questions-item">
           <div class="questions-info">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="#B9E3C6">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="#59C9A5">
               <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
               <path
                 fill-rule="evenodd"
@@ -286,7 +286,7 @@ watch(autoDetectEnabled, async (newValue) => {
         <h3>DOCUMENTS</h3>
         <div class="document-item">
           <div class="doc-info">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="#B9E3C6;">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="#59C9A5;">
               <path
                 d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
               />
@@ -488,7 +488,7 @@ watch(autoDetectEnabled, async (newValue) => {
   gap: 6px;
   background: none;
   border: none;
-  color: #b9e3c6;
+  color: #59c9a5;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -595,7 +595,7 @@ watch(autoDetectEnabled, async (newValue) => {
 .view-btn {
   background: none;
   border: none;
-  color: #b9e3c6;
+  color: #59c9a5;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
