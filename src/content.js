@@ -25,6 +25,7 @@ async function autofillPage() {
     }
 
     const inputs = document.querySelectorAll('input, textarea, select')
+
     let filledCount = 0
 
     inputs.forEach((input) => {
@@ -33,7 +34,12 @@ async function autofillPage() {
         return
       }
 
-      if (input.value && input.value.trim() !== '') {
+      if (
+        input.value &&
+        input.value.trim() !== '' &&
+        input.type != 'checkbox' && // Prevent checkboxes and radio buttons from being filtered here
+        input.type != 'radio'
+      ) {
         return
       }
 
@@ -43,11 +49,12 @@ async function autofillPage() {
       const label = getFieldLabel(input)
       const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase()
       const autoComplete = (input.autocomplete || '').toLowerCase().replace(/\s+/g, '_')
+      const type = (input.type || '').toLowerCase()
 
       const fieldText =
-        `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete}`.toLowerCase()
+        `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
 
-      const fieldValue = matchFieldToData(fieldText, personalInfo, savedResponses)
+      const fieldValue = matchFieldToData(fieldText, personalInfo, savedResponses, type)
 
       if (fieldValue) {
         // Handle SELECT elements differently
@@ -55,7 +62,7 @@ async function autofillPage() {
           if (setSelectValue(input, fieldValue)) {
             filledCount++
           }
-        } else if (input.type === 'checkbox' || input.type === 'radio') {
+        } else if (input.type === 'checkbox') {
           const normalizedFieldValue = String(fieldValue).toLowerCase()
           const isChecked =
             normalizedFieldValue === 'true' ||
@@ -68,6 +75,14 @@ async function autofillPage() {
           input.dispatchEvent(new Event('change', { bubbles: true }))
 
           filledCount++
+        } else if (input.type === 'radio') {
+          const normalizedFieldValue = String(fieldValue)
+            .toLowerCase()
+            .replace(/[\s_-]/g, '')
+          let normalizedLabel = label.toLowerCase().replace(/[\s_-]/g, '')
+          if (normalizedLabel.includes(normalizedFieldValue)) {
+            input.checked = true
+          }
         } else {
           // Handle regular inputs and textareas
           input.value = fieldValue
@@ -92,14 +107,15 @@ async function autofillPage() {
   }
 }
 
-function matchFieldToData(fieldText, personalInfo, savedResponses) {
+function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
   const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_-]/g, '')
 
   // Special exclusion checks  i.e. - Don't match "city" if field contains these
   const exclusions = {
     address: ['2'],
     city: ['ethnicity', 'ethnic', 'race'],
-    state: ['estate', 'statement', 'realestate'],
+    state: ['estate', 'statement', 'realestate', 'unitedstates'],
+    phone: ['indefinitely'],
   }
 
   // Check standard fields
@@ -116,13 +132,16 @@ function matchFieldToData(fieldText, personalInfo, savedResponses) {
           }
         }
 
+        if (key === 'workAuthorization') {
+          return matchAuthorizationValue(fieldText, personalInfo.workAuthorization, inputType)
+        }
         return personalInfo[key] || null
       }
     }
   }
 
   // Special case: full name
-  if (normalizedFieldText.includes('fullname')) {
+  if (normalizedFieldText.includes('fullname') || normalizedFieldText.includes('legalname')) {
     const firstName = personalInfo.firstName || ''
     const lastName = personalInfo.lastName || ''
     return `${firstName} ${lastName}`.trim()
@@ -167,11 +186,21 @@ function matchFieldToData(fieldText, personalInfo, savedResponses) {
     }
   }
 
+  // Eligibility Fields
+  if (fieldText.includes('areyoueligible')) {
+  }
+
   // Check special cases for saved responses
   const saved = matchSavedResponse(fieldText, savedResponses)
   if (saved != null) return saved
 
   return null
+}
+
+function matchAuthorizationValue(fieldText, inputType, workAuthorization) {
+  // The example this was created for is too much of an edge case to accommodate, but this will
+  // be helpful in a later challenge.
+  return fieldText
 }
 
 /**
@@ -307,6 +336,13 @@ function getFieldLabel(input) {
     }
   }
 
+  if (input.name) {
+    const label = document.querySelector(`label[for="${input.name}"]`)
+    if (label) {
+      return label.textContent.toLowerCase()
+    }
+  }
+
   const parentLabel = input.closest('label')
   if (parentLabel) {
     return parentLabel.textContent.toLowerCase()
@@ -322,67 +358,6 @@ function getFieldLabel(input) {
 
   return ''
 }
-
-// Add a subtle indicator when extension is ready
-// function addExtensionIndicator() {
-//   // Only add on job application sites
-//   const url = window.location.href.toLowerCase()
-//   const jobSites = [
-//     'greenhouse',
-//     'workday',
-//     'lever',
-//     'indeed',
-//     'linkedin',
-//     'apply',
-//     'careers',
-//     'jobs',
-//   ]
-
-//   if (!jobSites.some((site) => url.includes(site))) {
-//     return
-//   }
-
-//   const indicator = document.createElement('div')
-//   indicator.id = 'job-autofill-indicator'
-//   indicator.innerHTML = '⚡ Autofill Ready'
-//   indicator.style.cssText = `
-//     position: fixed;
-//     bottom: 20px;
-//     right: 20px;
-//     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-//     color: white;
-//     padding: 8px 16px;
-//     border-radius: 20px;
-//     font-size: 12px;
-//     font-weight: 600;
-//     z-index: 999999;
-//     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-//     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-//     cursor: pointer;
-//     transition: transform 0.2s;
-//   `
-
-//   indicator.addEventListener('mouseenter', () => {
-//     indicator.style.transform = 'scale(1.05)'
-//   })
-
-//   indicator.addEventListener('mouseleave', () => {
-//     indicator.style.transform = 'scale(1)'
-//   })
-
-//   indicator.addEventListener('click', () => {
-//     chrome.runtime.sendMessage({ action: 'openPopup' })
-//   })
-
-//   document.body.appendChild(indicator)
-
-//   // Auto-hide after 5 seconds
-//   setTimeout(() => {
-//     indicator.style.opacity = '0'
-//     indicator.style.transition = 'opacity 0.5s'
-//     setTimeout(() => indicator.remove(), 500)
-//   }, 5000)
-// }
 
 function addExtensionIndicator() {
   // Only add on job application sites
@@ -612,7 +587,6 @@ async function saveLearnedData(capturedData) {
   await chrome.storage.local.set({ personalInfo: mergedInfo })
 
   const totalLearned = Object.keys(learnedInfo).length + (learnedEducation.schoolName ? 1 : 0)
-  showLearnNotification(totalLearned)
 }
 
 let hasShownPopup = false
@@ -622,12 +596,18 @@ let autofillDebounceTimer = null
 
 function hasFormChanged() {
   const forms = document.querySelectorAll('form')
-  const currentFormHtml = Array.from(forms)
-    .map((f) => f.innerHTML)
-    .join('')
 
-  if (currentFormHtml !== lastFormHtml && currentFormHtml.length > 100) {
-    lastFormHtml = currentFormHtml
+  // Create a signature of current forms (IDs + input count)
+  const currentFormSignature = Array.from(forms)
+    .map((f) => {
+      const formId = f.id || f.className || 'unnamed'
+      const inputCount = f.querySelectorAll('input, textarea, select').length
+      return `${formId}:${inputCount}`
+    })
+    .join('|')
+
+  if (currentFormSignature !== lastFormHtml && currentFormSignature.length > 0) {
+    lastFormHtml = currentFormSignature
     return true
   }
   return false
@@ -657,45 +637,27 @@ function debounceAutofill(autoDetectEnabled) {
   }, 800)
 }
 
-// function initialize() {
-//   addExtensionIndicator()
-//   attachFormListeners()
-
-//   // Initial autofill after page loads
-//   setTimeout(() => {
-//     autofillPage()
-//   }, 1000)
-
-//   // Watch for form changes (multi-step forms)
-//   const observer = new MutationObserver((mutations) => {
-//     // Check if forms were added or changed
-//     const hasFormMutation = mutations.some((mutation) => {
-//       return Array.from(mutation.addedNodes).some((node) => {
-//         return (
-//           node.nodeType === 1 &&
-//           (node.tagName === 'FORM' ||
-//             node.querySelector('form') ||
-//             node.querySelector('input') ||
-//             node.querySelector('textarea'))
-//         )
-//       })
-//     })
-
-//     if (hasFormMutation || hasFormChanged()) {
-//       attachFormListeners()
-//       debounceAutofill() // Auto-fill after changes settle
-//     }
-//   })
-
-//   observer.observe(document.body, {
-//     childList: true,
-//     subtree: true,
-//   })
-// }
-// Add this function to your content.js
 function isLikelyJobApplicationPage() {
   // Check URL for job-related keywords
   const url = window.location.href.toLowerCase()
+
+  const excludePatterns = [
+    '/jobs/search',
+    '/jobs?',
+    'indeed.com/?',
+    'indeed.com/m/',
+    'linkedin.com/jobs/',
+    'linkedin.com/feed',
+    '/search',
+    '/browse',
+  ]
+
+  const isExcludedPage = excludePatterns.some((pattern) => url.includes(pattern))
+
+  if (isExcludedPage) {
+    return false
+  }
+
   const jobKeywords = [
     'job',
     'career',
@@ -853,14 +815,11 @@ function showAutofillNotification(fieldsCount) {
   const notification = document.createElement('div')
   notification.className = 'rapidapply-autofill-notification'
   notification.innerHTML = `
-    <div class="rapidapply-notification-content">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="flex-shrink: 0;">
-        <circle cx="10" cy="10" r="10" fill="#10B981"/>
-        <path d="M6 10l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <span>✨ Auto-filled ${fieldsCount} field${fieldsCount !== 1 ? 's' : ''}</span>
-    </div>
-  `
+  <div class="rapidapply-notification-content">
+    <img src="${chrome.runtime.getURL('assets/images/logo.png')}" width="20" height="20" style="flex-shrink: 0;" />
+    <span>Auto-filled ${fieldsCount} field${fieldsCount !== 1 ? 's' : ''} ✨ </span>
+  </div>
+`
 
   document.body.appendChild(notification)
 

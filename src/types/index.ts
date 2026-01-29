@@ -23,6 +23,9 @@ export interface PersonalInfo {
   // Other Information
   desiredSalary?: number
   workAuthorization?: string
+
+  // Workday
+  accountPassword?: string
 }
 
 export interface Education {

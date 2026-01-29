@@ -22,7 +22,7 @@ const showQuestionsDialog = ref(false)
 // State
 const activeView = ref<'main' | 'success'>('main')
 
-const autoDetectEnabled = ref(true)
+const autoDetectEnabled = ref(false)
 const fieldsDetected = ref(0)
 const platformDetected = ref('LINKEDIN')
 
@@ -96,8 +96,8 @@ const openSettings = () => {
   showNotification('Settings coming soon!')
 }
 
-const replaceResume = () => {
-  showNotification('Resume upload coming soon!')
+const openLink = (url: string) => {
+  chrome.tabs.create({ url })
 }
 
 // Lifecycle
@@ -122,13 +122,8 @@ watch(autoDetectEnabled, async (newValue) => {
     <!-- Header -->
     <header class="header">
       <div class="brand">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
-          <rect x="3" y="14" width="7" height="7" rx="1" fill="#4F7CFF" />
-          <rect x="14" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
-          <rect x="14" y="14" width="7" height="7" rx="1" fill="#4F7CFF" opacity="0.4" />
-        </svg>
-        <h1>RapidApply</h1>
+        <img src="./assets/images/logo.png" />
+        <h1>Fillr</h1>
       </div>
       <div class="header-actions">
         <span class="platform-badge">{{ platformDetected }}</span>
@@ -330,8 +325,12 @@ watch(autoDetectEnabled, async (newValue) => {
     </div>
 
     <footer class="footer">
-      <!-- <button class="footer-link">Support</button>
-      <button class="footer-link">Documentation</button> -->
+      <button class="footer-link" @click="openLink('https://www.gofillr.com/private-policy')">
+        Private Policy
+      </button>
+      <button class="footer-link" @click="openLink('https://www.gofillr.com/support')">
+        Support
+      </button>
       <span class="version">v1.0.0</span>
     </footer>
 

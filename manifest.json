@@ -1,12 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Job Application Autofill",
+  "name": "Fillr - Job Application Autofill",
   "version": "1.0.0",
   "description": "Autofill job applications instantly. Save your info once, apply to hundreds of jobs in seconds.",
-  "permissions": ["storage", "activeTab", "scripting"],
-  "host_permissions": ["https://*/*", "http://*/*"],
+  "permissions": ["storage", "activeTab"],
   "action": {
     "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "content_scripts": [
     {
@@ -25,7 +30,13 @@
         "*://*.taleo.net/*",
         "*://*.smartrecruiters.com/*",
         "*://*.breezy.hr/*",
-        "*://*.bamboohr.com/*"
+        "*://*.bamboohr.com/*",
+        "*://*.jobs.com/*",
+        "*://*.ashbyhq.com/*",
+        "*://*.jobvite.com/*",
+        "*://*.applytojob.com/*",
+        "*://*.recruitee.com/*",
+        "*://*.workable.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
@@ -37,7 +48,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/*.png"],
+      "resources": ["icons/*.png", "assets/images/*"],
       "matches": [
         "*://*.indeed.com/*",
         "*://*.linkedin.com/*",
@@ -53,7 +64,13 @@
         "*://*.taleo.net/*",
         "*://*.smartrecruiters.com/*",
         "*://*.breezy.hr/*",
-        "*://*.bamboohr.com/*"
+        "*://*.bamboohr.com/*",
+        "*://*.jobs.com/*",
+        "*://*.ashbyhq.com/*",
+        "*://*.jobvite.com/*",
+        "*://*.applytojob.com/*",
+        "*://*.recruitee.com/*",
+        "*://*.workable.com/*"
       ]
     }
   ]

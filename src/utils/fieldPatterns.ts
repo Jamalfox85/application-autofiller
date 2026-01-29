@@ -3,7 +3,6 @@ export const FIELD_PATTERNS = {
     'firstname',
     'first_name',
     'first-name',
-    'fname',
     'forename',
     'given-name',
     'givenname',
@@ -13,7 +12,6 @@ export const FIELD_PATTERNS = {
     'lastname',
     'last_name',
     'last-name',
-    'lname',
     'surname',
     'family-name',
     'familyname',
@@ -222,6 +220,8 @@ export const FIELD_PATTERNS = {
     'visa_status',
     'sponsorship',
   ],
+
+  accountPassword: ['password', 'new-password'],
 }
 
 // // Helper function to match field names (bonus!)

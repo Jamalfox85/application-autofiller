@@ -33,6 +33,7 @@ const editableProfile = ref<PersonalInfo>({
   age18OrOlder: '',
   desiredSalary: 0,
   workAuthorization: '',
+  accountPassword: '',
 })
 
 // Watch for when dialog opens to populate form
@@ -394,6 +395,21 @@ const handleClose = () => {
                 </select>
               </div>
             </div>
+
+            <!-- Password Management -->
+            <div class="form-section">
+              <h3>Application Account Password (common on Workday)</h3>
+
+              <div class="form-group">
+                <label for="accountPassword">Password</label>
+                <input
+                  type="password"
+                  id="accountPassword"
+                  v-model="editableProfile.accountPassword"
+                  placeholder="Enter your application account password"
+                />
+              </div>
+            </div>
           </form>
         </div>
 
@@ -538,6 +554,7 @@ const handleClose = () => {
 .form-group input[type='email'],
 .form-group input[type='tel'],
 .form-group input[type='url'],
+.form-group input[type='password'],
 .form-group select {
   width: 100%;
   max-width: 100%; /* Prevent overflow */
