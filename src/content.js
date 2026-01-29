@@ -57,6 +57,7 @@ async function autofillPage() {
       const fieldValue = matchFieldToData(fieldText, personalInfo, savedResponses, type)
 
       if (fieldValue) {
+        console.log("Field Text: '", fieldText, "' => Value: '", fieldValue, "'")
         // Handle SELECT elements differently
         if (input.tagName === 'SELECT') {
           if (setSelectValue(input, fieldValue)) {
@@ -131,6 +132,12 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
             continue // Skip this pattern match
           }
         }
+
+        console.log('---------------')
+        console.log('FIELD: ', fieldText)
+        console.log('KEY: ', key)
+        console.log('PATTERN: ', pattern)
+        console.log('---------------')
 
         if (key === 'workAuthorization') {
           return matchAuthorizationValue(fieldText, personalInfo.workAuthorization, inputType)

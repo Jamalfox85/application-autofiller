@@ -532,7 +532,7 @@ const handleDelete = (id: number) => {
 
 .btn-save {
   padding: 10px 20px;
-  background: #4f7cff;
+  background: rgb(72, 9, 233);
   color: white;
   border: none;
   border-radius: 6px;
@@ -608,7 +608,7 @@ const handleDelete = (id: number) => {
 /* Footer Buttons */
 .btn-primary-dialog {
   padding: 10px 20px;
-  background: #4f7cff;
+  background: rgb(72, 9, 233);
   color: white;
   border: none;
   border-radius: 6px;
