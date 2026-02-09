@@ -13,6 +13,7 @@ export interface PersonalInfo {
   github?: string
   resumeFile?: string
   education: Education[]
+  experience: Experience[]
 
   // Demographic Information
   gender?: string
@@ -36,6 +37,16 @@ export interface Education {
   major: string
   graduationYear: string
   gpa?: string
+}
+
+export interface Experience {
+  id: number
+  companyName: string
+  jobTitle: string
+  startDate: string
+  endDate?: string
+  present?: boolean
+  description: string
 }
 
 export interface SavedResponse {

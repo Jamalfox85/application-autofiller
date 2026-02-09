@@ -27,6 +27,7 @@ const editableProfile = ref<PersonalInfo>({
   github: '',
   resumeFile: '',
   education: [],
+  experience: [],
   gender: '',
   raceEthnicity: '',
   disabilityStatus: '',
@@ -42,11 +43,10 @@ watch(
   () => props.show,
   (isShowing) => {
     if (isShowing) {
-      const educationArray = Object.values(props.personalInfo.education)
-
       editableProfile.value = {
         ...props.personalInfo,
-        education: educationArray,
+        education: props.personalInfo.education || [],
+        experience: props.personalInfo.experience || [],
       }
     }
   },
@@ -65,6 +65,22 @@ const addEducation = () => {
 
 const removeEducation = (index: number) => {
   editableProfile.value.education = editableProfile.value.education.filter((_, i) => i !== index)
+}
+
+const addExperience = () => {
+  editableProfile.value.experience.push({
+    id: Date.now(),
+    companyName: '',
+    jobTitle: '',
+    startDate: '',
+    endDate: '',
+    present: false,
+    description: '',
+  })
+}
+
+const removeExperience = (index: number) => {
+  editableProfile.value.experience = editableProfile.value.experience.filter((_, i) => i !== index)
 }
 
 const handleSave = () => {
@@ -269,6 +285,97 @@ const handleClose = () => {
                     <label :for="'gpa' + index">GPA (optional)</label>
                     <input type="text" :id="'gpa' + index" v-model="edu.gpa" placeholder="3.8" />
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Experience -->
+            <div class="form-section">
+              <div class="section-header">
+                <h3>Experience</h3>
+                <button type="button" class="btn-add-small" @click="addExperience">
+                  + Add Experience
+                </button>
+              </div>
+
+              <div v-if="editableProfile.experience.length === 0" class="empty-education">
+                <p>No experience added yet. Click "+ Add Experience" to get started.</p>
+              </div>
+
+              <div
+                v-for="(exp, index) in editableProfile.experience"
+                :key="exp.id"
+                class="education-item"
+              >
+                <div class="education-header">
+                  <span class="education-number">Experience {{ index + 1 }}</span>
+                  <button type="button" class="btn-remove-small" @click="removeExperience(index)">
+                    Remove
+                  </button>
+                </div>
+
+                <div class="form-group">
+                  <label :for="'companyName' + index">Company Name</label>
+                  <input
+                    type="text"
+                    :id="'companyName' + index"
+                    v-model="exp.companyName"
+                    placeholder="Acme Corp"
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label :for="'jobTitle' + index">Job Title</label>
+                  <input
+                    type="text"
+                    :id="'jobTitle' + index"
+                    v-model="exp.jobTitle"
+                    placeholder="Software Engineer"
+                  />
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label :for="'startDate' + index">Start Date</label>
+                    <input
+                      type="month"
+                      :id="'startDate' + index"
+                      v-model="exp.startDate"
+                      placeholder="2020-01"
+                    />
+                  </div>
+
+                  <div class="form-group">
+                    <label :for="'endDate' + index">End Date</label>
+                    <input
+                      type="month"
+                      :id="'endDate' + index"
+                      v-model="exp.endDate"
+                      placeholder="2023-12"
+                      :disabled="exp.present"
+                    />
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input
+                      type="checkbox"
+                      v-model="exp.present"
+                      @change="exp.present ? (exp.endDate = '') : null"
+                    />
+                    <span>I currently work here</span>
+                  </label>
+                </div>
+
+                <div class="form-group">
+                  <label :for="'description' + index">Description</label>
+                  <textarea
+                    :id="'description' + index"
+                    v-model="exp.description"
+                    placeholder="Describe your responsibilities and achievements..."
+                    rows="4"
+                  ></textarea>
                 </div>
               </div>
             </div>
@@ -721,5 +828,48 @@ const handleClose = () => {
   margin: 0 0 16px 0;
   font-style: italic;
   line-height: 1.4;
+}
+
+.form-group textarea {
+  width: 100%;
+  max-width: 100%;
+  padding: 10px 12px;
+  background: #1a202c;
+  border: 1px solid #4a5568;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e2e8f0;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-group textarea:focus {
+  outline: none;
+  border-color: #4f7cff;
+}
+
+.form-group textarea::placeholder {
+  color: #718096;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.checkbox-label input[type='checkbox'] {
+  width: auto;
+  cursor: pointer;
+}
+
+.checkbox-label span {
+  user-select: none;
 }
 </style>

@@ -30,7 +30,7 @@ async function autofillPage() {
     let filledCount = 0
 
     inputs.forEach((input) => {
-      console.log("INPUT: '", input)
+      console.log("INPUT: '", input.pattern)
       // Skip hidden, submit, button inputs
       if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button') {
         return
@@ -55,6 +55,7 @@ async function autofillPage() {
 
       const fieldText =
         `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
+      console.log('FIELD TEXT: ', fieldText)
 
       const matchResult = matchFieldToData(fieldText, personalInfo, savedResponses, type)
 
@@ -63,8 +64,8 @@ async function autofillPage() {
       }
 
       const { fieldValue, fieldKey } = matchResult
-      console.log('fieldKey: ', fieldKey)
-      console.log('fieldValue: ', fieldValue)
+
+      console.log('FIELD VALUE: ', fieldValue)
 
       if (fieldValue) {
         // Handle SELECT elements differently
@@ -93,7 +94,34 @@ async function autofillPage() {
           if (normalizedLabel.includes(normalizedFieldValue)) {
             input.checked = true
           }
+        } else if (input.pattern && fieldText.includes('year')) {
+          console.log('PING')
+          // Format date to match pattern if field is looking for a year
+          const pattern = input.pattern
+          let formattedValue = fieldValue
+
+          // Check if fieldValue is a date (YYYY-MM format from month input)
+          if (typeof fieldValue === 'string' && fieldValue.includes('-')) {
+            const [year, month] = fieldValue.split('-')
+
+            // If pattern expects just year (4 digits)
+            if (pattern.includes('\\d{4}') || pattern === '[0-9]{4}') {
+              formattedValue = year
+            }
+            // If pattern expects MM/YYYY or similar
+            else if (pattern.includes('/')) {
+              formattedValue = `${month}/${year}`
+            }
+          }
+
+          input.value = formattedValue
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+          filledCount++
         } else {
+          console.log('CONDITIONALA')
+          console.log('PATERN: ', input.pattern)
+          console.log('FIELD TEx: ', fieldText)
           // Handle regular inputs and textareas
           input.value = fieldValue
 
@@ -153,7 +181,6 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
       normalizedFieldText.includes('college') ||
       normalizedFieldText.includes('institution')
     ) {
-      console.log('school name match: ', latestEducation.schoolName)
       return { fieldValue: latestEducation.schoolName || null, fieldKey: 'schoolName' }
     }
 
@@ -163,7 +190,6 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
       normalizedFieldText.includes('field') ||
       normalizedFieldText.includes('subject')
     ) {
-      console.log('major match: ', latestEducation.major)
       return { fieldValue: latestEducation.major || null, fieldKey: 'major' }
     }
     if (normalizedFieldText.includes('degree') && !normalizedFieldText.includes('type')) {
@@ -182,6 +208,51 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
     }
   }
 
+  // Experience fields - use most recent experience entry
+  if (personalInfo.experience && personalInfo.experience.length > 0) {
+    const latestExperience = personalInfo.experience[0]
+
+    if (
+      normalizedFieldText.includes('company') ||
+      normalizedFieldText.includes('employer') ||
+      normalizedFieldText.includes('organization')
+    ) {
+      return { fieldValue: latestExperience.companyName || null, fieldKey: 'companyName' }
+    }
+
+    if (
+      normalizedFieldText.includes('description') ||
+      normalizedFieldText.includes('responsibilities') ||
+      normalizedFieldText.includes('duties') ||
+      normalizedFieldText.includes('professional background')
+    ) {
+      return { fieldValue: latestExperience.description || null, fieldKey: 'description' }
+    }
+
+    if (
+      normalizedFieldText.includes('jobtitle') ||
+      normalizedFieldText.includes('position') ||
+      normalizedFieldText.includes('role') ||
+      (normalizedFieldText.includes('title') && !normalizedFieldText.includes('degree'))
+    ) {
+      return { fieldValue: latestExperience.jobTitle || null, fieldKey: 'jobTitle' }
+    }
+
+    if (
+      normalizedFieldText.includes('startdate') ||
+      (normalizedFieldText.includes('start') && normalizedFieldText.includes('date'))
+    ) {
+      return { fieldValue: latestExperience.startDate || null, fieldKey: 'startDate' }
+    }
+
+    if (
+      normalizedFieldText.includes('enddate') ||
+      (normalizedFieldText.includes('end') && normalizedFieldText.includes('date'))
+    ) {
+      return { fieldValue: latestExperience.endDate || null, fieldKey: 'endDate' }
+    }
+  }
+
   // Check standard fields
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
     for (const pattern of patterns) {
@@ -196,12 +267,6 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
           }
         }
 
-        console.log('---------------')
-        console.log('FIELD: ', fieldText)
-        console.log('KEY: ', key)
-        console.log('PATTERN: ', pattern)
-        console.log('---------------')
-
         if (key === 'workAuthorization') {
           return {
             fieldValue: matchAuthorizationValue(
@@ -212,7 +277,6 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
             fieldKey: key,
           }
         }
-        console.log('FIELD: ', fieldText)
         return { fieldValue: personalInfo[key] || null, fieldKey: key }
       }
     }
@@ -290,7 +354,6 @@ function matchSavedResponse(fieldText, savedResponses) {
 }
 
 function setSelectValue(selectElement, desiredValue, fieldKey) {
-  console.log('SELECT ELEMENT: ', selectElement)
   const options = Array.from(selectElement.options)
   const normalizedDesired = desiredValue.toLowerCase().trim()
 
