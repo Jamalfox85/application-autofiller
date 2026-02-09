@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fillr - Job Application Autofill",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Autofill job applications instantly. Save your info once, apply to hundreds of jobs in seconds.",
   "permissions": ["storage", "activeTab"],
   "action": {
@@ -22,6 +22,7 @@
         "*://*.lever.co/*",
         "*://*.workday.com/*",
         "*://*.myworkdayjobs.com/*",
+        "*://*.myworkdaysite.com/*",
         "*://*.icims.com/*",
         "*://*.resumator.com/*",
         "*://*.ultipro.com/*",
@@ -36,7 +37,8 @@
         "*://*.jobvite.com/*",
         "*://*.applytojob.com/*",
         "*://*.recruitee.com/*",
-        "*://*.workable.com/*"
+        "*://*.workable.com/*",
+        "*://*.joinstellar.ai/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],

@@ -7,6 +7,7 @@ export interface PersonalInfo {
   city: string
   state: string
   zip: string
+  country: string
   linkedin?: string
   website: string
   github?: string

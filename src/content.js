@@ -1,6 +1,7 @@
 // Runs on all pages on load
 
 import { FIELD_PATTERNS } from './utils/fieldPatterns.ts'
+import { RELATIVE_MATCHES } from './utils/relativeMatches.ts'
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -29,6 +30,7 @@ async function autofillPage() {
     let filledCount = 0
 
     inputs.forEach((input) => {
+      console.log("INPUT: '", input)
       // Skip hidden, submit, button inputs
       if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button') {
         return
@@ -54,13 +56,20 @@ async function autofillPage() {
       const fieldText =
         `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
 
-      const fieldValue = matchFieldToData(fieldText, personalInfo, savedResponses, type)
+      const matchResult = matchFieldToData(fieldText, personalInfo, savedResponses, type)
+
+      if (!matchResult) {
+        return
+      }
+
+      const { fieldValue, fieldKey } = matchResult
+      console.log('fieldKey: ', fieldKey)
+      console.log('fieldValue: ', fieldValue)
 
       if (fieldValue) {
-        console.log("Field Text: '", fieldText, "' => Value: '", fieldValue, "'")
         // Handle SELECT elements differently
         if (input.tagName === 'SELECT') {
-          if (setSelectValue(input, fieldValue)) {
+          if (setSelectValue(input, fieldValue, fieldKey)) {
             filledCount++
           }
         } else if (input.type === 'checkbox') {
@@ -117,6 +126,60 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
     city: ['ethnicity', 'ethnic', 'race'],
     state: ['estate', 'statement', 'realestate', 'unitedstates'],
     phone: ['indefinitely'],
+    major: ['degree'],
+  }
+
+  // Special case: full name
+  if (normalizedFieldText.includes('fullname') || normalizedFieldText.includes('legalname')) {
+    const firstName = personalInfo.firstName || ''
+    const lastName = personalInfo.lastName || ''
+    return { fieldValue: `${firstName} ${lastName}`.trim(), fieldKey: 'fullName' }
+  }
+
+  // Special case: Current loccation (May only be jobs.lever.co)
+  if (normalizedFieldText.includes('location-input')) {
+    const city = personalInfo.city || ''
+    const state = personalInfo.state || ''
+    return { fieldValue: `${city}, ${state}`.trim(), fieldKey: 'location' }
+  }
+
+  // Education fields - use most recent education entry
+  if (personalInfo.education && personalInfo.education.length > 0) {
+    const latestEducation = personalInfo.education[0]
+
+    if (
+      normalizedFieldText.includes('school') ||
+      normalizedFieldText.includes('university') ||
+      normalizedFieldText.includes('college') ||
+      normalizedFieldText.includes('institution')
+    ) {
+      console.log('school name match: ', latestEducation.schoolName)
+      return { fieldValue: latestEducation.schoolName || null, fieldKey: 'schoolName' }
+    }
+
+    if (
+      normalizedFieldText.includes('major') ||
+      normalizedFieldText.includes('study') ||
+      normalizedFieldText.includes('field') ||
+      normalizedFieldText.includes('subject')
+    ) {
+      console.log('major match: ', latestEducation.major)
+      return { fieldValue: latestEducation.major || null, fieldKey: 'major' }
+    }
+    if (normalizedFieldText.includes('degree') && !normalizedFieldText.includes('type')) {
+      return { fieldValue: latestEducation.degreeType || null, fieldKey: 'degreeType' }
+    }
+
+    if (
+      normalizedFieldText.includes('graduation') ||
+      (normalizedFieldText.includes('year') && normalizedFieldText.includes('grad'))
+    ) {
+      return { fieldValue: latestEducation.graduationYear || null, fieldKey: 'graduationYear' }
+    }
+
+    if (normalizedFieldText.includes('gpa')) {
+      return { fieldValue: latestEducation.gpa || null, fieldKey: 'gpa' }
+    }
   }
 
   // Check standard fields
@@ -140,56 +203,18 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
         console.log('---------------')
 
         if (key === 'workAuthorization') {
-          return matchAuthorizationValue(fieldText, personalInfo.workAuthorization, inputType)
+          return {
+            fieldValue: matchAuthorizationValue(
+              fieldText,
+              personalInfo.workAuthorization,
+              inputType,
+            ),
+            fieldKey: key,
+          }
         }
-        return personalInfo[key] || null
+        console.log('FIELD: ', fieldText)
+        return { fieldValue: personalInfo[key] || null, fieldKey: key }
       }
-    }
-  }
-
-  // Special case: full name
-  if (normalizedFieldText.includes('fullname') || normalizedFieldText.includes('legalname')) {
-    const firstName = personalInfo.firstName || ''
-    const lastName = personalInfo.lastName || ''
-    return `${firstName} ${lastName}`.trim()
-  }
-
-  // Special case: Current loccation (May only be jobs.lever.co)
-  if (normalizedFieldText.includes('location-input')) {
-    const city = personalInfo.city || ''
-    const state = personalInfo.state || ''
-    return `${city}, ${state}`.trim()
-  }
-
-  // Education fields - use most recent education entry
-  if (personalInfo.education && personalInfo.education.length > 0) {
-    const latestEducation = personalInfo.education[0]
-
-    if (
-      normalizedFieldText.includes('school') ||
-      normalizedFieldText.includes('university') ||
-      normalizedFieldText.includes('college')
-    ) {
-      return latestEducation.schoolName || null
-    }
-
-    if (normalizedFieldText.includes('degree') && !normalizedFieldText.includes('type')) {
-      return latestEducation.degreeType || null
-    }
-
-    if (normalizedFieldText.includes('major') || normalizedFieldText.includes('study')) {
-      return latestEducation.major || null
-    }
-
-    if (
-      normalizedFieldText.includes('graduation') ||
-      (normalizedFieldText.includes('year') && normalizedFieldText.includes('grad'))
-    ) {
-      return latestEducation.graduationYear || null
-    }
-
-    if (normalizedFieldText.includes('gpa')) {
-      return latestEducation.gpa || null
     }
   }
 
@@ -199,7 +224,7 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
 
   // Check special cases for saved responses
   const saved = matchSavedResponse(fieldText, savedResponses)
-  if (saved != null) return saved
+  if (saved != null) return { fieldValue: saved, fieldKey: 'savedResponse' }
 
   return null
 }
@@ -264,7 +289,8 @@ function matchSavedResponse(fieldText, savedResponses) {
   return best ? best.text : null
 }
 
-function setSelectValue(selectElement, desiredValue) {
+function setSelectValue(selectElement, desiredValue, fieldKey) {
+  console.log('SELECT ELEMENT: ', selectElement)
   const options = Array.from(selectElement.options)
   const normalizedDesired = desiredValue.toLowerCase().trim()
 
@@ -290,6 +316,21 @@ function setSelectValue(selectElement, desiredValue) {
         normalizedDesired.includes(opt.value.toLowerCase()) ||
         normalizedDesired.includes(opt.text.toLowerCase()),
     )
+  }
+
+  // Try 4: Relative match - desired value is similar to option
+  if (!matchedOption) {
+    let similarOptions = RELATIVE_MATCHES[fieldKey]?.find((group) =>
+      group.includes(normalizedDesired),
+    )
+    if (similarOptions) {
+      matchedOption = options.find((opt) =>
+        similarOptions.some(
+          (variant) =>
+            opt.value.toLowerCase() === variant || opt.value.toLowerCase().includes(variant),
+        ),
+      )
+    }
   }
 
   if (matchedOption) {

@@ -33,7 +33,6 @@ export const FIELD_PATTERNS = {
     'phone_number',
     'phone-number',
     'telephone',
-    'tel',
     'mobile',
     'cell',
     'contact',
@@ -60,6 +59,7 @@ export const FIELD_PATTERNS = {
     'state_province',
     'state-province',
   ],
+  country: ['country', 'nation', 'residence', 'citizenship'],
   zip: [
     'zip',
     'zipcode',
@@ -117,8 +117,17 @@ export const FIELD_PATTERNS = {
     'schoolname',
     'university_name',
     'universityname',
+    'institution',
   ],
-  degreeType: ['degree', 'degree_type', 'degreetype', 'degree_level', 'education_level'],
+  degreeType: [
+    'degree',
+    'degree_type',
+    'degreetype',
+    'degree_level',
+    'education_level',
+    'education_degree',
+    'highest_education_level',
+  ],
   major: [
     'major',
     // 'field',  // Too generic, causes false if site uses "field" in input attributes (i.e. id=jv-field-yhdqzfwb)
@@ -127,6 +136,7 @@ export const FIELD_PATTERNS = {
     'fieldofstudy',
     'major_subject',
     'concentration',
+    'degree_subject',
   ],
   graduationYear: [
     'graduation',

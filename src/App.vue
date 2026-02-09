@@ -283,7 +283,7 @@ watch(autoDetectEnabled, async (newValue) => {
       </div>
 
       <div class="success-info">
-        <h3>DOCUMENTS</h3>
+        <!-- <h3>DOCUMENTS</h3>
         <div class="document-item">
           <div class="doc-info">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="#59C9A5;">
@@ -295,9 +295,9 @@ watch(autoDetectEnabled, async (newValue) => {
               <div class="doc-name">John_Doe_Resume_2024.pdf</div>
               <div class="doc-status">Ready for auto-upload</div>
             </div>
-          </div>
+          </
           <button class="remove-btn">×</button>
-        </div>
+        </div> -->
       </div>
 
       <button class="success-btn" @click="activeView = 'main'">

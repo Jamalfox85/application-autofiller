@@ -21,6 +21,7 @@ const editableProfile = ref<PersonalInfo>({
   city: '',
   state: '',
   zip: '',
+  country: '',
   linkedin: '',
   website: '',
   github: '',
@@ -178,6 +179,15 @@ const handleClose = () => {
                     id="editZip"
                     v-model="editableProfile.zip"
                     placeholder="10001"
+                  />
+                </div>
+                <div class="form-group form-group-small">
+                  <label for="editCountry">Country</label>
+                  <input
+                    type="text"
+                    id="editCountry"
+                    v-model="editableProfile.country"
+                    placeholder="USA"
                   />
                 </div>
               </div>
