@@ -137,6 +137,7 @@ export const FIELD_PATTERNS = {
     'major_subject',
     'concentration',
     'degree_subject',
+    'discipline',
   ],
   graduationYear: [
     'graduation',

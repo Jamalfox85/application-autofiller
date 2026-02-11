@@ -1,4 +1,5 @@
 // Runs on all pages on load
+console.log('LOADED CONTENT SCRIPT')
 
 import { FIELD_PATTERNS } from './utils/fieldPatterns.ts'
 import { RELATIVE_MATCHES } from './utils/relativeMatches.ts'
@@ -30,9 +31,15 @@ async function autofillPage() {
     let filledCount = 0
 
     inputs.forEach((input) => {
-      console.log("INPUT: '", input.pattern)
       // Skip hidden, submit, button inputs
       if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button') {
+        return
+      }
+
+      // Skip honeypot / bot-catcher fields
+      const automationId = (input.getAttribute('data-automation-id') || '').toLowerCase()
+
+      if (automationId.includes('beecatcher') || automationId.includes('honeypot')) {
         return
       }
 
@@ -55,7 +62,6 @@ async function autofillPage() {
 
       const fieldText =
         `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
-      console.log('FIELD TEXT: ', fieldText)
 
       const matchResult = matchFieldToData(fieldText, personalInfo, savedResponses, type)
 
@@ -64,8 +70,6 @@ async function autofillPage() {
       }
 
       const { fieldValue, fieldKey } = matchResult
-
-      console.log('FIELD VALUE: ', fieldValue)
 
       if (fieldValue) {
         // Handle SELECT elements differently
@@ -95,7 +99,6 @@ async function autofillPage() {
             input.checked = true
           }
         } else if (input.pattern && fieldText.includes('year')) {
-          console.log('PING')
           // Format date to match pattern if field is looking for a year
           const pattern = input.pattern
           let formattedValue = fieldValue
@@ -119,9 +122,6 @@ async function autofillPage() {
           input.dispatchEvent(new Event('change', { bubbles: true }))
           filledCount++
         } else {
-          console.log('CONDITIONALA')
-          console.log('PATERN: ', input.pattern)
-          console.log('FIELD TEx: ', fieldText)
           // Handle regular inputs and textareas
           input.value = fieldValue
 
@@ -140,7 +140,6 @@ async function autofillPage() {
       message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
     }
   } catch (error) {
-    console.error('Autofill error:', error)
     return { success: false, message: 'Error during autofill' }
   }
 }
@@ -150,15 +149,21 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
 
   // Special exclusion checks  i.e. - Don't match "city" if field contains these
   const exclusions = {
-    address: ['2'],
+    address: ['city', 'postal', 'zip', 'state', 'country', 'province'], // Exclude these from address match
     city: ['ethnicity', 'ethnic', 'race'],
     state: ['estate', 'statement', 'realestate', 'unitedstates'],
-    phone: ['indefinitely'],
+    phone: ['indefinitely', 'extension'],
     major: ['degree'],
   }
 
   // Special case: full name
-  if (normalizedFieldText.includes('fullname') || normalizedFieldText.includes('legalname')) {
+  if (
+    normalizedFieldText.includes('fullname') ||
+    (normalizedFieldText.includes('legalname') &&
+      !normalizedFieldText.includes('firstname') &&
+      !normalizedFieldText.includes('lastname') &&
+      !normalizedFieldText.includes('middlename'))
+  ) {
     const firstName = personalInfo.firstName || ''
     const lastName = personalInfo.lastName || ''
     return { fieldValue: `${firstName} ${lastName}`.trim(), fieldKey: 'fullName' }
@@ -277,6 +282,8 @@ function matchFieldToData(fieldText, personalInfo, savedResponses, inputType) {
             fieldKey: key,
           }
         }
+        console.log('Matching key:', key)
+        console.log('Pattern:', pattern)
         return { fieldValue: personalInfo[key] || null, fieldKey: key }
       }
     }
@@ -706,6 +713,9 @@ let lastFormHtml = ''
 let autofillDebounceTimer = null
 
 function hasFormChanged() {
+  if (window.location.href.includes('workday')) {
+    return false
+  }
   const forms = document.querySelectorAll('form')
 
   // Create a signature of current forms (IDs + input count)
@@ -733,6 +743,7 @@ function debounceAutofill(autoDetectEnabled) {
   // Wait 800ms after changes stop before autofilling
   autofillDebounceTimer = setTimeout(async () => {
     if (autoDetectEnabled) {
+      console.log('Auto-detect enabled - attempting to autofill after form change')
       // Auto-fill the new form
       const result = await autofillPage()
       if (result.success) {
@@ -751,6 +762,7 @@ function debounceAutofill(autoDetectEnabled) {
 function isLikelyJobApplicationPage() {
   // Check URL for job-related keywords
   const url = window.location.href.toLowerCase()
+  console.log('Checking if job application page - URL:', url)
 
   const excludePatterns = [
     '/jobs/search',
@@ -764,6 +776,7 @@ function isLikelyJobApplicationPage() {
   ]
 
   const isExcludedPage = excludePatterns.some((pattern) => url.includes(pattern))
+  console.log('Is excluded page:', isExcludedPage)
 
   if (isExcludedPage) {
     return false
@@ -819,7 +832,7 @@ function isLikelyJobApplicationPage() {
   // Only consider it a job page if:
   // 1. URL has job keywords, OR
   // 2. Page has forms AND job-related input fields
-  return hasJobKeyword || (forms.length > 0 && hasJobInputs)
+  return hasJobKeyword && forms.length > 0 && hasJobInputs
 }
 
 async function initialize() {
@@ -846,6 +859,7 @@ async function initialize() {
   if (autoDetectEnabled) {
     // Auto-detect is ON - auto-fill after delay
     setTimeout(async () => {
+      console.log('initalize - auto-detect enabled - attempting to autofill')
       const result = await autofillPage()
       if (result.success) {
         showAutofillNotification(result.fieldsCount)
@@ -896,6 +910,7 @@ async function initialize() {
 
       setTimeout(async () => {
         if (autoDetectEnabled) {
+          console.log('URL changed - auto-detect enabled - attempting to autofill')
           const result = await autofillPage()
           if (result.success) {
             showAutofillNotification(result.fieldsCount)
