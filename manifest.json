@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Fillr - Job Application Autofill",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Autofill job applications instantly. Save your info once, apply to hundreds of jobs in seconds.",
   "permissions": ["storage", "activeTab"],
+  "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup.html"
   },
@@ -15,7 +16,8 @@
   },
   "content_scripts": [
     {
-      "matches": [
+      "matches": ["<all_urls>"],
+      "old_matches": [
         "*://*.indeed.com/*",
         "*://*.linkedin.com/*",
         "*://*.greenhouse.io/*",
@@ -42,7 +44,8 @@
       ],
       "js": ["content.js"],
       "css": ["content.css"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "background": {
@@ -51,7 +54,8 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/*.png", "assets/images/*"],
-      "matches": [
+      "matches": ["<all_urls>"],
+      "old_matches": [
         "*://*.indeed.com/*",
         "*://*.linkedin.com/*",
         "*://*.greenhouse.io/*",

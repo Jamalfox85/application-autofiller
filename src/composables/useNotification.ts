@@ -1,8 +1,6 @@
 import { ref } from 'vue'
-import type { NotificationType } from '../types'
 
 export function useNotification() {
-  //   const notification = ref<Notification | null>(null)
   const notification = ref({
     show: false,
     message: '',
