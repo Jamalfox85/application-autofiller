@@ -3,6 +3,7 @@ import { matchFieldToData } from './fieldMatch.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
 
 export async function autofillPage() {
+  console.log('ping')
   try {
     const personalInfoData = await chrome.storage.local.get('personalInfo')
     const personalInfo = personalInfoData.personalInfo

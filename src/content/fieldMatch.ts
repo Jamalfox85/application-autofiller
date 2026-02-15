@@ -20,17 +20,8 @@ export function matchFieldToData(
   }
 
   // Special case: full name
-  if (
-    normalizedFieldText.includes('fullname') ||
-    (normalizedFieldText.includes('legalname') &&
-      !normalizedFieldText.includes('firstname') &&
-      !normalizedFieldText.includes('lastname') &&
-      !normalizedFieldText.includes('middlename'))
-  ) {
-    const firstName = personalInfo.firstName || ''
-    const lastName = personalInfo.lastName || ''
-    return { fieldValue: `${firstName} ${lastName}`.trim(), fieldKey: 'fullName' }
-  }
+  const response = matchFullNameField(normalizedFieldText, personalInfo)
+  if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
 
   // Special case: Current loccation (May only be jobs.lever.co)
   if (normalizedFieldText.includes('location-input')) {
@@ -55,7 +46,6 @@ export function matchFieldToData(
     if (
       normalizedFieldText.includes('major') ||
       normalizedFieldText.includes('study') ||
-      normalizedFieldText.includes('field') ||
       normalizedFieldText.includes('subject')
     ) {
       return { fieldValue: latestEducation.major || null, fieldKey: 'major' }
@@ -141,9 +131,9 @@ export function matchFieldToData(
             fieldKey: key,
           }
         }
-        // console.log("field: ", fieldText)
-        // console.log('Matching key:', key)
-        // console.log('Pattern:', pattern)
+        console.log('field: ', fieldText)
+        console.log('Matching key:', key)
+        console.log('Pattern:', pattern)
         return { fieldValue: personalInfo[key as keyof PersonalInfo] || null, fieldKey: key }
       }
     }
@@ -158,6 +148,90 @@ export function matchFieldToData(
   if (saved != null) return { fieldValue: saved, fieldKey: 'savedResponse' }
 
   return null
+}
+
+function matchFullNameField(normalizedFieldText: string, personalInfo: PersonalInfo) {
+  const fullNamePositivePatterns = [
+    'fullname',
+    'full_name',
+    'full-name',
+    'legalname',
+    'legal_name',
+    'legal-name',
+    'completename',
+    'yourname',
+    'your_name',
+    'your-name',
+    'candidatename',
+    'applicantname',
+  ]
+
+  const partialNamePatterns = [
+    'firstname',
+    'first_name',
+    'first-name',
+    'fname',
+    'givenname',
+    'given_name',
+    'given-name',
+    'lastname',
+    'last_name',
+    'last-name',
+    'lname',
+    'surname',
+    'familyname',
+    'family_name',
+    'family-name',
+    'middlename',
+    'middle_name',
+    'middle-name',
+    'mname',
+    'preferredname',
+    'preferred_name',
+    'nickname',
+    'maidenname',
+    'maiden_name',
+  ]
+
+  const nonPersonNamePatterns = [
+    'companyname',
+    'company_name',
+    'businessname',
+    'business_name',
+    'schoolname',
+    'school_name',
+    'universityname',
+    'university_name',
+    'employername',
+    'employer_name',
+    'referencename',
+    'reference_name',
+    'username',
+    'user_name',
+    'accountname',
+    'account_name',
+    'displayname',
+    'display_name',
+    'filename',
+    'file_name',
+    'fieldname',
+    'field_name',
+    'systemfield',
+  ]
+
+  const isExplicitFullName = fullNamePositivePatterns.some((p) => normalizedFieldText.includes(p))
+  const isPartialNameField = partialNamePatterns.some((p) => normalizedFieldText.includes(p))
+  const isNonPersonName = nonPersonNamePatterns.some((p) => normalizedFieldText.includes(p))
+
+  // Check for "name" that's likely asking for a person's full name
+  // Must contain "name" but not be a partial or non-person name field
+  const containsName = normalizedFieldText.includes('name')
+
+  if (isExplicitFullName || (containsName && !isPartialNameField && !isNonPersonName)) {
+    const firstName = personalInfo.firstName || ''
+    const lastName = personalInfo.lastName || ''
+    return { fieldValue: `${firstName} ${lastName}`.trim(), fieldKey: 'fullName' }
+  }
 }
 
 /**

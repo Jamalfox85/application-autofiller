@@ -140,77 +140,99 @@ function hasFormChanged() {
 }
 
 function isLikelyJobApplicationPage() {
-  // Check URL for job-related keywords
   const url = window.location.href.toLowerCase()
 
-  const excludePatterns = [
-    '/jobs/search',
-    '/jobs?',
-    'indeed.com/?',
-    'indeed.com/m/',
-    'linkedin.com/jobs/',
-    'linkedin.com/feed',
-    '/search',
-    '/browse',
+  const jobPlatforms = [
+    'greenhouse.io',
+    'lever.co',
+    'workday.com',
+    'myworkdayjobs.com',
+    'icims.com',
+    'taleo',
+    'smartrecruiters.com',
+    'bamboohr.com',
+    'ashbyhq.com',
+    'jobvite.com',
+    'ultipro.com',
+    'breezy.hr',
+    'recruitee.com',
+    'jazz.co',
+    'applytojob.com',
   ]
 
-  const isExcludedPage = excludePatterns.some((pattern) => url.includes(pattern))
+  const isJobPlatform = jobPlatforms.some((platform) => url.includes(platform))
+  if (isJobPlatform) {
+    return true
+  }
 
-  if (isExcludedPage) {
+  const excludePatterns = [
+    'indeed.com/jobs?', // Indeed search results
+    'indeed.com/m/?', // Indeed mobile home
+    'linkedin.com/jobs/search', // LinkedIn job search
+    'linkedin.com/jobs/collections', // LinkedIn saved jobs
+    'linkedin.com/feed', // LinkedIn feed
+    '/jobs/search?', // Generic job search
+    '/careers/search?', // Career page search
+  ]
+
+  if (excludePatterns.some((pattern) => url.includes(pattern))) {
     return false
   }
 
-  const jobKeywords = [
-    'job',
-    'career',
-    'apply',
-    'application',
-    'applications',
-    'recruit',
-    'hiring',
-    'employment',
-    'position',
-    'vacancy',
-    'vacancies',
-    'greenhouse',
-    'workday',
-    'lever',
-    'indeed',
-    'linkedin',
-    'icims',
-    'taleo',
-    'smartrecruiters',
-    'bamboohr',
+  // URL patterns suggesting an application page (not just job listings)
+  const applicationUrlPatterns = [
+    '/apply',
+    '/application',
+    '/job/',
+    '/jobs/',
+    '/posting/',
+    '/position/',
+    '/career/',
+    '/careers/',
+    '/opportunity/',
   ]
 
-  const hasJobKeyword = jobKeywords.some((keyword) => url.includes(keyword))
+  const hasApplicationUrl = applicationUrlPatterns.some((pattern) => url.includes(pattern))
 
-  // Check page content for job-related forms
-  const forms = document.querySelectorAll('form')
+  // Check for job application input fields
   const inputs = document.querySelectorAll('input, textarea, select')
+  const jobFieldPatterns = [
+    'resume',
+    'cv',
+    'cover.letter',
+    'coverletter',
+    'linkedin',
+    'portfolio',
+    'salary',
+    'visa',
+    'sponsor',
+    'authorized',
+    'work.authorization',
+  ]
 
-  // Look for job application field patterns
-  const hasJobInputs = Array.from(inputs).some((input) => {
+  const basicFieldPatterns = ['first.?name', 'last.?name', 'email', 'phone']
+
+  let jobFieldCount = 0
+  let basicFieldCount = 0
+
+  inputs.forEach((input) => {
     const text =
       `${input.name} ${input.id} ${input.placeholder} ${input.getAttribute('aria-label') || ''}`.toLowerCase()
-    return (
-      text.includes('resume') ||
-      text.includes('cover') ||
-      text.includes('application') ||
-      text.includes('first name') ||
-      text.includes('last name') ||
-      text.includes('firstname') ||
-      text.includes('lastname') ||
-      text.includes('phone') ||
-      text.includes('experience') ||
-      text.includes('education')
-    )
+
+    if (jobFieldPatterns.some((p) => new RegExp(p).test(text))) {
+      jobFieldCount++
+    }
+    if (basicFieldPatterns.some((p) => new RegExp(p).test(text))) {
+      basicFieldCount++
+    }
   })
 
-  // Only consider it a job page if:
-  // 1. URL has job keywords, OR
-  // 2. Page has forms AND job-related input fields
-  return hasJobKeyword && forms.length > 0 && hasJobInputs
+  // It's likely a job application if:
+  // 1. URL suggests application page AND has basic form fields, OR
+  // 2. Page has job-specific fields (resume, cover letter, etc.)
+  const hasForm = document.querySelectorAll('form').length > 0
+
+  return (hasApplicationUrl && hasForm && basicFieldCount >= 2) || jobFieldCount >= 1
 }
 
 async function initialize() {
