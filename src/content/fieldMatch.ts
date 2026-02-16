@@ -131,9 +131,9 @@ export function matchFieldToData(
             fieldKey: key,
           }
         }
-        console.log('field: ', fieldText)
-        console.log('Matching key:', key)
-        console.log('Pattern:', pattern)
+        // console.log('field: ', fieldText)
+        // console.log('Matching key:', key)
+        // console.log('Pattern:', pattern)
         return { fieldValue: personalInfo[key as keyof PersonalInfo] || null, fieldKey: key }
       }
     }

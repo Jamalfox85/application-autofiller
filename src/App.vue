@@ -7,6 +7,10 @@ import type { PersonalInfo, Education, SavedResponse } from './types'
 import { usePersonalInfo } from './composables/usePersonalInfo'
 import { useSavedResponses } from './composables/useSavedResponses'
 import { useNotification } from './composables/useNotification'
+import Login from './components/Login.vue'
+import UpgradeModal from './components/UpgradeModal.vue'
+
+// import { api } from './lib/api'
 
 // Composables
 const { personalInfo, fullName, displayEmail, displayPhone, loadPersonalInfo, savePersonalInfo } =
@@ -21,6 +25,8 @@ const showQuestionsDialog = ref(false)
 
 // State
 const activeView = ref<'main' | 'success'>('main')
+const isAuthenticated = ref(false)
+const showUpgradeModal = ref(false)
 
 const autoDetectEnabled = ref(false)
 const fieldsDetected = ref(0)
@@ -55,15 +61,26 @@ const handleDeleteResponse = async (id: number) => {
 }
 
 const autofillCurrentPage = async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  try {
+    // Check usage limits first
+    // const usageResult = await api.incrementUsage('applications')
 
-  chrome.tabs.sendMessage(tab.id!, { action: 'autofill' }, (response) => {
-    if (chrome.runtime.lastError) {
-      showNotification('Unable to autofill this page', 'error')
+    // if (!usageResult.success) {
+    //   showUpgradeModal.value = true
+    //   return
+    // }
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+
+    if (!tab?.id) {
+      showNotification('Unable to access this tab', 'error')
       return
     }
 
-    if (response && response.success) {
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill' })
+    console.log('RESPONSE: ', response)
+
+    if (response?.success && response.fieldsCount > 0) {
       fieldsDetected.value = response.fieldsCount
       activeView.value = 'success'
       setTimeout(() => {
@@ -72,7 +89,10 @@ const autofillCurrentPage = async () => {
     } else {
       showNotification('No available fields found to autofill', 'error')
     }
-  })
+  } catch (error) {
+    console.error('Autofill error:', error)
+    showNotification('Unable to autofill this page', 'error')
+  }
 }
 
 const detectCurrentPlatform = () => {
@@ -102,6 +122,13 @@ const openLink = (url: string) => {
 
 // Lifecycle
 onMounted(async () => {
+  //   await checkAuth()
+
+  //   // Listen for auth changes
+  //   supabase.auth.onAuthStateChange((event, session) => {
+  //     isAuthenticated.value = !!session
+  //   })
+
   await loadPersonalInfo()
   await loadSavedResponses()
 
@@ -115,10 +142,24 @@ onMounted(async () => {
 watch(autoDetectEnabled, async (newValue) => {
   await chrome.storage.local.set({ autoDetectEnabled: newValue })
 })
+
+// async function checkAuth() {
+//   const {
+//     data: { session },
+//   } = await supabase.auth.getSession()
+//   isAuthenticated.value = !!session
+// }
+
+// async function handleLogout() {
+//   await supabase.auth.signOut()
+//   isAuthenticated.value = false
+// }
 </script>
 
 <template>
+  <!-- <Login v-if="!isAuthenticated" @authenticated="checkAuth" /> -->
   <div class="container">
+    <!-- Unauthenticated -->
     <!-- Header -->
     <header class="header">
       <div class="brand">
@@ -322,6 +363,8 @@ watch(autoDetectEnabled, async (newValue) => {
         </svg>
         Auto-fill Current Page
       </button>
+      <!-- <button @click="handleLogout">Logout</button> -->
+      <UpgradeModal v-if="showUpgradeModal" @close="showUpgradeModal = false" />
     </div>
 
     <footer class="footer">

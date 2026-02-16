@@ -2,9 +2,17 @@ import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
 import { matchFieldToData } from './fieldMatch.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
 
+// import { api } from '../lib/api'
+
 export async function autofillPage() {
-  console.log('ping')
+  console.log('Starting autofill process...')
   try {
+    // const result = await api.incrementUsage('applications')
+    // console.log('Usage increment result:', result)
+
+    // if (!result.success) {
+    //   return { success: false, limitReached: true }
+    // }
     const personalInfoData = await chrome.storage.local.get('personalInfo')
     const personalInfo = personalInfoData.personalInfo
 
@@ -95,12 +103,17 @@ export async function autofillPage() {
           let formattedValue = String(fieldValue)
 
           if (typeof fieldValue === 'string' && fieldValue.includes('-')) {
-            const [year, month] = fieldValue.split('-')
+            const [year, month, day] = fieldValue.split('-')
 
             if (pattern.includes('\\d{4}') || pattern === '[0-9]{4}') {
+              // Year only: yyyy
               formattedValue = year
             } else if (pattern.includes('/')) {
+              // Month/Year: mm/yyyy
               formattedValue = `${month}/${year}`
+            } else if (pattern.includes('-') && pattern.includes('d')) {
+              // Full date: yyyy-mm-dd
+              formattedValue = `${year}-${month}-${day}`
             }
           }
 
@@ -124,6 +137,7 @@ export async function autofillPage() {
       message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
     }
   } catch (error) {
+    console.error('Error during autofill:', error)
     return { success: false, message: 'Error during autofill' }
   }
 }

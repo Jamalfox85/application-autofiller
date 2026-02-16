@@ -40,7 +40,8 @@
         "*://*.applytojob.com/*",
         "*://*.recruitee.com/*",
         "*://*.workable.com/*",
-        "*://*.joinstellar.ai/*"
+        "*://*.joinstellar.ai/*",
+        "*;//jobs.dayforcehcm.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],

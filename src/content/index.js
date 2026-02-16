@@ -3,6 +3,7 @@ console.log('LOADED CONTENT SCRIPT')
 
 import { autofillPage, debounceAutofill } from './autofill.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
+import { jobPlatforms, excludePatterns, applicationUrlPatterns } from '../utils/jobSitePatterns.ts'
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -142,55 +143,14 @@ function hasFormChanged() {
 function isLikelyJobApplicationPage() {
   const url = window.location.href.toLowerCase()
 
-  const jobPlatforms = [
-    'greenhouse.io',
-    'lever.co',
-    'workday.com',
-    'myworkdayjobs.com',
-    'icims.com',
-    'taleo',
-    'smartrecruiters.com',
-    'bamboohr.com',
-    'ashbyhq.com',
-    'jobvite.com',
-    'ultipro.com',
-    'breezy.hr',
-    'recruitee.com',
-    'jazz.co',
-    'applytojob.com',
-  ]
-
   const isJobPlatform = jobPlatforms.some((platform) => url.includes(platform))
   if (isJobPlatform) {
     return true
   }
 
-  const excludePatterns = [
-    'indeed.com/jobs?', // Indeed search results
-    'indeed.com/m/?', // Indeed mobile home
-    'linkedin.com/jobs/search', // LinkedIn job search
-    'linkedin.com/jobs/collections', // LinkedIn saved jobs
-    'linkedin.com/feed', // LinkedIn feed
-    '/jobs/search?', // Generic job search
-    '/careers/search?', // Career page search
-  ]
-
   if (excludePatterns.some((pattern) => url.includes(pattern))) {
     return false
   }
-
-  // URL patterns suggesting an application page (not just job listings)
-  const applicationUrlPatterns = [
-    '/apply',
-    '/application',
-    '/job/',
-    '/jobs/',
-    '/posting/',
-    '/position/',
-    '/career/',
-    '/careers/',
-    '/opportunity/',
-  ]
 
   const hasApplicationUrl = applicationUrlPatterns.some((pattern) => url.includes(pattern))
 
@@ -238,14 +198,6 @@ function isLikelyJobApplicationPage() {
 async function initialize() {
   // Check if this is a job application page
   if (!isLikelyJobApplicationPage()) {
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === 'autofill') {
-        sendResponse({
-          success: false,
-          message: 'This does not appear to be a job application page',
-        })
-      }
-    })
     return
   }
 
@@ -287,8 +239,6 @@ async function initialize() {
       })
     })
 
-    console.log('FORM MUTATION: ', hasFormMutation)
-    console.log('FORM CHANGED: ', hasFormChanged())
     if (hasFormMutation || hasFormChanged()) {
       hasShownPopup = false
       attachFormListeners()

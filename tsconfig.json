@@ -29,6 +29,6 @@
     /* Types */
     "types": ["chrome"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "src/content.js"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "src/content.js", "src/vite-env.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
