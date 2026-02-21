@@ -4,6 +4,7 @@ console.log('LOADED CONTENT SCRIPT')
 import { autofillPage, debounceAutofill } from './autofill.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
 import { jobPlatforms, excludePatterns, applicationUrlPatterns } from '../utils/jobSitePatterns.ts'
+import { siteRules } from '../utils/siteRules.ts'
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -44,81 +45,91 @@ function attachFormListeners() {
         capturedData[name] = value
       })
 
-      await saveLearnedData(capturedData)
+      //   await saveLearnedData(capturedData)
     })
   })
 }
 
-async function saveLearnedData(capturedData) {
-  const data = await chrome.storage.local.get('personalInfo')
-  const existingInfo = data.personalInfo || {}
+// async function saveLearnedData(capturedData) {
+//   const data = await chrome.storage.local.get('personalInfo')
+//   const existingInfo = data.personalInfo || {}
 
-  const learnedInfo = {}
-  const learnedEducation = {}
+//   const learnedInfo = {}
+//   const learnedEducation = {}
 
-  Object.entries(capturedData).forEach(([key, value]) => {
-    const lowerKey = key.toLowerCase().replace(/[\s_-]/g, '')
+//   Object.entries(capturedData).forEach(([key, value]) => {
+//     const lowerKey = key.toLowerCase().replace(/[\s_-]/g, '')
 
-    // Check for education fields
-    if (lowerKey.includes('school') || lowerKey.includes('university')) {
-      learnedEducation.schoolName = value
-    } else if (lowerKey.includes('degree') && !lowerKey.includes('type')) {
-      learnedEducation.degreeType = value
-    } else if (lowerKey.includes('major') || lowerKey.includes('field')) {
-      learnedEducation.major = value
-    } else if (lowerKey.includes('graduation') || lowerKey.includes('gradyear')) {
-      learnedEducation.graduationYear = value
-    } else if (lowerKey.includes('gpa')) {
-      learnedEducation.gpa = value
-    } else {
-      // Match against FIELD_PATTERNS for other fields
-      for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
-        const matches = patterns.some((pattern) => {
-          // IMPORTANT: Strip pattern of special chars too!
-          const normalizedPattern = pattern.toLowerCase().replace(/[\s_-]/g, '')
-          return lowerKey.includes(normalizedPattern)
-        })
-        if (matches) {
-          learnedInfo[fieldName] = value
-          break
-        }
-      }
-    }
-  })
+//     // Check for education fields
+//     if (lowerKey.includes('school') || lowerKey.includes('university')) {
+//       learnedEducation.schoolName = value
+//     } else if (lowerKey.includes('degree') && !lowerKey.includes('type')) {
+//       learnedEducation.degreeType = value
+//     } else if (lowerKey.includes('major') || lowerKey.includes('field')) {
+//       learnedEducation.major = value
+//     } else if (lowerKey.includes('graduation') || lowerKey.includes('gradyear')) {
+//       learnedEducation.graduationYear = value
+//     } else if (lowerKey.includes('gpa')) {
+//       learnedEducation.gpa = value
+//     } else {
+//       // Match against FIELD_PATTERNS for other fields
+//       for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
+//         const matches = patterns.some((pattern) => {
+//           // IMPORTANT: Strip pattern of special chars too!
+//           const normalizedPattern = pattern.toLowerCase().replace(/[\s_-]/g, '')
+//           return lowerKey.includes(normalizedPattern)
+//         })
+//         if (matches) {
+//           learnedInfo[fieldName] = value
+//           break
+//         }
+//       }
+//     }
+//   })
 
-  // If we learned education fields, add to education array
-  if (Object.keys(learnedEducation).length > 0) {
-    const education = existingInfo.education || []
+//   // If we learned education fields, add to education array
+//   if (Object.keys(learnedEducation).length > 0) {
+//     const education = existingInfo.education || []
 
-    // Check if this school already exists
-    const existingSchool = education.find((e) => e.schoolName === learnedEducation.schoolName)
+//     // Check if this school already exists
+//     const existingSchool = education.find((e) => e.schoolName === learnedEducation.schoolName)
 
-    if (!existingSchool && learnedEducation.schoolName) {
-      education.unshift({
-        id: Date.now(),
-        schoolName: learnedEducation.schoolName || '',
-        degreeType: learnedEducation.degreeType || '',
-        major: learnedEducation.major || '',
-        graduationYear: learnedEducation.graduationYear || '',
-        gpa: learnedEducation.gpa || '',
-      })
-      learnedInfo.education = education
-    }
-  }
+//     if (!existingSchool && learnedEducation.schoolName) {
+//       education.unshift({
+//         id: Date.now(),
+//         schoolName: learnedEducation.schoolName || '',
+//         degreeType: learnedEducation.degreeType || '',
+//         major: learnedEducation.major || '',
+//         graduationYear: learnedEducation.graduationYear || '',
+//         gpa: learnedEducation.gpa || '',
+//       })
+//       learnedInfo.education = education
+//     }
+//   }
 
-  // Merge and save
-  const mergedInfo = { ...existingInfo, ...learnedInfo }
-  await chrome.storage.local.set({ personalInfo: mergedInfo })
+//   // Merge and save
+//   const mergedInfo = { ...existingInfo, ...learnedInfo }
+//   await chrome.storage.local.set({ personalInfo: mergedInfo })
 
-  const totalLearned = Object.keys(learnedInfo).length + (learnedEducation.schoolName ? 1 : 0)
-}
+//   const totalLearned = Object.keys(learnedInfo).length + (learnedEducation.schoolName ? 1 : 0)
+// }
 
 let lastFormSignature = ''
-function hasFormChanged() {
-  if (window.location.href.includes('workday')) {
-    return false
-  }
 
+function hasFormChanged() {
+  const activeSiteRule = siteRules.find((rule) => rule.detect())
+  const currentSignature = activeSiteRule?.formChanged
+    ? activeSiteRule.formChanged()
+    : getDefaultFormSignature()
+
+  if (currentSignature !== lastFormSignature && currentSignature.length > 0) {
+    lastFormSignature = currentSignature
+    return true
+  }
+  return false
+}
+
+function getDefaultFormSignature() {
   const forms = document.querySelectorAll('form')
 
   // Create a signature of current forms (IDs + input count + input names)
@@ -133,11 +144,7 @@ function hasFormChanged() {
     })
     .join('|')
 
-  if (currentSignature !== lastFormSignature && currentSignature.length > 0) {
-    lastFormSignature = currentSignature
-    return true
-  }
-  return false
+  return currentSignature
 }
 
 function isLikelyJobApplicationPage() {
@@ -227,19 +234,11 @@ async function initialize() {
 
   // Watch for form changes (multi-step forms)
   const observer = new MutationObserver((mutations) => {
-    const hasFormMutation = mutations.some((mutation) => {
-      return Array.from(mutation.addedNodes).some((node) => {
-        return (
-          node.nodeType === 1 &&
-          (node.tagName === 'FORM' ||
-            node.querySelector('form') ||
-            node.querySelector('input') ||
-            node.querySelector('textarea'))
-        )
-      })
-    })
+    const hasStructuralChange = mutations.some(
+      (mutation) => mutation.type === 'childList' && mutation.addedNodes.length > 0,
+    )
 
-    if (hasFormMutation || hasFormChanged()) {
+    if (hasStructuralChange && hasFormChanged()) {
       hasShownPopup = false
       attachFormListeners()
       debounceAutofill(autoDetectEnabled)

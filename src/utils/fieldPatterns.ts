@@ -149,11 +149,25 @@ export const FIELD_PATTERNS = {
     'completion_year',
   ],
   gpa: ['gpa', 'grade', 'grade_point', 'gradepoint', 'average'],
-  // ... existing patterns ...
-
-  // Demographic fields
+  companyName: [
+    'company, employer',
+    'company_name',
+    'companyname',
+    'employer_name',
+    'employername',
+  ],
+  jobDescription: [
+    'description',
+    'job_description',
+    'jobdescription',
+    'responsibilities',
+    'duties',
+    'professional background',
+  ],
+  jobTitle: ['jobtitle', 'job_title', 'job-title', 'position', 'role'],
+  startDate: ['start_date', 'startdate', 'start-date'],
+  endDate: ['end_date', 'enddate', 'end-date'],
   gender: ['gender', 'sex', 'gender_identity', 'genderidentity', 'gender-identity'],
-
   raceEthnicity: [
     'race',
     'ethnicity',
@@ -234,16 +248,3 @@ export const FIELD_PATTERNS = {
 
   accountPassword: ['password', 'new-password'],
 }
-
-// // Helper function to match field names (bonus!)
-// export function matchFieldPattern(fieldName: string, patterns) {
-//   const cleanField = fieldName.toLowerCase().replace(/[\s_-]/g, '')
-
-//   for (const pattern of patterns) {
-//     const cleanPattern = pattern.replace(/[\s_-]/g, '')
-//     if (cleanField === cleanPattern || cleanField.includes(cleanPattern)) {
-//       return true
-//     }
-//   }
-//   return false
-// }

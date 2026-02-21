@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import type { PersonalInfo } from '../../types'
+import { usStates, canadaProvinces, ukRegions } from '../../utils/locationLists.ts'
 
 const props = defineProps<{
   show: boolean
@@ -51,6 +52,37 @@ watch(
     }
   },
 )
+watch(
+  () => editableProfile.value.country,
+  (_, oldVal) => {
+    if (oldVal !== undefined && oldVal !== '') {
+      editableProfile.value.state = ''
+    }
+  },
+)
+
+const stateOptions = computed(() => {
+  switch (editableProfile.value.country) {
+    case 'United_States':
+      return usStates
+    case 'Canada':
+      return canadaProvinces
+    case 'United_Kingdom':
+      return ukRegions
+    default:
+      return []
+  }
+})
+const stateLabel = computed(() => {
+  switch (editableProfile.value.country) {
+    case 'Canada':
+      return 'Province'
+    case 'United_Kingdom':
+      return 'Region'
+    default:
+      return 'State'
+  }
+})
 
 const addEducation = () => {
   editableProfile.value.education.push({
@@ -180,13 +212,21 @@ const handleClose = () => {
                   />
                 </div>
                 <div class="form-group form-group-small">
-                  <label for="editState">State</label>
-                  <input
-                    type="text"
+                  <label for="editState">{{ stateLabel }}</label>
+                  <select
                     id="editState"
                     v-model="editableProfile.state"
-                    placeholder="NY"
-                  />
+                    :disabled="!editableProfile.country"
+                  >
+                    <option :value="null">-- Select a state --</option>
+                    <option
+                      v-for="option in stateOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
                 </div>
                 <div class="form-group form-group-small">
                   <label for="editZip">ZIP</label>
@@ -199,12 +239,12 @@ const handleClose = () => {
                 </div>
                 <div class="form-group form-group-small">
                   <label for="editCountry">Country</label>
-                  <input
-                    type="text"
-                    id="editCountry"
-                    v-model="editableProfile.country"
-                    placeholder="USA"
-                  />
+                  <select id="editCountry" v-model="editableProfile.country">
+                    <option :value="null">-- Select a country --</option>
+                    <option value="United_States">United States</option>
+                    <option value="Canada">Canada</option>
+                    <option value="United_Kingdom">United Kingdom</option>
+                  </select>
                 </div>
               </div>
             </div>

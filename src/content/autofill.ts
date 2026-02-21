@@ -1,20 +1,17 @@
 import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
 import { matchFieldToData } from './fieldMatch.ts'
+import { siteRules } from '../utils/siteRules.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
 
 // import { api } from '../lib/api'
+type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 
 export async function autofillPage() {
   console.log('Starting autofill process...')
   try {
-    // const result = await api.incrementUsage('applications')
-    // console.log('Usage increment result:', result)
-
-    // if (!result.success) {
-    //   return { success: false, limitReached: true }
-    // }
     const personalInfoData = await chrome.storage.local.get('personalInfo')
     const personalInfo = personalInfoData.personalInfo
+    console.log('Retrieved personal info:', personalInfo)
 
     const savedResponsesData = await chrome.storage.local.get('savedResponses')
     const savedResponses = savedResponsesData.savedResponses || {}
@@ -23,12 +20,14 @@ export async function autofillPage() {
       return { success: false, message: 'No personal info saved' }
     }
 
-    type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    // const inputs = getAllInputs()
     const inputs = document.querySelectorAll<FormField>('input, textarea, select')
+    console.log('INPUTS: ', inputs)
 
     let filledCount = 0
 
     inputs.forEach((input) => {
+      console.log('Processing input:', input)
       // Skip hidden, submit, button inputs
       if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button') {
         return
@@ -36,8 +35,16 @@ export async function autofillPage() {
 
       // Skip honeypot / bot-catcher fields
       const automationId = (input.getAttribute('data-automation-id') || '').toLowerCase()
-
       if (automationId.includes('beecatcher') || automationId.includes('honeypot')) {
+        return
+      }
+
+      // Find an active site rule (if any)
+      const activeSiteRule = siteRules.find((rule) => rule.detect())
+
+      // Try site-specific handling first
+      if (activeSiteRule && activeSiteRule.apply(input, personalInfo)) {
+        filledCount++
         return
       }
 
@@ -62,6 +69,7 @@ export async function autofillPage() {
         `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
 
       const matchResult = matchFieldToData(fieldText, personalInfo, savedResponses)
+      console.log('MATCHED REUSLT: ', matchResult)
 
       if (!matchResult) {
         return
@@ -140,6 +148,25 @@ export async function autofillPage() {
     console.error('Error during autofill:', error)
     return { success: false, message: 'Error during autofill' }
   }
+}
+
+function getAllInputs(): FormField[] {
+  const results: FormField[] = []
+
+  function pierce(root: Document | ShadowRoot | Element) {
+    const inputs = root.querySelectorAll<FormField>('input, textarea, select')
+    inputs.forEach((el) => results.push(el))
+
+    root.querySelectorAll('*').forEach((el) => {
+      if (el.shadowRoot) {
+        pierce(el.shadowRoot)
+      }
+    })
+  }
+
+  pierce(document)
+  console.log('Pierced inputs: ', results)
+  return results
 }
 
 function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) {
@@ -238,6 +265,7 @@ function setSelectValue(
 
 let hasShownPopup = false
 export function debounceAutofill(autoDetectEnabled: boolean) {
+  console.log('Debouncing autofill...')
   let autofillDebounceTimer = null
   // Clear existing timer
   if (autofillDebounceTimer) {
@@ -246,6 +274,7 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
 
   // Wait 800ms after changes stop before autofilling
   autofillDebounceTimer = setTimeout(async () => {
+    console.log('autodetectEnabled: ', autoDetectEnabled)
     if (autoDetectEnabled) {
       // Auto-fill the new form
       const result = await autofillPage()

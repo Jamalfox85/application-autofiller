@@ -19,7 +19,6 @@ export function matchFieldToData(
     major: ['degree'],
   }
 
-  // Special case: full name
   const response = matchFullNameField(normalizedFieldText, personalInfo)
   if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
 
@@ -30,85 +29,14 @@ export function matchFieldToData(
     return { fieldValue: `${city}, ${state}`.trim(), fieldKey: 'location' }
   }
 
-  // Education fields - use most recent education entry
   if (personalInfo.education && personalInfo.education.length > 0) {
-    const latestEducation = personalInfo.education[0]
-
-    if (
-      normalizedFieldText.includes('school') ||
-      normalizedFieldText.includes('university') ||
-      normalizedFieldText.includes('college') ||
-      normalizedFieldText.includes('institution')
-    ) {
-      return { fieldValue: latestEducation.schoolName || null, fieldKey: 'schoolName' }
-    }
-
-    if (
-      normalizedFieldText.includes('major') ||
-      normalizedFieldText.includes('study') ||
-      normalizedFieldText.includes('subject')
-    ) {
-      return { fieldValue: latestEducation.major || null, fieldKey: 'major' }
-    }
-    if (normalizedFieldText.includes('degree') && !normalizedFieldText.includes('type')) {
-      return { fieldValue: latestEducation.degreeType || null, fieldKey: 'degreeType' }
-    }
-
-    if (
-      normalizedFieldText.includes('graduation') ||
-      (normalizedFieldText.includes('year') && normalizedFieldText.includes('grad'))
-    ) {
-      return { fieldValue: latestEducation.graduationYear || null, fieldKey: 'graduationYear' }
-    }
-
-    if (normalizedFieldText.includes('gpa')) {
-      return { fieldValue: latestEducation.gpa || null, fieldKey: 'gpa' }
-    }
+    const response = matchEducationField(normalizedFieldText, personalInfo)
+    if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
   }
 
-  // Experience fields - use most recent experience entry
   if (personalInfo.experience && personalInfo.experience.length > 0) {
-    const latestExperience = personalInfo.experience[0]
-
-    if (
-      normalizedFieldText.includes('company') ||
-      normalizedFieldText.includes('employer') ||
-      normalizedFieldText.includes('organization')
-    ) {
-      return { fieldValue: latestExperience.companyName || null, fieldKey: 'companyName' }
-    }
-
-    if (
-      normalizedFieldText.includes('description') ||
-      normalizedFieldText.includes('responsibilities') ||
-      normalizedFieldText.includes('duties') ||
-      normalizedFieldText.includes('professional background')
-    ) {
-      return { fieldValue: latestExperience.description || null, fieldKey: 'description' }
-    }
-
-    if (
-      normalizedFieldText.includes('jobtitle') ||
-      normalizedFieldText.includes('position') ||
-      normalizedFieldText.includes('role') ||
-      (normalizedFieldText.includes('title') && !normalizedFieldText.includes('degree'))
-    ) {
-      return { fieldValue: latestExperience.jobTitle || null, fieldKey: 'jobTitle' }
-    }
-
-    if (
-      normalizedFieldText.includes('startdate') ||
-      (normalizedFieldText.includes('start') && normalizedFieldText.includes('date'))
-    ) {
-      return { fieldValue: latestExperience.startDate || null, fieldKey: 'startDate' }
-    }
-
-    if (
-      normalizedFieldText.includes('enddate') ||
-      (normalizedFieldText.includes('end') && normalizedFieldText.includes('date'))
-    ) {
-      return { fieldValue: latestExperience.endDate || null, fieldKey: 'endDate' }
-    }
+    const response = matchExperienceField(normalizedFieldText, personalInfo)
+    if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
   }
 
   // Check standard fields
@@ -131,9 +59,9 @@ export function matchFieldToData(
             fieldKey: key,
           }
         }
-        // console.log('field: ', fieldText)
-        // console.log('Matching key:', key)
-        // console.log('Pattern:', pattern)
+        console.log('field: ', fieldText)
+        console.log('Matching key:', key)
+        console.log('Pattern:', pattern)
         return { fieldValue: personalInfo[key as keyof PersonalInfo] || null, fieldKey: key }
       }
     }
@@ -234,6 +162,106 @@ function matchFullNameField(normalizedFieldText: string, personalInfo: PersonalI
   }
 }
 
+function matchEducationField(normalizedFieldText: string, personalInfo: PersonalInfo) {
+  console.log('EDUCATION FIELD: ', normalizedFieldText)
+  const latestEducation = personalInfo.education[0]
+  const schoolNamePatterns = FIELD_PATTERNS.schoolName
+  const majorPatterns = FIELD_PATTERNS.major
+  const degreePatterns = FIELD_PATTERNS.degreeType
+  const graduationYearPatterns = FIELD_PATTERNS.graduationYear
+  const gpaPatterns = FIELD_PATTERNS.gpa
+
+  if (
+    schoolNamePatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestEducation.schoolName || null, fieldKey: 'schoolName' }
+  }
+
+  if (
+    majorPatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestEducation.major || null, fieldKey: 'major' }
+  }
+  if (
+    degreePatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestEducation.degreeType || null, fieldKey: 'degreeType' }
+  }
+
+  if (
+    graduationYearPatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestEducation.graduationYear || null, fieldKey: 'graduationYear' }
+  }
+
+  if (
+    gpaPatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestEducation.gpa || null, fieldKey: 'gpa' }
+  }
+}
+
+function matchExperienceField(normalizedFieldText: string, personalInfo: PersonalInfo) {
+  const latestExperience = personalInfo.experience[0]
+  const companyNamePatterns = FIELD_PATTERNS.companyName
+  const descriptionPatterns = FIELD_PATTERNS.jobDescription
+  const jobTitlePatterns = FIELD_PATTERNS.jobTitle
+  const startDatePatterns = FIELD_PATTERNS.startDate
+  const endDatePatterns = FIELD_PATTERNS.endDate
+
+  if (
+    companyNamePatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestExperience.companyName || null, fieldKey: 'companyName' }
+  }
+
+  if (
+    descriptionPatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestExperience.description || null, fieldKey: 'description' }
+  }
+
+  if (
+    jobTitlePatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestExperience.jobTitle || null, fieldKey: 'jobTitle' }
+  }
+
+  if (
+    startDatePatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    return { fieldValue: latestExperience.startDate || null, fieldKey: 'startDate' }
+  }
+
+  if (
+    endDatePatterns.some((pattern) =>
+      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+    )
+  ) {
+    console.log('Matched end date field: ', normalizedFieldText)
+    console.log('Patterns: ', endDatePatterns)
+    return { fieldValue: latestExperience.endDate || null, fieldKey: 'endDate' }
+  }
+}
+
 /**
 
  * Autopopulate if:
@@ -258,7 +286,7 @@ function matchSavedResponse(fieldText: string, savedResponses: SavedResponse[]) 
     if (!text) continue
 
     // Keep this small and tuned to your domain; expand as needed.
-    const STOPWORDS = new Set([])
+    const STOPWORDS = new Set<string>([])
 
     const titleNorm = normalizeText(r?.title ?? '')
     const titleTokens = tokenize(titleNorm).filter((t) => !STOPWORDS.has(t))
