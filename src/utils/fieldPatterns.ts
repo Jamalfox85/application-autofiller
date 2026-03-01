@@ -59,7 +59,7 @@ export const FIELD_PATTERNS = {
     'state_province',
     'state-province',
   ],
-  country: ['country', 'nation', 'residence', 'citizenship'],
+  country: ['country', 'nation', 'residence', 'citizenship', 'candidate-location'],
   zip: [
     'zip',
     'zipcode',

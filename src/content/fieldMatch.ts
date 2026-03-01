@@ -8,8 +8,6 @@ export function matchFieldToData(
   personalInfo: PersonalInfo,
   savedResponses: SavedResponse[],
 ) {
-  const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_-]/g, '')
-
   // Special exclusion checks  i.e. - Don't match "city" if field contains these
   const exclusions: { [key: string]: string[] } = {
     address: ['city', 'postal', 'zip', 'state', 'country', 'province'], // Exclude these from address match
@@ -19,23 +17,23 @@ export function matchFieldToData(
     major: ['degree'],
   }
 
-  const response = matchFullNameField(normalizedFieldText, personalInfo)
+  const response = matchFullNameField(fieldText, personalInfo)
   if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
 
   // Special case: Current loccation (May only be jobs.lever.co)
-  if (normalizedFieldText.includes('location-input')) {
+  if (fieldText.includes('location-input')) {
     const city = personalInfo.city || ''
     const state = personalInfo.state || ''
     return { fieldValue: `${city}, ${state}`.trim(), fieldKey: 'location' }
   }
 
   if (personalInfo.education && personalInfo.education.length > 0) {
-    const response = matchEducationField(normalizedFieldText, personalInfo)
+    const response = matchEducationField(fieldText, personalInfo)
     if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
   }
 
   if (personalInfo.experience && personalInfo.experience.length > 0) {
-    const response = matchExperienceField(normalizedFieldText, personalInfo)
+    const response = matchExperienceField(fieldText, personalInfo)
     if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
   }
 
@@ -43,10 +41,10 @@ export function matchFieldToData(
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
     for (const pattern of patterns) {
       const normalizedPattern = pattern.toLowerCase().replace(/[\s_-]/g, '')
-      if (normalizedFieldText.includes(normalizedPattern)) {
+      if (fieldText.includes(normalizedPattern)) {
         if (exclusions[key]) {
           const hasExclusion = exclusions[key].some((excl) =>
-            normalizedFieldText.includes(excl.toLowerCase()),
+            fieldText.includes(excl.toLowerCase()),
           )
           if (hasExclusion) {
             continue // Skip this pattern match
@@ -78,7 +76,8 @@ export function matchFieldToData(
   return null
 }
 
-function matchFullNameField(normalizedFieldText: string, personalInfo: PersonalInfo) {
+function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
+  console.log('MATCHING FULL NAME FIELD: ', fieldText)
   const fullNamePositivePatterns = [
     'fullname',
     'full_name',
@@ -146,24 +145,31 @@ function matchFullNameField(normalizedFieldText: string, personalInfo: PersonalI
     'field_name',
     'systemfield',
   ]
+  const commonMalPatters = ['eeo', 'race']
 
-  const isExplicitFullName = fullNamePositivePatterns.some((p) => normalizedFieldText.includes(p))
-  const isPartialNameField = partialNamePatterns.some((p) => normalizedFieldText.includes(p))
-  const isNonPersonName = nonPersonNamePatterns.some((p) => normalizedFieldText.includes(p))
+  const isExplicitFullName = fullNamePositivePatterns.some((p) => fieldText.includes(p))
+  const isPartialNameField = partialNamePatterns.some((p) => fieldText.includes(p))
+  const isNonPersonName = nonPersonNamePatterns.some((p) => fieldText.includes(p))
+  const isCommonMalPattern = commonMalPatters.some((p) => fieldText.includes(p))
 
   // Check for "name" that's likely asking for a person's full name
   // Must contain "name" but not be a partial or non-person name field
-  const containsName = normalizedFieldText.includes('name')
+  const containsName = fieldText.includes('name')
 
-  if (isExplicitFullName || (containsName && !isPartialNameField && !isNonPersonName)) {
+  if (
+    isExplicitFullName ||
+    (containsName && !isPartialNameField && !isNonPersonName && !isCommonMalPattern)
+  ) {
+    console.log('FALSE NAME HIT - explicit full name pattern matched: ', isExplicitFullName)
+    console.log('FALSE NAME HIT - contains name pattern matched: ', containsName)
     const firstName = personalInfo.firstName || ''
     const lastName = personalInfo.lastName || ''
     return { fieldValue: `${firstName} ${lastName}`.trim(), fieldKey: 'fullName' }
   }
 }
 
-function matchEducationField(normalizedFieldText: string, personalInfo: PersonalInfo) {
-  console.log('EDUCATION FIELD: ', normalizedFieldText)
+function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
+  console.log('EDUCATION FIELD: ', fieldText)
   const latestEducation = personalInfo.education[0]
   const schoolNamePatterns = FIELD_PATTERNS.schoolName
   const majorPatterns = FIELD_PATTERNS.major
@@ -173,7 +179,7 @@ function matchEducationField(normalizedFieldText: string, personalInfo: Personal
 
   if (
     schoolNamePatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestEducation.schoolName || null, fieldKey: 'schoolName' }
@@ -181,14 +187,14 @@ function matchEducationField(normalizedFieldText: string, personalInfo: Personal
 
   if (
     majorPatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestEducation.major || null, fieldKey: 'major' }
   }
   if (
     degreePatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestEducation.degreeType || null, fieldKey: 'degreeType' }
@@ -196,22 +202,20 @@ function matchEducationField(normalizedFieldText: string, personalInfo: Personal
 
   if (
     graduationYearPatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestEducation.graduationYear || null, fieldKey: 'graduationYear' }
   }
 
   if (
-    gpaPatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
+    gpaPatterns.some((pattern) => fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')))
   ) {
     return { fieldValue: latestEducation.gpa || null, fieldKey: 'gpa' }
   }
 }
 
-function matchExperienceField(normalizedFieldText: string, personalInfo: PersonalInfo) {
+function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
   const latestExperience = personalInfo.experience[0]
   const companyNamePatterns = FIELD_PATTERNS.companyName
   const descriptionPatterns = FIELD_PATTERNS.jobDescription
@@ -221,7 +225,7 @@ function matchExperienceField(normalizedFieldText: string, personalInfo: Persona
 
   if (
     companyNamePatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestExperience.companyName || null, fieldKey: 'companyName' }
@@ -229,7 +233,7 @@ function matchExperienceField(normalizedFieldText: string, personalInfo: Persona
 
   if (
     descriptionPatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestExperience.description || null, fieldKey: 'description' }
@@ -237,7 +241,7 @@ function matchExperienceField(normalizedFieldText: string, personalInfo: Persona
 
   if (
     jobTitlePatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestExperience.jobTitle || null, fieldKey: 'jobTitle' }
@@ -245,7 +249,7 @@ function matchExperienceField(normalizedFieldText: string, personalInfo: Persona
 
   if (
     startDatePatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
     return { fieldValue: latestExperience.startDate || null, fieldKey: 'startDate' }
@@ -253,10 +257,10 @@ function matchExperienceField(normalizedFieldText: string, personalInfo: Persona
 
   if (
     endDatePatterns.some((pattern) =>
-      normalizedFieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
+      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    console.log('Matched end date field: ', normalizedFieldText)
+    console.log('Matched end date field: ', fieldText)
     console.log('Patterns: ', endDatePatterns)
     return { fieldValue: latestExperience.endDate || null, fieldKey: 'endDate' }
   }

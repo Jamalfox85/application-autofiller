@@ -44,75 +44,9 @@ function attachFormListeners() {
 
         capturedData[name] = value
       })
-
-      //   await saveLearnedData(capturedData)
     })
   })
 }
-
-// async function saveLearnedData(capturedData) {
-//   const data = await chrome.storage.local.get('personalInfo')
-//   const existingInfo = data.personalInfo || {}
-
-//   const learnedInfo = {}
-//   const learnedEducation = {}
-
-//   Object.entries(capturedData).forEach(([key, value]) => {
-//     const lowerKey = key.toLowerCase().replace(/[\s_-]/g, '')
-
-//     // Check for education fields
-//     if (lowerKey.includes('school') || lowerKey.includes('university')) {
-//       learnedEducation.schoolName = value
-//     } else if (lowerKey.includes('degree') && !lowerKey.includes('type')) {
-//       learnedEducation.degreeType = value
-//     } else if (lowerKey.includes('major') || lowerKey.includes('field')) {
-//       learnedEducation.major = value
-//     } else if (lowerKey.includes('graduation') || lowerKey.includes('gradyear')) {
-//       learnedEducation.graduationYear = value
-//     } else if (lowerKey.includes('gpa')) {
-//       learnedEducation.gpa = value
-//     } else {
-//       // Match against FIELD_PATTERNS for other fields
-//       for (const [fieldName, patterns] of Object.entries(FIELD_PATTERNS)) {
-//         const matches = patterns.some((pattern) => {
-//           // IMPORTANT: Strip pattern of special chars too!
-//           const normalizedPattern = pattern.toLowerCase().replace(/[\s_-]/g, '')
-//           return lowerKey.includes(normalizedPattern)
-//         })
-//         if (matches) {
-//           learnedInfo[fieldName] = value
-//           break
-//         }
-//       }
-//     }
-//   })
-
-//   // If we learned education fields, add to education array
-//   if (Object.keys(learnedEducation).length > 0) {
-//     const education = existingInfo.education || []
-
-//     // Check if this school already exists
-//     const existingSchool = education.find((e) => e.schoolName === learnedEducation.schoolName)
-
-//     if (!existingSchool && learnedEducation.schoolName) {
-//       education.unshift({
-//         id: Date.now(),
-//         schoolName: learnedEducation.schoolName || '',
-//         degreeType: learnedEducation.degreeType || '',
-//         major: learnedEducation.major || '',
-//         graduationYear: learnedEducation.graduationYear || '',
-//         gpa: learnedEducation.gpa || '',
-//       })
-//       learnedInfo.education = education
-//     }
-//   }
-
-//   // Merge and save
-//   const mergedInfo = { ...existingInfo, ...learnedInfo }
-//   await chrome.storage.local.set({ personalInfo: mergedInfo })
-
-//   const totalLearned = Object.keys(learnedInfo).length + (learnedEducation.schoolName ? 1 : 0)
-// }
 
 let lastFormSignature = ''
 
@@ -124,6 +58,9 @@ function hasFormChanged() {
 
   if (currentSignature !== lastFormSignature && currentSignature.length > 0) {
     lastFormSignature = currentSignature
+    console.log('FORM STRUCTURE CHANGED')
+    console.log('Last Signature: ', lastFormSignature)
+    console.log('Current Signature: ', currentSignature)
     return true
   }
   return false
@@ -238,7 +175,13 @@ async function initialize() {
       (mutation) => mutation.type === 'childList' && mutation.addedNodes.length > 0,
     )
 
-    if (hasStructuralChange && hasFormChanged()) {
+    const excludedSites = ['workday', 'greenhouse']
+
+    if (
+      hasStructuralChange &&
+      hasFormChanged() &&
+      !excludedSites.some((site) => window.location.href.toLowerCase().includes(site))
+    ) {
       hasShownPopup = false
       attachFormListeners()
       debounceAutofill(autoDetectEnabled)
