@@ -18,7 +18,6 @@ export async function autofillPage() {
       return { success: false, message: 'No personal info saved' }
     }
 
-    // const inputs = getAllInputs()
     const inputs = document.querySelectorAll<FormField>('input, textarea, select')
 
     let filledCount = 0
@@ -56,7 +55,7 @@ export async function autofillPage() {
         `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
       const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_-]/g, '')
 
-      console.log('Field Text: ', normalizedFieldText)
+      console.log('FIELD TEXT: ', fieldText)
 
       // Find an active site rule (if any)
       const activeSiteRule = siteRules.find((rule) => rule.detect())
@@ -71,7 +70,6 @@ export async function autofillPage() {
       }
 
       const matchResult = matchFieldToData(normalizedFieldText, personalInfo, savedResponses)
-      console.log('MATCHED REUSLT: ', matchResult)
 
       if (!matchResult) {
         continue

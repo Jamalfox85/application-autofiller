@@ -57,9 +57,9 @@ export function matchFieldToData(
             fieldKey: key,
           }
         }
-        console.log('field: ', fieldText)
-        console.log('Matching key:', key)
-        console.log('Pattern:', pattern)
+        // console.log('field: ', fieldText)
+        // console.log('Matching key:', key)
+        // console.log('Pattern:', pattern)
         return { fieldValue: personalInfo[key as keyof PersonalInfo] || null, fieldKey: key }
       }
     }
@@ -77,7 +77,6 @@ export function matchFieldToData(
 }
 
 function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
-  console.log('MATCHING FULL NAME FIELD: ', fieldText)
   const fullNamePositivePatterns = [
     'fullname',
     'full_name',
@@ -160,8 +159,6 @@ function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
     isExplicitFullName ||
     (containsName && !isPartialNameField && !isNonPersonName && !isCommonMalPattern)
   ) {
-    console.log('FALSE NAME HIT - explicit full name pattern matched: ', isExplicitFullName)
-    console.log('FALSE NAME HIT - contains name pattern matched: ', containsName)
     const firstName = personalInfo.firstName || ''
     const lastName = personalInfo.lastName || ''
     return { fieldValue: `${firstName} ${lastName}`.trim(), fieldKey: 'fullName' }
@@ -169,7 +166,6 @@ function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
 }
 
 function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
-  console.log('EDUCATION FIELD: ', fieldText)
   const latestEducation = personalInfo.education[0]
   const schoolNamePatterns = FIELD_PATTERNS.schoolName
   const majorPatterns = FIELD_PATTERNS.major
@@ -260,8 +256,6 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    console.log('Matched end date field: ', fieldText)
-    console.log('Patterns: ', endDatePatterns)
     return { fieldValue: latestExperience.endDate || null, fieldKey: 'endDate' }
   }
 }

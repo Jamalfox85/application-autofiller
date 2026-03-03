@@ -65,21 +65,17 @@ export const siteRules: SiteRule[] = [
         }
       } else if (input.classList.contains('candidate-location')) {
         const country = personalInfo.country || ''
-        console.log('INPUTTING COUNTRY: ', country)
         input.value = country
         return true
       }
-      console.log('Applying Lever site rule...')
       return false
     },
   },
   {
     detect: () => window.location.hostname.includes('greenhouse.io'),
     apply: async (input, fieldText, personalInfo) => {
-      console.log('FIELD TEXT: ', fieldText)
       if (input.getAttribute('id') === 'country') {
         const country = personalInfo.country.replace('_', ' ') || ''
-        console.log('INPUTTING COUNTRY: ', country)
         setTimeout(() => fillReactSelect(input, country, 'country'), 500)
       } else if (input.getAttribute('id') === 'candidate-location') {
         const city = personalInfo.city || ''
@@ -118,7 +114,6 @@ export const siteRules: SiteRule[] = [
         }
         return true
       } else if (input.getAttribute('id') === 'start-month--0') {
-        console.log('INPUT START MONTH: ', input)
         if (personalInfo.experience && personalInfo.experience.length > 0) {
           const currentExp = personalInfo.experience[0]
           if (currentExp.startDate) {
@@ -135,7 +130,6 @@ export const siteRules: SiteRule[] = [
           const currentExp = personalInfo.experience[0]
           if (currentExp.startDate) {
             const startDate = new Date(currentExp.startDate).getFullYear().toString()
-            console.log('INPUTTING START YEAR: ', startDate)
             input.value = startDate
             return true
           }
@@ -148,7 +142,6 @@ export const siteRules: SiteRule[] = [
           const endDate = !isNaN(endDateObj.getTime())
             ? endDateObj.toLocaleString('default', { month: 'long' })
             : new Date().toLocaleString('default', { month: 'long' })
-          console.log('INPUTTING END MONTH: ', endDate)
           setTimeout(() => fillReactSelect(input, endDate, 'end-month--0'), 6500)
           return true
         }
@@ -160,7 +153,6 @@ export const siteRules: SiteRule[] = [
           const endDate = !isNaN(endDateObj.getTime())
             ? endDateObj.getFullYear().toString()
             : new Date().getFullYear().toString()
-          console.log('INPUTTING END YEAR: ', endDate)
           input.value = endDate
           return true
         }
@@ -170,24 +162,73 @@ export const siteRules: SiteRule[] = [
         const city = personalInfo.city || ''
         const stateZip = personalInfo.state || '' + ' ' + personalInfo.zip || ''
         const fullAddress = [address, city, stateZip].filter(Boolean).join(', ')
-        console.log('INPUTTING ADDRESS: ', fullAddress)
         setTimeout(() => fillReactSelect(input, fullAddress, 'home-address'), 7500)
         return true
       } else if (fieldText.includes('areyoulegallyeligibletoworkin')) {
-        console.log('INPUTTING WORK ELIGIBILITY: ', fieldText)
         // temporarily disbling to prevent random text in select
         return true
       } else if (
         fieldText.includes('willyounoworinthefuturerequiresponsorshipforemploymentvisastatus')
       ) {
-        console.log('INPUTTING VISA SPONSORSHIP: ', fieldText)
         // temporarily disbling to prevent random text in select
         return true
       }
       return false
     },
   },
+  {
+    detect: () => window.location.hostname.includes('icims.com'),
+    apply: (input, fieldText, personalInfo) => {
+      console.log('ICIMS INPUT: ', input)
+      console.log('ICIMS FIELDTEXT: ', fieldText)
+      if (input.getAttribute('autocomplete') == 'email') {
+        input.value = personalInfo.email || ''
+        return true
+      } else if (fieldText.includes('AddressStreet2')) {
+        // disable inputting
+        return true
+      }
+      return false
+    },
+  },
+  {
+    detect: () => window.location.hostname.includes('ashbyhq.com'),
+    apply: (input, fieldText, personalInfo) => {
+      console.log('ASHBY INPUT: ', fieldText)
+      if (fieldText.includes('systemfieldname')) {
+        console.log('ASHBY NAME FIELD: ', fieldText)
+        fillNativeInput(input, `${personalInfo?.firstName} ${personalInfo?.lastName}`.trim())
+        return true
+      } else if (fieldText.includes('currentemployer?')) {
+        if (personalInfo.experience && personalInfo.experience.length > 0) {
+          const currentExp = personalInfo.experience[0]
+          if (currentExp.companyName) {
+            fillNativeInput(input, currentExp.companyName)
+            return true
+          }
+        }
+        return true
+      }
+
+      return false
+    },
+  },
 ]
+
+const fillNativeInput = (
+  el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  value: string,
+) => {
+  const proto =
+    el instanceof HTMLTextAreaElement
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype
+
+  const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+  nativeSetter?.call(el, value)
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+  el.dispatchEvent(new Event('change', { bubbles: true }))
+}
 
 const fillReactSelect = (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
