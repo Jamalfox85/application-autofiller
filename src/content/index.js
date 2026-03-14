@@ -1,10 +1,9 @@
 // Runs on all pages on load
-console.log('LOADED CONTENT SCRIPT')
 
 import { autofillPage, debounceAutofill } from './autofill.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
 import { jobPlatforms, excludePatterns, applicationUrlPatterns } from '../utils/jobSitePatterns.ts'
-import { siteRules } from '../utils/siteRules.ts'
+import { siteRules } from '../utils/siteRules/index.ts'
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -52,15 +51,14 @@ let lastFormSignature = ''
 
 function hasFormChanged() {
   const activeSiteRule = siteRules.find((rule) => rule.detect())
-  const currentSignature = activeSiteRule?.formChanged
-    ? activeSiteRule.formChanged()
-    : getDefaultFormSignature()
+  if (activeSiteRule && activeSiteRule.formChanged) {
+    return activeSiteRule.formChanged()
+  }
+
+  const currentSignature = getDefaultFormSignature()
 
   if (currentSignature !== lastFormSignature && currentSignature.length > 0) {
     lastFormSignature = currentSignature
-    console.log('FORM STRUCTURE CHANGED')
-    console.log('Last Signature: ', lastFormSignature)
-    console.log('Current Signature: ', currentSignature)
     return true
   }
   return false
@@ -144,6 +142,8 @@ async function initialize() {
   if (!isLikelyJobApplicationPage()) {
     return
   }
+  const personalInfoData = await chrome.storage.local.get('personalInfo')
+  const personalInfo = personalInfoData.personalInfo
 
   attachFormListeners()
 
@@ -169,19 +169,23 @@ async function initialize() {
     }, 1000)
   }
 
+  const activeSiteRule = siteRules.find((rule) => rule.detect())
+  if (activeSiteRule && activeSiteRule.onMount) {
+    return activeSiteRule.onMount(personalInfo)
+  }
+
   // Watch for form changes (multi-step forms)
   const observer = new MutationObserver((mutations) => {
+    console.log('DOM mutations detected: ', mutations)
+
+    const siteSpecificChangeDetected =
+      activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
+
     const hasStructuralChange = mutations.some(
       (mutation) => mutation.type === 'childList' && mutation.addedNodes.length > 0,
     )
 
-    const excludedSites = ['workday', 'greenhouse']
-
-    if (
-      hasStructuralChange &&
-      hasFormChanged() &&
-      !excludedSites.some((site) => window.location.href.toLowerCase().includes(site))
-    ) {
+    if (siteSpecificChangeDetected || (hasStructuralChange && hasFormChanged())) {
       hasShownPopup = false
       attachFormListeners()
       debounceAutofill(autoDetectEnabled)

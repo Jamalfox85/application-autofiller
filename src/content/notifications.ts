@@ -1,8 +1,6 @@
 import { autofillPage } from './autofill.ts'
 
 export function showAutofillNotification(fieldsCount: number) {
-  console.log('SHOW AUTOFILL NOTIFICATION')
-
   // Remove existing notification if present
   const existing = document.querySelector('.rapidapply-autofill-notification')
   if (existing) {

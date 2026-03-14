@@ -1,7 +1,8 @@
 import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
 import { matchFieldToData } from './fieldMatch.ts'
-import { siteRules } from '../utils/siteRules.ts'
+import { siteRules } from '../utils/siteRules/index.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
+import { fillNativeInput } from '@/utils/inputHandlers.ts'
 
 // import { api } from '../lib/api'
 type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -10,6 +11,7 @@ export async function autofillPage() {
   try {
     const personalInfoData = await chrome.storage.local.get('personalInfo')
     const personalInfo = personalInfoData.personalInfo
+    console.log('Personal Info for autofill: ', personalInfo)
 
     const savedResponsesData = await chrome.storage.local.get('savedResponses')
     const savedResponses = savedResponsesData.savedResponses || {}
@@ -19,6 +21,7 @@ export async function autofillPage() {
     }
 
     const inputs = document.querySelectorAll<FormField>('input, textarea, select')
+    console.log('INPUTS: ', inputs)
 
     let filledCount = 0
 
@@ -53,9 +56,7 @@ export async function autofillPage() {
 
       const fieldText =
         `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
-      const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_-]/g, '')
-
-      console.log('FIELD TEXT: ', fieldText)
+      const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_,-]/g, '')
 
       // Find an active site rule (if any)
       const activeSiteRule = siteRules.find((rule) => rule.detect())
@@ -125,15 +126,17 @@ export async function autofillPage() {
             }
           }
 
-          input.value = formattedValue
-          input.dispatchEvent(new Event('input', { bubbles: true }))
-          input.dispatchEvent(new Event('change', { bubbles: true }))
+          await fillNativeInput(
+            input as HTMLInputElement | HTMLTextAreaElement,
+            String(formattedValue),
+          )
+          await new Promise((resolve) => setTimeout(resolve, 100))
+
           filledCount++
         } else {
           // Handle regular inputs and textareas (both have .value)
-          input.value = String(fieldValue)
-          input.dispatchEvent(new Event('input', { bubbles: true }))
-          input.dispatchEvent(new Event('change', { bubbles: true }))
+          await fillNativeInput(input as HTMLInputElement | HTMLTextAreaElement, String(fieldValue))
+          await new Promise((resolve) => setTimeout(resolve, 100))
           filledCount++
         }
       }
@@ -145,29 +148,9 @@ export async function autofillPage() {
       message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
     }
   } catch (error) {
-    console.error('Error during autofill:', error)
     return { success: false, message: 'Error during autofill' }
   }
 }
-
-// function getAllInputs(): FormField[] {
-//   const results: FormField[] = []
-
-//   function pierce(root: Document | ShadowRoot | Element) {
-//     const inputs = root.querySelectorAll<FormField>('input, textarea, select')
-//     inputs.forEach((el) => results.push(el))
-
-//     root.querySelectorAll('*').forEach((el) => {
-//       if (el.shadowRoot) {
-//         pierce(el.shadowRoot)
-//       }
-//     })
-//   }
-
-//   pierce(document)
-//   console.log('Pierced inputs: ', results)
-//   return results
-// }
 
 function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) {
   if (input.id) {

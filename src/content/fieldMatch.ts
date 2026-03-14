@@ -15,6 +15,7 @@ export function matchFieldToData(
     state: ['estate', 'statement', 'realestate', 'unitedstates'],
     phone: ['indefinitely', 'extension'],
     major: ['degree'],
+    jobTitle: ['salary'],
   }
 
   const response = matchFullNameField(fieldText, personalInfo)

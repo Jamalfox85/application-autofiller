@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import type { PersonalInfo } from '../../types'
 import { usStates, canadaProvinces, ukRegions } from '../../utils/locationLists.ts'
+import { NTag, NInput } from 'naive-ui'
 
 const props = defineProps<{
   show: boolean
@@ -29,6 +30,7 @@ const editableProfile = ref<PersonalInfo>({
   resumeFile: '',
   education: [],
   experience: [],
+  skills: [],
   gender: '',
   raceEthnicity: '',
   disabilityStatus: '',
@@ -48,6 +50,7 @@ watch(
         ...props.personalInfo,
         education: props.personalInfo.education || [],
         experience: props.personalInfo.experience || [],
+        skills: props.personalInfo.skills || [],
       }
     }
   },
@@ -90,6 +93,7 @@ const addEducation = () => {
     schoolName: '',
     degreeType: '',
     major: '',
+    startYear: '',
     graduationYear: '',
     gpa: '',
   })
@@ -113,6 +117,50 @@ const addExperience = () => {
 
 const removeExperience = (index: number) => {
   editableProfile.value.experience = editableProfile.value.experience.filter((_, i) => i !== index)
+}
+
+const skillInput = ref('')
+
+function addTagFromInput() {
+  console.log('ping 1')
+  const raw = skillInput.value.trim()
+  if (!raw) return
+
+  console.log('raw: ', raw)
+
+  // Optional: allow comma-separated paste, still creates multiple tags
+  const parts = raw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+
+  for (const p of parts) {
+    // Optional normalization
+    const normalized = p.toLowerCase()
+    console.log('normalized: ', normalized)
+    console.log('current skills: ', editableProfile.value.skills)
+
+    if (editableProfile.value.skills && !editableProfile.value.skills.includes(normalized)) {
+      console.log('Adding skill:', normalized)
+      editableProfile.value.skills.push(normalized)
+    }
+  }
+
+  skillInput.value = ''
+}
+
+function removeTag(tag: string) {
+  if (!editableProfile.value.skills) return
+  editableProfile.value.skills = editableProfile.value.skills.filter((t) => t !== tag)
+}
+
+function handleEditTagInputKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    console.log('ENTER key pressed in skill input')
+    e.preventDefault()
+    e.stopPropagation()
+    addTagFromInput()
+  }
 }
 
 const handleSave = () => {
@@ -241,9 +289,9 @@ const handleClose = () => {
                   <label for="editCountry">Country</label>
                   <select id="editCountry" v-model="editableProfile.country">
                     <option :value="null">-- Select a country --</option>
-                    <option value="United_States">United States</option>
-                    <option value="Canada">Canada</option>
-                    <option value="United_Kingdom">United Kingdom</option>
+                    <option value="united_states">United States</option>
+                    <option value="canada">Canada</option>
+                    <option value="united_kingdom">United Kingdom</option>
                   </select>
                 </div>
               </div>
@@ -289,13 +337,13 @@ const handleClose = () => {
                     <label :for="'degreeType' + index">Degree Type</label>
                     <select :id="'degreeType' + index" v-model="edu.degreeType">
                       <option value="">Select degree...</option>
-                      <option value="High School Diploma">High School Diploma</option>
-                      <option value="Associate's">Associate's</option>
-                      <option value="Bachelor's">Bachelor's</option>
-                      <option value="Master's">Master's</option>
-                      <option value="PhD">PhD</option>
-                      <option value="Certificate">Certificate</option>
-                      <option value="Bootcamp">Bootcamp</option>
+                      <option value="high_school_diploma">High School Diploma</option>
+                      <option value="associates">Associate's</option>
+                      <option value="bachelors">Bachelor's</option>
+                      <option value="masters">Master's</option>
+                      <option value="phd">PhD</option>
+                      <option value="certificate">Certificate</option>
+                      <option value="bootcamp">Bootcamp</option>
                     </select>
                   </div>
 
@@ -312,15 +360,25 @@ const handleClose = () => {
 
                 <div class="form-row">
                   <div class="form-group">
+                    <label :for="'startYear' + index">Start Year</label>
+                    <input
+                      type="text"
+                      :id="'startYear' + index"
+                      v-model="edu.startYear"
+                      placeholder="2022"
+                    />
+                  </div>
+                  <div class="form-group">
                     <label :for="'gradYear' + index">Graduation Year</label>
                     <input
                       type="text"
                       :id="'gradYear' + index"
                       v-model="edu.graduationYear"
-                      placeholder="2024"
+                      placeholder="2026"
                     />
                   </div>
-
+                </div>
+                <div class="form-row">
                   <div class="form-group">
                     <label :for="'gpa' + index">GPA (optional)</label>
                     <input type="text" :id="'gpa' + index" v-model="edu.gpa" placeholder="3.8" />
@@ -420,6 +478,35 @@ const handleClose = () => {
               </div>
             </div>
 
+            <!-- Skills -->
+            <div class="form-section">
+              <div class="section-header">
+                <h3>Skills</h3>
+              </div>
+
+              <NInput
+                v-model:value="skillInput"
+                placeholder="Type a skill and press Enter"
+                @keydown="handleEditTagInputKeydown"
+                @blur="addTagFromInput"
+              />
+              <div
+                v-if="editableProfile.skills && editableProfile.skills.length > 0"
+                class="tags-list"
+                style="margin-bottom: 8px"
+              >
+                <NTag
+                  v-for="skill in editableProfile.skills"
+                  :key="skill"
+                  closable
+                  @close="removeTag(skill)"
+                  style="margin-right: 6px; margin-bottom: 6px"
+                >
+                  {{ skill }}
+                </NTag>
+              </div>
+            </div>
+
             <!-- Social & Portfolio -->
             <div class="form-section">
               <h3>Social & Portfolio</h3>
@@ -466,10 +553,9 @@ const handleClose = () => {
                 <label for="editGender">Gender</label>
                 <select id="editGender" v-model="editableProfile.gender">
                   <option value="">Prefer not to answer</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Non-binary">Non-binary</option>
-                  <option value="Decline">Decline to self-identify</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="decline">Decline to self-identify</option>
                 </select>
               </div>
 
@@ -477,18 +563,18 @@ const handleClose = () => {
                 <label for="editRaceEthnicity">Race/Ethnicity</label>
                 <select id="editRaceEthnicity" v-model="editableProfile.raceEthnicity">
                   <option value="">Prefer not to answer</option>
-                  <option value="Hispanic or Latino">Hispanic or Latino</option>
-                  <option value="White">White</option>
-                  <option value="Black or African American">Black or African American</option>
-                  <option value="Native Hawaiian or Other Pacific Islander">
+                  <option value="hispanic_or_latino">Hispanic or Latino</option>
+                  <option value="white">White</option>
+                  <option value="black_or_african_american">Black or African American</option>
+                  <option value="native_hawaiian_or_other_pacific_islander">
                     Native Hawaiian or Other Pacific Islander
                   </option>
-                  <option value="Asian">Asian</option>
-                  <option value="American Indian or Alaska Native">
+                  <option value="asian">Asian</option>
+                  <option value="american_indian_or_alaska_native">
                     American Indian or Alaska Native
                   </option>
-                  <option value="Two or More Races">Two or More Races</option>
-                  <option value="Decline">Decline to self-identify</option>
+                  <option value="two_or_more_races">Two or More Races</option>
+                  <option value="decline">Decline to self-identify</option>
                 </select>
               </div>
 
@@ -496,11 +582,11 @@ const handleClose = () => {
                 <label for="editDisabilityStatus">Disability Status</label>
                 <select id="editDisabilityStatus" v-model="editableProfile.disabilityStatus">
                   <option value="">Prefer not to answer</option>
-                  <option value="Yes">
+                  <option value="yes">
                     Yes, I have a disability (or previously had a disability)
                   </option>
-                  <option value="No">No, I do not have a disability</option>
-                  <option value="Decline">Decline to self-identify</option>
+                  <option value="no">No, I do not have a disability</option>
+                  <option value="decline">Decline to self-identify</option>
                 </select>
               </div>
 
@@ -508,11 +594,11 @@ const handleClose = () => {
                 <label for="editVeteranStatus">Veteran Status</label>
                 <select id="editVeteranStatus" v-model="editableProfile.veteranStatus">
                   <option value="">Prefer not to answer</option>
-                  <option value="Not a Veteran">I am not a protected veteran</option>
-                  <option value="Veteran">
+                  <option value="not_a_veteran">I am not a protected veteran</option>
+                  <option value="veteran">
                     I identify as one or more of the classifications of protected veteran
                   </option>
-                  <option value="Decline">Decline to self-identify</option>
+                  <option value="decline">Decline to self-identify</option>
                 </select>
               </div>
 
@@ -520,8 +606,8 @@ const handleClose = () => {
                 <label for="editAge18OrOlder">Are you 18 years of age or older?</label>
                 <select id="editAge18OrOlder" v-model="editableProfile.age18OrOlder">
                   <option value="">Prefer not to answer</option>
-                  <option value="Yes">Yes</option>
-                  <option value="No">No</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
                 </select>
               </div>
             </div>
@@ -545,10 +631,10 @@ const handleClose = () => {
                 <label for="editWorkAuthorization">Work Authorization</label>
                 <select id="editWorkAuthorization" v-model="editableProfile.workAuthorization">
                   <option value="">Select...</option>
-                  <option value="US Citizen">U.S. Citizen</option>
-                  <option value="Green Card">Green Card Holder (Permanent Resident)</option>
-                  <option value="Work Visa">Work Visa (H1B, etc.)</option>
-                  <option value="Need Sponsorship">Will require sponsorship</option>
+                  <option value="us_citizen">U.S. Citizen</option>
+                  <option value="green_card">Green Card Holder (Permanent Resident)</option>
+                  <option value="work_visa">Work Visa (H1B, etc.)</option>
+                  <option value="need_sponsorsip">Will require sponsorship</option>
                 </select>
               </div>
             </div>
@@ -911,5 +997,74 @@ const handleClose = () => {
 
 .checkbox-label span {
   user-select: none;
+}
+
+/* Tags styling */
+.tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  min-height: 32px;
+}
+
+/* Override Naive UI NTag styles */
+:deep(.n-tag) {
+  background: #4a5568 !important;
+  color: #e2e8f0 !important;
+  border: none !important;
+  padding: 4px 10px !important;
+  border-radius: 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+:deep(.n-tag .n-tag__close) {
+  color: #e2e8f0 !important;
+  margin-left: 6px !important;
+}
+
+:deep(.n-tag .n-tag__close:hover) {
+  color: #ef4444 !important;
+}
+
+/* Override Naive UI NInput styles */
+:deep(.n-input) {
+  background: #1a202c !important;
+  border: 1px solid #4a5568 !important;
+  border-radius: 6px !important;
+}
+
+:deep(.n-input__input-el) {
+  padding: 10px 12px !important;
+  background: transparent !important;
+  color: #e2e8f0 !important;
+  font-size: 14px !important;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif !important;
+}
+
+:deep(.n-input__input-el::placeholder) {
+  color: #718096 !important;
+}
+
+:deep(.n-input:hover) {
+  border-color: #4a5568 !important;
+}
+
+:deep(.n-input.n-input--focus) {
+  border-color: #4f7cff !important;
+  box-shadow: none !important;
+}
+
+:deep(.n-input__state-border) {
+  display: none !important;
+}
+
+/* Remove default Naive UI box shadow */
+:deep(.n-input__border),
+:deep(.n-input__state-border) {
+  border: none !important;
+  box-shadow: none !important;
 }
 </style>

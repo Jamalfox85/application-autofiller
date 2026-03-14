@@ -1,5 +1,6 @@
 export interface PersonalInfo {
   firstName: string
+  middleName?: string
   lastName: string
   email: string
   phone: string
@@ -14,6 +15,7 @@ export interface PersonalInfo {
   resumeFile?: string
   education: Education[]
   experience: Experience[]
+  skills?: string[]
 
   // Demographic Information
   gender?: string
@@ -35,6 +37,7 @@ export interface Education {
   schoolName: string
   degreeType: string
   major: string
+  startYear: string
   graduationYear: string
   gpa?: string
 }

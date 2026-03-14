@@ -78,7 +78,6 @@ const autofillCurrentPage = async () => {
     }
 
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill' })
-    console.log('RESPONSE: ', response)
 
     if (response?.success && response.fieldsCount > 0) {
       fieldsDetected.value = response.fieldsCount
@@ -90,7 +89,6 @@ const autofillCurrentPage = async () => {
       showNotification('No available fields found to autofill', 'error')
     }
   } catch (error) {
-    console.error('Autofill error:', error)
     showNotification('Unable to autofill this page', 'error')
   }
 }

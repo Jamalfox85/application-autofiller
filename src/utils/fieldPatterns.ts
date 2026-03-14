@@ -155,6 +155,7 @@ export const FIELD_PATTERNS = {
     'companyname',
     'employer_name',
     'employername',
+    'currentcompany',
   ],
   jobDescription: [
     'description',
