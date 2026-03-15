@@ -61,3 +61,25 @@ export interface SavedResponse {
 }
 
 export type NotificationType = 'success' | 'error'
+
+export type SiteRule = {
+  detect: () => boolean
+  onMount?: (personalInfo: PersonalInfo) => void | (() => void) // Optional function that runs when the site is detected. Can return a cleanup function if needed.
+  apply: (
+    input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+    fieldText: string,
+    personalInfo: PersonalInfo,
+  ) => boolean | Promise<boolean>
+  formChanged?: (mutations: MutationRecord[]) => boolean
+}
+
+export type FieldMatch = (
+  fieldText: string,
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+) => boolean
+export type FieldHandler = (
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  fieldText: string,
+  personalInfo: PersonalInfo,
+  fieldLabel: string,
+) => boolean | Promise<boolean>

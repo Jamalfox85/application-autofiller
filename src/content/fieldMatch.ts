@@ -194,6 +194,7 @@ function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
+    console.log('MATCHING DEGREE FIELD')
     return { fieldValue: latestEducation.degreeType || null, fieldKey: 'degreeType' }
   }
 

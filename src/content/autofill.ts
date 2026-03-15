@@ -21,7 +21,6 @@ export async function autofillPage() {
     }
 
     const inputs = document.querySelectorAll<FormField>('input, textarea, select')
-    console.log('INPUTS: ', inputs)
 
     let filledCount = 0
 
