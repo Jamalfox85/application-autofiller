@@ -20,7 +20,8 @@ export async function autofillPage() {
       return { success: false, message: 'No personal info saved' }
     }
 
-    const inputs = document.querySelectorAll<FormField>('input, textarea, select')
+    const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
+    console.log('INPUTS: ', inputs)
 
     let filledCount = 0
 
@@ -149,6 +150,23 @@ export async function autofillPage() {
   } catch (error) {
     return { success: false, message: 'Error during autofill' }
   }
+}
+
+function deepQuerySelectorAll(root: Document | Element | ShadowRoot, selector: string): Element[] {
+  const results: Element[] = []
+
+  // Query within the current root
+  results.push(...Array.from(root.querySelectorAll(selector)))
+
+  // Recurse into shadow roots
+  const allElements = root.querySelectorAll('*')
+  for (const el of Array.from(allElements)) {
+    if (el.shadowRoot) {
+      results.push(...deepQuerySelectorAll(el.shadowRoot, selector))
+    }
+  }
+
+  return results
 }
 
 function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) {

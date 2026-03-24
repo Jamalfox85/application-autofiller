@@ -5,15 +5,94 @@ import { showAutofillNotification, showAutofillPrompt } from './notifications.ts
 import { jobPlatforms, excludePatterns, applicationUrlPatterns } from '../utils/jobSitePatterns.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 
-// Listen for messages from popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'autofill') {
-    autofillPage().then((result) => {
-      sendResponse(result)
-    })
-    return true // Keep message channel open for async response
+// Initialize when page loads
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initialize)
+} else {
+  initialize()
+}
+
+async function initialize() {
+  // Check if this is a job application page
+  if (!isLikelyJobApplicationPage()) {
+    return
   }
-})
+  const personalInfoData = await chrome.storage.local.get('personalInfo')
+  const personalInfo = personalInfoData.personalInfo
+
+  attachFormListeners()
+
+  // Get user's auto-detect preference
+  const settings = await chrome.storage.local.get('autoDetectEnabled')
+  const autoDetectEnabled = settings.autoDetectEnabled ?? true
+
+  if (autoDetectEnabled) {
+    // Auto-detect is ON - auto-fill after delay
+    setTimeout(async () => {
+      const result = await autofillPage()
+      if (result.success) {
+        showAutofillNotification(result.fieldsCount)
+      }
+    }, 1000)
+  } else {
+    // Auto-detect is OFF - show popup prompt to user
+    setTimeout(() => {
+      if (!hasShownPopup) {
+        showAutofillPrompt()
+        hasShownPopup = true
+      }
+    }, 1000)
+  }
+
+  const activeSiteRule = siteRules.find((rule) => rule.detect())
+  if (activeSiteRule && activeSiteRule.onMount) {
+    activeSiteRule.onMount(personalInfo)
+  }
+
+  // Watch for form changes (multi-step forms)
+  const observer = new MutationObserver((mutations) => {
+    // console.log('DOM mutations detected: ', mutations)
+    const siteSpecificChangeDetected =
+      activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
+
+    const hasStructuralChange = mutations.some(
+      (mutation) => mutation.type === 'childList' && mutation.addedNodes.length > 0,
+    )
+
+    if (siteSpecificChangeDetected || (hasStructuralChange && hasFormChanged())) {
+      hasShownPopup = false
+      attachFormListeners()
+      debounceAutofill(autoDetectEnabled)
+    }
+  })
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  })
+
+  // Watch for URL changes (SPA navigation)
+  setInterval(() => {
+    let lastUrl = window.location.href
+    const currentUrl = window.location.href
+    if (currentUrl !== lastUrl) {
+      lastUrl = currentUrl
+      hasShownPopup = false
+
+      setTimeout(async () => {
+        if (autoDetectEnabled) {
+          const result = await autofillPage()
+          if (result.success) {
+            showAutofillNotification(result.fieldsCount)
+          }
+        } else {
+          showAutofillPrompt()
+          hasShownPopup = true
+        }
+      }, 1000)
+    }
+  }, 500)
+}
 
 function attachFormListeners() {
   const forms = document.querySelectorAll('form')
@@ -51,9 +130,9 @@ let lastFormSignature = ''
 
 function hasFormChanged() {
   const activeSiteRule = siteRules.find((rule) => rule.detect())
-  if (activeSiteRule && activeSiteRule.formChanged) {
-    return activeSiteRule.formChanged()
-  }
+  //   if (activeSiteRule && activeSiteRule.formChanged) {
+  //     return activeSiteRule.formChanged()
+  //   }
 
   const currentSignature = getDefaultFormSignature()
 
@@ -137,90 +216,12 @@ function isLikelyJobApplicationPage() {
   return (hasApplicationUrl && hasForm && basicFieldCount >= 2) || jobFieldCount >= 1
 }
 
-async function initialize() {
-  // Check if this is a job application page
-  if (!isLikelyJobApplicationPage()) {
-    return
+// Listen for messages from popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'autofill') {
+    autofillPage().then((result) => {
+      sendResponse(result)
+    })
+    return true // Keep message channel open for async response
   }
-  const personalInfoData = await chrome.storage.local.get('personalInfo')
-  const personalInfo = personalInfoData.personalInfo
-
-  attachFormListeners()
-
-  // Get user's auto-detect preference
-  const settings = await chrome.storage.local.get('autoDetectEnabled')
-  const autoDetectEnabled = settings.autoDetectEnabled ?? true
-
-  if (autoDetectEnabled) {
-    // Auto-detect is ON - auto-fill after delay
-    setTimeout(async () => {
-      const result = await autofillPage()
-      if (result.success) {
-        showAutofillNotification(result.fieldsCount)
-      }
-    }, 1000)
-  } else {
-    // Auto-detect is OFF - show popup prompt to user
-    setTimeout(() => {
-      if (!hasShownPopup) {
-        showAutofillPrompt()
-        hasShownPopup = true
-      }
-    }, 1000)
-  }
-
-  const activeSiteRule = siteRules.find((rule) => rule.detect())
-  if (activeSiteRule && activeSiteRule.onMount) {
-    return activeSiteRule.onMount(personalInfo)
-  }
-
-  // Watch for form changes (multi-step forms)
-  const observer = new MutationObserver((mutations) => {
-    const siteSpecificChangeDetected =
-      activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
-
-    const hasStructuralChange = mutations.some(
-      (mutation) => mutation.type === 'childList' && mutation.addedNodes.length > 0,
-    )
-
-    if (siteSpecificChangeDetected || (hasStructuralChange && hasFormChanged())) {
-      hasShownPopup = false
-      attachFormListeners()
-      debounceAutofill(autoDetectEnabled)
-    }
-  })
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  })
-
-  // Watch for URL changes (SPA navigation)
-  setInterval(() => {
-    let lastUrl = window.location.href
-    const currentUrl = window.location.href
-    if (currentUrl !== lastUrl) {
-      lastUrl = currentUrl
-      hasShownPopup = false
-
-      setTimeout(async () => {
-        if (autoDetectEnabled) {
-          const result = await autofillPage()
-          if (result.success) {
-            showAutofillNotification(result.fieldsCount)
-          }
-        } else {
-          showAutofillPrompt()
-          hasShownPopup = true
-        }
-      }, 1000)
-    }
-  }, 500)
-}
-
-// Initialize when page loads
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initialize)
-} else {
-  initialize()
-}
+})

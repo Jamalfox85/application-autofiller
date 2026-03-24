@@ -108,6 +108,8 @@ const addExperience = () => {
     id: Date.now(),
     companyName: '',
     jobTitle: '',
+    locationCity: '',
+    locationState: '',
     startDate: '',
     endDate: '',
     present: false,
@@ -430,6 +432,31 @@ const handleClose = () => {
                     v-model="exp.jobTitle"
                     placeholder="Software Engineer"
                   />
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label :for="'locationCity' + index">City</label>
+                    <input
+                      type="text"
+                      :id="'locationCity' + index"
+                      v-model="exp.locationCity"
+                      placeholder="San Francisco"
+                    />
+                  </div>
+                  <div class="form-group form-group-small">
+                    <label :for="'locationState' + index">{{ stateLabel }}</label>
+                    <select id="editState" v-model="exp.locationState">
+                      <option :value="null">-- Select a state --</option>
+                      <option
+                        v-for="option in stateOptions"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </div>
                 </div>
 
                 <div class="form-row">

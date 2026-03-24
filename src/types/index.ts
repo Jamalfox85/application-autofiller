@@ -50,6 +50,8 @@ export interface Experience {
   endDate?: string
   present?: boolean
   description: string
+  locationCity?: string
+  locationState?: string
 }
 
 export interface SavedResponse {
@@ -74,8 +76,8 @@ export type SiteRule = {
 }
 
 export type FieldMatch = (
-  fieldText: string,
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  fieldText: string,
 ) => boolean
 export type FieldHandler = (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,

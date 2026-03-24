@@ -6,7 +6,7 @@ export default function leverConfig(): SiteRule {
     detect: () => window.location.hostname.includes('jobs.lever.co'),
     apply: (input, fieldText, personalInfo) => {
       for (const { match, handle } of fieldHandlers) {
-        if (match(fieldText, input)) {
+        if (match(input, fieldText)) {
           const result = handle(input, fieldText, personalInfo, '')
           return result
         }
@@ -24,7 +24,7 @@ const fieldHandlers: Array<{
   handle: FieldHandler
 }> = [
   {
-    match: (_, input) => {
+    match: (input, _) => {
       return input.classList.contains('location-input')
     },
     handle: (input, _, personalInfo) => {
@@ -36,7 +36,7 @@ const fieldHandlers: Array<{
     },
   },
   {
-    match: (_, input) => {
+    match: (input, _) => {
       return input.getAttribute('data-qa') == 'org-input'
     },
     handle: (input, _, personalInfo) => {
@@ -51,7 +51,7 @@ const fieldHandlers: Array<{
     },
   },
   {
-    match: (_, input) => {
+    match: (input, _) => {
       return input.classList.contains('candidate-location')
     },
     handle: (input, _, personalInfo) => {

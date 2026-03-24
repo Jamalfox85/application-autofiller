@@ -11,6 +11,7 @@ export async function fillNativeInput(
 
   input.dispatchEvent(new Event('focus', { bubbles: true }))
 
+  console.log('FILLING INPUT WITH VALUE: ', value, 'FOR INPUT: ', input) // --- IGNORE ---
   // Type character by character
   for (const char of value) {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
@@ -25,55 +26,54 @@ export async function fillNativeInput(
   input.dispatchEvent(new Event('blur', { bubbles: true }))
 }
 
-// export const fillReactSelect = (
-//   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-//   value: string,
-//   selectId: string,
-// ): void => {
-//   const handleBlur = (e: Event) => {
-//     e.preventDefault()
-//     e.stopImmediatePropagation()
-//   }
-//   input.addEventListener('blur', handleBlur, true)
+export async function fillWorkdayInput(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+) {
+  //   // Find the React fiber instance on the input element
+  //   const reactFiberKey = Object.keys(input).find(
+  //     (key) => key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance'),
+  //   )
+  const reactPropsKey = Object.keys(input).find((key) => key.startsWith('__reactProps'))
 
-//   input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-//   input.focus()
-//   input.dispatchEvent(new Event('focus', { bubbles: true }))
+  const reactProps = reactPropsKey ? (input as any)[reactPropsKey] : null
 
-//   for (const char of value) {
-//     input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
-//     input.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
-//     input.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
-//   }
+  // If we can find React's onChange handler, use it directly
+  if (reactProps?.onChange) {
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      input instanceof HTMLTextAreaElement
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype,
+      'value',
+    )?.set
 
-//   const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-//     window.HTMLInputElement.prototype,
-//     'value',
-//   )?.set
-//   nativeInputValueSetter?.call(input, value)
-//   input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.focus()
+    nativeSetter?.call(input, value)
 
-//   const waitForOptions = (retries = 10) => {
-//     const options = document.querySelectorAll(selectId)
-//     if (options.length > 0) {
-//       const match = Array.from(options).find(
-//         (el) => el.textContent?.trim().toLowerCase() === value.toLowerCase(),
-//       ) as HTMLElement | undefined
-//       const target = (match || options[0]) as HTMLElement
+    // Simulate a React synthetic event
+    const syntheticEvent = new Event('input', { bubbles: true })
+    Object.defineProperty(syntheticEvent, 'target', { writable: false, value: input })
+    reactProps.onChange(syntheticEvent)
 
-//       target?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-//       target?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-//       target?.click()
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    input.dispatchEvent(new Event('blur', { bubbles: true }))
+    return
+  }
 
-//       input.removeEventListener('blur', handleBlur, true)
-//     } else if (retries > 0) {
-//       setTimeout(() => waitForOptions(retries - 1), 300)
-//     } else {
-//       input.removeEventListener('blur', handleBlur, true)
-//     }
-//   }
-//   waitForOptions()
-// }
+  // Fallback: set full value at once rather than char by char
+  const nativeSetter = Object.getOwnPropertyDescriptor(
+    input instanceof HTMLTextAreaElement
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype,
+    'value',
+  )?.set
+
+  input.dispatchEvent(new Event('focus', { bubbles: true }))
+  nativeSetter?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  input.dispatchEvent(new Event('blur', { bubbles: true }))
+}
 
 export const fillReactSelect = (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,

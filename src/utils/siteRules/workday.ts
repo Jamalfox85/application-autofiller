@@ -1,5 +1,5 @@
-import type { SiteRule } from './index.ts'
-import { fillNativeInput, fillReactSelect } from '../inputHandlers.ts'
+import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
+import { fillWorkdayInput } from '../inputHandlers.ts'
 import { PersonalInfo } from '../../types/index.ts'
 
 var lastFormSignature = ''
@@ -52,35 +52,19 @@ export default function workdayConfig(): SiteRule {
       return () => observer.disconnect()
     },
     apply: (input, fieldText, personalInfo) => {
+      console.log('INPUT: ', input, 'FIELDTEXT: ', fieldText) // --- IGNORE ---
       const inputLabel =
         input.closest('[aria-labelledby="country-section"]')?.querySelector('label')?.textContent ||
         ''
-      //   console.log('Workday INPUT: ', input, 'FIELD TEXT: ', fieldText) // --- IGNORE ---
-      if (
-        input.getAttribute('id') == 'name--legalName--firstName' ||
-        input.getAttribute('data-automation-id') == 'firstName'
-      ) {
-        fillNativeInput(input, personalInfo.firstName || '')
-        return true
-      } else if (
-        input.getAttribute('id') == 'name--legalName--middleName' ||
-        input.getAttribute('data-automation-id') == 'middleName'
-      ) {
-        const middleName = personalInfo.middleName || '' // Middle name field doesn't currently exist in our personal info form, so this will always be blank for now
-        fillNativeInput(input, middleName)
-        return true
-      } else if (
-        input.getAttribute('id') == 'name--legalName--lastName' ||
-        input.getAttribute('data-automation-id') == 'lastName'
-      ) {
-        fillNativeInput(input, personalInfo.lastName || '')
-        return true
-      } else if (input.getAttribute('id') == 'address--addressLine2') {
-        return true // Disable input
+      for (const { match, handle } of fieldHandlers) {
+        if (match(input, fieldText)) {
+          return handle(input, fieldText, personalInfo, '')
+        }
       }
       return false
     },
-    formChanged: () => {
+    formChanged: (mutations) => {
+      console.log('Workday mutaitons: ', mutations)
       const container = document.querySelector('[data-automation-id="applyFlowPage"]')
       if (!container) return false
 
@@ -104,6 +88,76 @@ export default function workdayConfig(): SiteRule {
     },
   }
 }
+
+const fieldHandlers: Array<{
+  match: FieldMatch
+  handle: FieldHandler
+}> = [
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'name--legalName--firstName'
+    },
+    handle: async (input, _, personalInfo) => {
+      fillWorkdayInput(input as HTMLInputElement, personalInfo.firstName || '')
+      return true
+    },
+  },
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'name--legalName--lastName'
+    },
+    handle: async (input, _, personalInfo) => {
+      fillWorkdayInput(input as HTMLInputElement, personalInfo.lastName || '')
+      return true
+    },
+  },
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'address--addressLine1'
+    },
+    handle: async (input, _, personalInfo) => {
+      fillWorkdayInput(input as HTMLInputElement, personalInfo.address || '')
+      return true
+    },
+  },
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'address--addressLine2'
+    },
+    handle: async () => {
+      return true
+    },
+  },
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'address--city'
+    },
+    handle: async (input, _, personalInfo) => {
+      fillWorkdayInput(input as HTMLInputElement, personalInfo.city || '')
+      // also match state
+
+      return true
+    },
+  },
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'address--postalCode'
+    },
+    handle: async (input, _, personalInfo) => {
+      fillWorkdayInput(input as HTMLInputElement, personalInfo.zip || '')
+      return true
+    },
+  },
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'phoneNumber--phoneNumber'
+    },
+    handle: async (input, _, personalInfo) => {
+      fillWorkdayInput(input as HTMLInputElement, personalInfo.phone || '')
+      return true
+    },
+  },
+]
 
 // helpers
 
@@ -142,7 +196,7 @@ const fillWorkdaySection = (
       `[data-automation-id="${field.automationId}"] input, [data-automation-id="${field.automationId}"] textarea`,
     ) as HTMLInputElement | HTMLTextAreaElement | null
 
-    if (input) fillNativeInput(input, field.value)
+    if (input) fillWorkdayInput(input, field.value)
   }
 }
 
@@ -162,8 +216,8 @@ const fillWorkdayDate = (section: Element, fieldAutomationId: string, value: str
     `[data-automation-id="${fieldAutomationId}"] [data-automation-id="dateSectionYear-input"]`,
   ) as HTMLInputElement
 
-  if (monthInput) fillNativeInput(monthInput, month)
-  if (yearInput) fillNativeInput(yearInput, year)
+  if (monthInput) fillWorkdayInput(monthInput, month)
+  if (yearInput) fillWorkdayInput(yearInput, year)
 }
 
 const handleWorkExperience = async (personalInfo: PersonalInfo) => {
@@ -206,10 +260,18 @@ const handleWorkExperience = async (personalInfo: PersonalInfo) => {
     const descriptionInput = section.querySelector(
       '[data-automation-id="formField-roleDescription"] textarea',
     ) as HTMLTextAreaElement
+    const locationInput = section.querySelector(
+      '[data-automation-id="formField-location"] input',
+    ) as HTMLInputElement
 
-    if (jobTitleInput) fillNativeInput(jobTitleInput, experience.jobTitle || '')
-    if (companyInput) fillNativeInput(companyInput, experience.companyName || '')
-    if (descriptionInput) fillNativeInput(descriptionInput, experience.description || '')
+    if (jobTitleInput) fillWorkdayInput(jobTitleInput, experience.jobTitle || '')
+    if (companyInput) fillWorkdayInput(companyInput, experience.companyName || '')
+    if (descriptionInput) fillWorkdayInput(descriptionInput, experience.description || '')
+    if (locationInput)
+      fillWorkdayInput(
+        locationInput,
+        `${experience.locationCity}, ${experience.locationState}` || '',
+      )
 
     // Fill dates
     if (experience.startDate) fillWorkdayDate(section, 'formField-startDate', experience.startDate)
@@ -227,254 +289,182 @@ const handleWorkExperience = async (personalInfo: PersonalInfo) => {
 }
 
 const handleEducation = async (personalInfo: PersonalInfo) => {
+  const normalize = (str: string) => str.toLowerCase().replace(/[^a-z]/g, '')
+
+  const typeAndEnter = async (input: HTMLInputElement, value: string) => {
+    input.click()
+    input.focus()
+    await fillWorkdayInput(input, value)
+    await new Promise((r) => setTimeout(r, 200))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }))
+    await new Promise((r) => setTimeout(r, 200))
+  }
+
   for (const education of personalInfo.education) {
     const addBtn = document.querySelector(
       '[aria-labelledby="Education-section"] [data-automation-id="add-button"]',
     ) as HTMLElement
-    console.log('Education addBtn:', addBtn)
     if (!addBtn) break
-
     addBtn.click()
-    console.log('Clicked education add button')
 
     let section: Element
     try {
       const el = await waitForElement(
-        '[aria-labelledby^="Education-"][aria-labelledby$="-panel"] [data-automation-id="formField-schoolName"]',
+        '[aria-labelledby^="Education-"][aria-labelledby$="-panel"] [data-automation-id="formField-school"]',
       )
-      const closest = el.closest('[role="group"]')
-      if (!closest) {
-        console.log('Could not find parent section')
-        break
-      }
-      section = closest
-      console.log('Found education section:', section)
+      section = el.closest('[role="group"]')!
+      if (!section) break
     } catch (e) {
       console.log('waitForElement failed:', e)
       break
     }
 
+    // School
+    const schoolInput = section.querySelector(
+      '[data-automation-id="formField-school"] input',
+    ) as HTMLInputElement
+    if (schoolInput && education.schoolName) {
+      await typeAndEnter(schoolInput, education.schoolName)
+    }
+
+    // Degree — button-based listbox
     const degreeBtn = section.querySelector(
       '[data-automation-id="formField-degree"] button[aria-haspopup="listbox"]',
-    )
-    const degreeInput = section.querySelector(
-      '[data-automation-id="formField-degree"] input[type="text"]',
-    )
-    const majorInput = section.querySelector('[data-automation-id="formField-fieldOfStudy"] input')
-    const fromYear = section.querySelector(
-      '[data-automation-id="formField-firstYearAttended"] [data-automation-id="dateSectionYear-input"]',
-    )
-
-    console.log('degreeBtn:', degreeBtn)
-    console.log('degreeInput:', degreeInput)
-    console.log('majorInput:', majorInput)
-    console.log('fromYear:', fromYear)
-    console.log('education.degreeType:', education.degreeType)
-    console.log('education.major:', education.major)
-    console.log('education.graduationYear:', education.graduationYear)
-
-    // School name - plain text input
-    const schoolInput = section.querySelector(
-      '[data-automation-id="formField-schoolName"] input',
-    ) as HTMLInputElement
-    if (schoolInput) fillNativeInput(schoolInput, education.schoolName || '')
-
-    // Degree - Workday custom select (button-based)
-    if (degreeBtn && degreeInput) {
-      ;(degreeBtn as HTMLElement).click()
-
+    ) as HTMLElement
+    if (degreeBtn && education.degreeType) {
+      degreeBtn.click()
       try {
-        // Wait until real options load (more than just "Select One")
         await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => reject('Degree options timeout'), 5000)
-          const interval = setInterval(() => {
-            const options = document.querySelectorAll('[role="option"]')
-            if (options.length > 1) {
-              clearInterval(interval)
+          const timeout = setTimeout(() => reject('Degree timeout'), 5000)
+          const observer = new MutationObserver(() => {
+            const opts = document.querySelectorAll('[role="option"]')
+            if (opts.length > 1) {
               clearTimeout(timeout)
+              observer.disconnect()
               resolve()
             }
-          }, 100)
+          })
+          observer.observe(document.body, { childList: true, subtree: true })
         })
-
         const options = document.querySelectorAll('[role="option"]')
-        console.log(
-          'Options found:',
-          options.length,
-          Array.from(options).map((o) => o.textContent),
-        )
-
-        const normalize = (str: string) => str.toLowerCase().replace(/[^a-z]/g, '')
-
         const match = Array.from(options).find((el) =>
           normalize(el.textContent || '').includes(normalize(education.degreeType)),
         ) as HTMLElement | undefined
-
-        console.log('Matched option:', match?.textContent)
-        if (match) {
-          match.click()
-        } else {
-          ;(degreeBtn as HTMLElement).click()
-        }
-      } catch (e) {
-        ;(degreeBtn as HTMLElement).click() // close listbox to unblock
+        match ? match.click() : degreeBtn.click()
+      } catch {
+        degreeBtn.click()
       }
     }
 
-    // Field of study - multiselect search input
-    if (education.major) {
-      const majorInput = section.querySelector(
-        '[data-automation-id="formField-fieldOfStudy"] [data-automation-id="searchBox"]',
-      ) as HTMLInputElement
-
-      if (majorInput) {
-        // Focus and type to trigger search
-        majorInput.click()
-        majorInput.focus()
-        fillNativeInput(majorInput, education.major)
-
-        // Wait for options to appear then click the match
-        try {
-          await waitForElement('[role="option"]')
-          const options = document.querySelectorAll('[role="option"]')
-          const match = Array.from(options).find((el) =>
-            el.textContent?.toLowerCase().includes(education.major.toLowerCase()),
-          ) as HTMLElement | undefined
-
-          if (match) {
-            match.click()
-          } else {
-            // No exact match - click first option
-            ;(options[0] as HTMLElement)?.click()
-          }
-        } catch (e) {
-          console.log('No field of study options appeared:', e)
-        }
-      }
+    // Field of study
+    const majorInput = section.querySelector(
+      '[data-automation-id="formField-fieldOfStudy"] input',
+    ) as HTMLInputElement
+    if (majorInput && education.major) {
+      await typeAndEnter(majorInput, education.major)
     }
 
     // GPA
     const gpaInput = section.querySelector(
       '[data-automation-id="formField-gradeAverage"] input',
     ) as HTMLInputElement
-    if (gpaInput && education.gpa) fillNativeInput(gpaInput, education.gpa)
+    if (gpaInput && education.gpa) {
+      await fillWorkdayInput(gpaInput, education.gpa)
+    }
 
-    // Dates - education only has YYYY, not MM/YYYY
-    if (education.graduationYear) {
-      const fromYear = section.querySelector(
-        '[data-automation-id="formField-firstYearAttended"] [data-automation-id="dateSectionYear-input"]',
-      ) as HTMLInputElement
-      const toYear = section.querySelector(
-        '[data-automation-id="formField-lastYearAttended"] [data-automation-id="dateSectionYear-input"]',
-      ) as HTMLInputElement
+    // Years
+    const fromYear = section.querySelector(
+      '[data-automation-id="formField-firstYearAttended"] [data-automation-id="dateSectionYear-input"]',
+    ) as HTMLInputElement
+    const toYear = section.querySelector(
+      '[data-automation-id="formField-lastYearAttended"] [data-automation-id="dateSectionYear-input"]',
+    ) as HTMLInputElement
 
-      // Use graduation year as the "To" year
-      if (fromYear) fillNativeInput(fromYear, education.graduationYear.toString())
-      if (toYear) fillNativeInput(toYear, education.graduationYear.toString())
+    if (fromYear && education.startYear) {
+      await fillWorkdayInput(fromYear, education.startYear.toString())
+    }
+    if (toYear && education.graduationYear) {
+      await fillWorkdayInput(toYear, education.graduationYear.toString())
     }
   }
 }
-
 const handleSkills = async (personalInfo: PersonalInfo) => {
   if (!personalInfo.skills?.length) return
 
   const skillsInput = document.querySelector('#skills--skills') as HTMLInputElement
-  if (!skillsInput) {
-    console.log('Skills input not found')
-    return
-  }
+  if (!skillsInput) return
 
   const normalize = (str: string) => str.toLowerCase().replace(/[^a-z]/g, '')
+
+  const reactPropsKey = Object.keys(skillsInput).find((key) => key.startsWith('__reactProps'))
+  const reactProps = reactPropsKey ? (skillsInput as any)[reactPropsKey] : null
   const nativeSetter = Object.getOwnPropertyDescriptor(
     window.HTMLInputElement.prototype,
     'value',
   )?.set
 
-  const typeSkill = async (skill: string) => {
-    nativeSetter?.call(skillsInput, '')
-    skillsInput.dispatchEvent(new Event('input', { bubbles: true }))
-
-    for (const char of skill) {
-      nativeSetter?.call(skillsInput, skillsInput.value + char)
-      skillsInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
-      skillsInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
+  // Type the full value at once via React's onChange if available,
+  // otherwise fall back to nativeSetter + input event
+  const typeIntoInput = (value: string) => {
+    nativeSetter?.call(skillsInput, value)
+    if (reactProps?.onChange) {
+      const event = new Event('input', { bubbles: true })
+      Object.defineProperty(event, 'target', { writable: false, value: skillsInput })
+      reactProps.onChange(event)
+    } else {
       skillsInput.dispatchEvent(new Event('input', { bubbles: true }))
-      skillsInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
-      await new Promise((resolve) => setTimeout(resolve, 50))
     }
   }
 
-  const waitForOptions = () =>
+  // MutationObserver-based wait — resolves as soon as options appear, no polling delay
+  const waitForOptions = (timeout = 5000) =>
     new Promise<NodeListOf<Element>>((resolve, reject) => {
-      const timeout = setTimeout(() => reject('Skills options timeout'), 5000)
-      const interval = setInterval(() => {
+      const existing = document.querySelectorAll('[data-automation-id="promptOption"]')
+      if (existing.length > 0) return resolve(existing)
+
+      const timer = setTimeout(() => {
+        observer.disconnect()
+        reject('Skills options timeout')
+      }, timeout)
+
+      const observer = new MutationObserver(() => {
         const options = document.querySelectorAll('[data-automation-id="promptOption"]')
         if (options.length > 0) {
-          clearInterval(interval)
-          clearTimeout(timeout)
+          clearTimeout(timer)
+          observer.disconnect()
           resolve(options)
         }
-      }, 1000)
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
     })
 
-  const clearInput = async () => {
-    nativeSetter?.call(skillsInput, '')
-    skillsInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 800))
-  }
-
   for (const skill of personalInfo.skills) {
-    console.log('Adding skill:', skill)
-
-    skillsInput.click()
     skillsInput.focus()
-    await new Promise((resolve) => setTimeout(resolve, 300))
-
-    await typeSkill(skill)
-
-    // Wait after typing before pressing Enter
-    await new Promise((resolve) => setTimeout(resolve, 1250))
-    skillsInput.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }),
-    )
-    skillsInput.dispatchEvent(
-      new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }),
-    )
+    typeIntoInput(skill)
 
     try {
       const options = await waitForOptions()
-
-      // Wait after options appear before clicking
-      await new Promise((resolve) => setTimeout(resolve, 2500))
-
-      console.log(
-        'Options found:',
-        Array.from(options).map((o) => o.textContent),
-      )
 
       const exactMatch = Array.from(options).find(
         (el) => normalize(el.textContent || '') === normalize(skill),
       ) as HTMLElement | undefined
 
-      if (exactMatch) {
-        console.log('Clicking exact match:', exactMatch.textContent)
-        exactMatch.click()
+      const firstOption = options[0] as HTMLElement
 
-        // Wait after clicking before clearing
-        await new Promise((resolve) => setTimeout(resolve, 800))
-        await clearInput()
+      // Prefer exact match, fall back to first option
+      ;(exactMatch ?? firstOption)?.click()
 
-        // Wait after clearing before next skill
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      } else {
-        console.log('No exact match, skipping skill:', skill)
-        await clearInput()
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    } catch (e) {
-      console.log('No options appeared for skill:', skill, e)
-      await clearInput()
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // Only wait long enough for Workday to register the selection
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      // Clear for next skill
+      typeIntoInput('')
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    } catch {
+      console.log('No options for skill:', skill)
+      typeIntoInput('')
+      await new Promise((resolve) => setTimeout(resolve, 150))
     }
   }
 }
