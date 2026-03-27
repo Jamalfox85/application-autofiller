@@ -63,7 +63,10 @@ export function usePersonalInfo() {
 
   const savePersonalInfo = async (updatedInfo?: PersonalInfo) => {
     if (updatedInfo) {
-      personalInfo.value = updatedInfo
+      personalInfo.value = {
+        ...personalInfo.value,
+        ...updatedInfo,
+      }
     }
 
     await chrome.storage.local.set({

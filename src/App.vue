@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, Ref, watch } from 'vue'
-import { Linkedin, Globe, Github, Phone, Mail } from 'lucide-vue-next'
+import { ICON_CIRCLE_CHECK } from '@/utils/icons'
 import { usePersonalInfo } from './composables/usePersonalInfo'
 import { useNotification } from './composables/useNotification'
 import Login from './components/Login.vue'
@@ -94,6 +94,11 @@ onMounted(async () => {
         <img src="./assets/images/logo.png" width="40px" />
         <h1>Fillr</h1>
       </div>
+      <button class="autofill-btn" @click="autofillCurrentPage">
+        <span v-html="ICON_CIRCLE_CHECK" alt="Clipboard Icon" class="primary icon" />
+        Auto-fill Page
+      </button>
+      <!-- <button @click="handleLogout">Logout</button> -->
     </header>
 
     <!-- Main View -->
@@ -103,18 +108,6 @@ onMounted(async () => {
     </div>
 
     <Success v-else-if="activeView === 'success'" />
-
-    <div class="autofill-bttn-container">
-      <button class="autofill-btn" @click="autofillCurrentPage">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
-          />
-        </svg>
-        Auto-fill Current Page
-      </button>
-      <!-- <button @click="handleLogout">Logout</button> -->
-    </div>
 
     <footer class="footer">
       <button class="footer-link" @click="openLink('https://www.gofillr.com/private-policy')">
@@ -139,36 +132,82 @@ onMounted(async () => {
 * {
   box-sizing: border-box;
 }
+// body {
+//   height: 500px;
+// }
 
 .container {
   width: 400px;
+  height: 600px;
   background: #1a202c;
   color: #e2e8f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
   display: flex;
   flex-direction: column;
-  .header {
+}
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #2d3748;
+  .brand {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 20px;
-    border-bottom: 1px solid #2d3748;
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      h1 {
-        font-size: 18px;
-        font-weight: 700;
-        color: #f7fafc;
-        margin: 0;
-      }
+    gap: 12px;
+    h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #f7fafc;
+      margin: 0;
     }
   }
-  .content {
-    flex: 1;
-    padding: 20px;
-    overflow-y: auto;
+}
+.autofill-btn {
+  width: 175px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgb(72, 9, 233);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover {
+    background: rgb(93, 37, 235);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
+  }
+}
+.content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+.icon {
+  height: 14px;
+  width: 14px;
+}
+.icon.primary {
+  height: 28px;
+  width: 28px;
+}
+.icon.save {
+  margin-left: 8px;
+  height: 24px;
+  width: 24px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  &.active {
+    opacity: 1;
+    svg path {
+      fill: rgb(93, 37, 235);
+    }
   }
 }
 
@@ -184,34 +223,6 @@ onMounted(async () => {
   color: #a0aec0;
   margin: 0 0 12px 0;
   margin-bottom: 12px;
-}
-
-/* Autofill Button */
-.autofill-bttn-container {
-  padding: 0 20px;
-  margin-bottom: 12px;
-  .autofill-btn {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 16px;
-    background: rgb(72, 9, 233);
-    color: white;
-    border: none;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    margin-bottom: 16px;
-    transition: all 0.2s;
-    &:hover {
-      background: rgb(93, 37, 235);
-      transform: translateY(-1px);
-      box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
-    }
-  }
 }
 
 /* Footer */
