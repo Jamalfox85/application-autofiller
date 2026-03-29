@@ -28,7 +28,7 @@ export default {}
 .replace-btn {
   background: none;
   border: none;
-  color: rgb(72, 9, 233);
+  color: #3b82f6;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;

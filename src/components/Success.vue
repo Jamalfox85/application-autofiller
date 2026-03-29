@@ -76,7 +76,7 @@ const fieldsDetected = ref(0)
     .success-title {
       font-size: 18px;
       font-weight: 600;
-      color: #f7fafc;
+      color: #f0f6fc;
       margin: 0 0 8px 0;
     }
 
@@ -102,7 +102,7 @@ const fieldsDetected = ref(0)
         display: block;
         font-size: 11px;
         font-weight: 600;
-        color: rgb(72, 9, 233);
+        color: #3b82f6;
         margin-bottom: 6px;
         letter-spacing: 0.5px;
       }

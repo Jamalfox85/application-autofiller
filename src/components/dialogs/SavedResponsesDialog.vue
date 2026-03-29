@@ -407,7 +407,7 @@ const handleDelete = (id: number) => {
 .dialog-header h2 {
   font-size: 18px;
   font-weight: 600;
-  color: #f7fafc;
+  color: #f0f6fc;
   margin: 0;
 }
 
@@ -467,7 +467,7 @@ const handleDelete = (id: number) => {
 .create-response-form h3 {
   font-size: 16px;
   font-weight: 600;
-  color: #f7fafc;
+  color: #f0f6fc;
   margin: 0 0 16px 0;
 }
 
@@ -532,7 +532,7 @@ const handleDelete = (id: number) => {
 
 .btn-save {
   padding: 10px 20px;
-  background: rgb(72, 9, 233);
+  background: #3b82f6;
   color: white;
   border: none;
   border-radius: 6px;
@@ -565,7 +565,7 @@ const handleDelete = (id: number) => {
 .response-header h4 {
   font-size: 16px;
   font-weight: 600;
-  color: #f7fafc;
+  color: #f0f6fc;
   margin: 0;
 }
 
@@ -608,7 +608,7 @@ const handleDelete = (id: number) => {
 /* Footer Buttons */
 .btn-primary-dialog {
   padding: 10px 20px;
-  background: rgb(72, 9, 233);
+  background: #3b82f6;
   color: white;
   border: none;
   border-radius: 6px;

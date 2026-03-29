@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, Ref, watch } from 'vue'
-import { ICON_CIRCLE_CHECK } from '@/utils/icons'
+import { ICON_SETTINGS, ICON_HISTORY, ICON_WAND } from '@/utils/icons'
 import { usePersonalInfo } from './composables/usePersonalInfo'
 import { useNotification } from './composables/useNotification'
 import Login from './components/Login.vue'
+import StatBlocks from './components/StatBlocks.vue'
 import Profile from './components/Profile.vue'
+import DataVault from './components/DataVault.vue'
 import AutoDetectSwitch from './components/AutoDetectSwitch.vue'
 import Success from './components/Success.vue'
 
@@ -55,6 +57,14 @@ const autofillCurrentPage = async () => {
   }
 }
 
+const openHistory = () => {
+  showNotification('History page is coming soon!', 'error')
+}
+
+const openSettings = () => {
+  showNotification('Settings page is coming soon!', 'error')
+}
+
 const openLink = (url: string) => {
   chrome.tabs.create({ url })
 }
@@ -91,20 +101,33 @@ onMounted(async () => {
     <!-- Header -->
     <header class="header">
       <div class="brand">
-        <img src="./assets/images/logo.png" width="40px" />
-        <h1>Fillr</h1>
+        <h1>GoFillr</h1>
       </div>
-      <button class="autofill-btn" @click="autofillCurrentPage">
-        <span v-html="ICON_CIRCLE_CHECK" alt="Clipboard Icon" class="primary icon" />
-        Auto-fill Page
-      </button>
+      <div class="header-right">
+        <span v-html="ICON_HISTORY" alt="History Icon" class="icon" @click="openHistory" />
+        <span v-html="ICON_SETTINGS" alt="Settings Icon" class="icon" @click="openSettings" />
+      </div>
+
       <!-- <button @click="handleLogout">Logout</button> -->
     </header>
 
     <!-- Main View -->
     <div v-if="activeView === 'main'" class="content">
-      <AutoDetectSwitch />
-      <Profile />
+      <StatBlocks class="section" />
+      <div class="section">
+        <button class="autofill-btn" @click="autofillCurrentPage">
+          <div class="bttn-main-txt">
+            <span v-html="ICON_WAND" alt="Clipboard Icon" class="icon" />
+            Auto-fill Application
+          </div>
+          <div class="bttn-sub-txt">
+            <span v-if="fieldsDetected > 0">{{ fieldsDetected }} fields detected</span>
+          </div>
+        </button>
+      </div>
+      <h3 class="section-title">DATA VAULT</h3>
+      <DataVault class="section" />
+      <!-- <AutoDetectSwitch /> -->
     </div>
 
     <Success v-else-if="activeView === 'success'" />
@@ -139,7 +162,7 @@ onMounted(async () => {
 .container {
   width: 400px;
   height: 600px;
-  background: #1a202c;
+  background: #0d1117;
   color: #e2e8f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
   display: flex;
@@ -158,19 +181,74 @@ onMounted(async () => {
     h1 {
       font-size: 18px;
       font-weight: 700;
-      color: #f7fafc;
-      margin: 0;
+      color: #f0f6fc;
+    }
+  }
+  .header-right {
+    display: flex;
+    .icon {
+      height: 22px;
+      width: 22px;
+      margin-right: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      &:hover {
+        transform: translateY(-1px);
+      }
     }
   }
 }
+.content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+.icon svg {
+  height: 20px;
+  width: 20px;
+}
+.icon.primary svg {
+  height: 28px;
+  width: 28px;
+}
+.icon.save svg {
+  margin-left: 8px;
+  height: 24px;
+  width: 24px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  &.active svg {
+    opacity: 1;
+    svg path {
+      fill: rgb(93, 37, 235);
+    }
+  }
+}
+
+.section {
+  margin-bottom: 20px;
+}
+
+.section-title,
+.stat-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #a0aec0;
+  margin: 0 0 12px 0;
+  margin-bottom: 12px;
+}
+
 .autofill-btn {
-  width: 175px;
+  width: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 12px;
-  background: rgb(72, 9, 233);
+  gap: 8px;
+  padding: 20px;
+  background: #3b82f6;
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
   color: white;
   border: none;
   border-radius: 10px;
@@ -179,50 +257,19 @@ onMounted(async () => {
   cursor: pointer;
   transition: all 0.2s;
   &:hover {
-    background: rgb(93, 37, 235);
-    transform: translateY(-1px);
+    background: #3baef6;
     box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
+    transform: translateY(-1px);
   }
-}
-.content {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-}
-.icon {
-  height: 14px;
-  width: 14px;
-}
-.icon.primary {
-  height: 28px;
-  width: 28px;
-}
-.icon.save {
-  margin-left: 8px;
-  height: 24px;
-  width: 24px;
-  opacity: 0;
-  transition: opacity 0.2s;
-  &.active {
-    opacity: 1;
-    svg path {
-      fill: rgb(93, 37, 235);
-    }
+  .bttn-main-txt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
-}
-
-/* Section */
-.section {
-  margin-bottom: 20px;
-}
-
-.section-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: #a0aec0;
-  margin: 0 0 12px 0;
-  margin-bottom: 12px;
+  .bttn-sub-txt {
+    font-size: 12px;
+    color: #dbeafe;
+  }
 }
 
 /* Footer */

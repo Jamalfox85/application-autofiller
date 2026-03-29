@@ -16,6 +16,8 @@ export function usePersonalInfo() {
     github: '',
     resumeFile: '',
     education: [],
+    experience: [],
+    skills: [],
     gender: '',
     raceEthnicity: '',
     disabilityStatus: '',

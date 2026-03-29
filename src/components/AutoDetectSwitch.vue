@@ -49,7 +49,7 @@ watch(autoDetectEnabled, async (newValue) => {
       cursor: pointer;
       transition: background 0.2s;
       &.active {
-        background: rgb(72, 9, 233);
+        background: #3b82f6;
         .toggle-slider {
           transform: translateX(16px);
         }

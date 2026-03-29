@@ -14,33 +14,6 @@ const emit = defineEmits<{
   save: [profile: PersonalInfo]
 }>()
 
-const editableProfile = ref<PersonalInfo>({
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  address: '',
-  city: '',
-  state: '',
-  zip: '',
-  country: '',
-  linkedin: '',
-  website: '',
-  github: '',
-  resumeFile: '',
-  education: [],
-  experience: [],
-  skills: [],
-  gender: '',
-  raceEthnicity: '',
-  disabilityStatus: '',
-  veteranStatus: '',
-  age18OrOlder: '',
-  desiredSalary: 0,
-  workAuthorization: '',
-  accountPassword: '',
-})
-
 // Watch for when dialog opens to populate form
 watch(
   () => props.show,
@@ -736,7 +709,7 @@ const handleClose = () => {
 .dialog-header h2 {
   font-size: 18px;
   font-weight: 600;
-  color: #f7fafc;
+  color: #f0f6fc;
   margin: 0;
 }
 
@@ -793,7 +766,7 @@ const handleClose = () => {
 .form-section h3 {
   font-size: 14px;
   font-weight: 600;
-  color: #f7fafc;
+  color: #f0f6fc;
   margin: 0 0 16px 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;

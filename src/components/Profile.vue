@@ -78,7 +78,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <div class="section">
+    <!-- <div class="section">
       <h3 class="section-title">PROFILE</h3>
       <div class="edit-group primary">
         <span v-html="ICON_USER" alt="User Icon" class="icon primary" />
@@ -142,7 +142,7 @@ onMounted(async () => {
         <span v-html="ICON_PHONE" alt="User Icon" class="icon" />
         <input v-model="editableProfile.phone" type="text" class="input" />
       </div>
-    </div>
+    </div> -->
   </div>
 </template>
 
@@ -155,7 +155,7 @@ onMounted(async () => {
   color: rgb(197, 197, 197);
   &.primary {
     margin-bottom: 8px;
-    color: #f7fafc;
+    color: #f0f6fc;
     font-size: 18px;
     font-weight: 600;
   }
@@ -171,17 +171,17 @@ onMounted(async () => {
   font: inherit;
   padding: 4px 8px;
   border-radius: 4px;
-  color: #f7fafc;
+  color: #f0f6fc;
   transition: border-color 0.15s ease;
   width: 75%;
   &:focus {
-    outline: solid 2px rgb(72, 9, 233);
+    outline: solid 2px #3b82f6;
     background: none; /* or a subtle tint */
     outline: none;
     cursor: text;
   }
   &:hover {
-    outline: solid 2px rgb(72, 9, 233);
+    outline: solid 2px #3b82f6;
     cursor: pointer;
   }
 }
@@ -189,7 +189,7 @@ onMounted(async () => {
 // .profile-name {
 //   font-size: 18px;
 //   font-weight: 600;
-//   color: #f7fafc;
+//   color: #F0F6FC;
 //   margin: 0 0 4px 0;
 // }
 // .profile-details {
