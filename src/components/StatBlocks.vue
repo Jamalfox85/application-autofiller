@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { usePersonalInfo } from '../composables/usePersonalInfo'
+import type { PersonalInfo } from '../types/index.ts'
 
-const { personalInfo } = usePersonalInfo()
+const props = defineProps<{
+  personalInfo: PersonalInfo
+}>()
 
 const profileHealthValue = computed(() => {
   let score = 0
-  if (personalInfo.value.firstName) score += 10
-  if (personalInfo.value.lastName) score += 10
-  if (personalInfo.value.email) score += 15
-  if (personalInfo.value.phone) score += 15
-  if (personalInfo.value.address) score += 10
-  if (personalInfo.value.linkedin) score += 10
-  if (personalInfo.value.education && personalInfo.value.education.length > 0) score += 10
-  if (personalInfo.value.experience && personalInfo.value.experience.length > 0) score += 10
-  if (personalInfo.value.skills && personalInfo.value.skills.length > 0) score += 10
+  if (props.personalInfo.firstName) score += 10
+  if (props.personalInfo.lastName) score += 10
+  if (props.personalInfo.email) score += 15
+  if (props.personalInfo.phone) score += 15
+  if (props.personalInfo.address) score += 10
+  if (props.personalInfo.linkedin) score += 10
+  if (props.personalInfo.education?.length > 0) score += 10
+  if (props.personalInfo.experience?.length > 0) score += 10
+  if (props.personalInfo.skills?.length > 0) score += 10
   return Math.min(score, 100)
 })
 </script>
@@ -56,7 +58,7 @@ const profileHealthValue = computed(() => {
   justify-content: space-between;
   cursor: pointer;
   &:first-of-type {
-    border: solid 2px red;
+    display: none;
   }
   &:hover {
     transform: translateY(-1px);

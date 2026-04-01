@@ -1,21 +1,21 @@
 export interface PersonalInfo {
   firstName: string
   middleName?: string
-  lastName?: string
-  email?: string
-  phone?: string
-  address?: string
-  city?: string
-  state?: string
-  zip?: string
-  country?: string
-  linkedin?: string
-  website?: string
-  github?: string
-  resumeFile?: string
-  education?: Education[]
-  experience?: Experience[]
-  skills?: string[]
+  lastName: string
+  email: string
+  phone: string
+  address: string
+  city: string
+  state: string
+  zip: string
+  country: string
+  linkedin: string
+  website: string
+  github: string
+  resumeFile: string
+  education: Education[]
+  experience: Experience[]
+  skills: string[]
 
   // Demographic Information
   gender?: string

@@ -1,29 +1,26 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, Ref, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ICON_SETTINGS, ICON_HISTORY, ICON_WAND } from '@/utils/icons'
 import { usePersonalInfo } from './composables/usePersonalInfo'
 import { useNotification } from './composables/useNotification'
-import Login from './components/Login.vue'
 import StatBlocks from './components/StatBlocks.vue'
-import Profile from './components/Profile.vue'
 import DataVault from './components/DataVault.vue'
-import AutoDetectSwitch from './components/AutoDetectSwitch.vue'
+import Welcome from './components/Welcome.vue'
 import Success from './components/Success.vue'
 
 // Composables
-const { loadPersonalInfo } = usePersonalInfo()
-
+const { loadPersonalInfo, savePersonalInfo } = usePersonalInfo()
 const { notification, showNotification } = useNotification()
 
 // State
-const activeView = ref<'main' | 'success'>('main')
 const isAuthenticated = ref(false)
+const personalInfo = ref<any>({})
+const activeView = ref<'main' | 'success' | 'welcome'>('welcome')
 const showUpgradeModal = ref(false)
-
 const fieldsDetected = ref(0)
+const showSetupProfileModal = ref(false)
 
 // Methods
-
 const autofillCurrentPage = async () => {
   try {
     // Check usage limits first
@@ -58,28 +55,27 @@ const autofillCurrentPage = async () => {
 }
 
 const openHistory = () => {
-  showNotification('History page is coming soon!', 'error')
+  showNotification('History page is coming soon!', 'info')
 }
 
 const openSettings = () => {
-  showNotification('Settings page is coming soon!', 'error')
+  showNotification('Settings page is coming soon!', 'info')
 }
 
 const openLink = (url: string) => {
   chrome.tabs.create({ url })
 }
 
-// Lifecycle
-onMounted(async () => {
-  //   await checkAuth()
+const setupProfileClicked = () => {
+  showSetupProfileModal.value = true
+  activeView.value = 'main'
+}
 
-  //   // Listen for auth changes
-  //   supabase.auth.onAuthStateChange((event, session) => {
-  //     isAuthenticated.value = !!session
-  //   })
-
-  await loadPersonalInfo()
-})
+const saveProfile = (profile: any) => {
+  personalInfo.value = profile
+  savePersonalInfo(profile)
+  showNotification('Profile saved successfully', 'success')
+}
 
 // async function checkAuth() {
 //   const {
@@ -92,16 +88,28 @@ onMounted(async () => {
 //   await supabase.auth.signOut()
 //   isAuthenticated.value = false
 // }
+
+// Lifecycle
+onMounted(async () => {
+  //   await checkAuth()
+  //   // Listen for auth changes
+  //   supabase.auth.onAuthStateChange((event, session) => {
+  //     isAuthenticated.value = !!session
+  //   })
+
+  personalInfo.value = await loadPersonalInfo()
+  if (personalInfo.value.firstName && personalInfo.value.lastName) {
+    activeView.value = 'main'
+  }
+})
 </script>
 
 <template>
-  <!-- <Login v-if="!isAuthenticated" @authenticated="checkAuth" /> -->
   <div class="container">
-    <!-- Unauthenticated -->
-    <!-- Header -->
     <header class="header">
       <div class="brand">
-        <h1>GoFillr</h1>
+        <img src="././assets/images/logo-transparent-white.png" alt="GoFillr Logo" class="logo" />
+        <!-- <h1>GoFillr</h1> -->
       </div>
       <div class="header-right">
         <span v-html="ICON_HISTORY" alt="History Icon" class="icon" @click="openHistory" />
@@ -111,23 +119,27 @@ onMounted(async () => {
       <!-- <button @click="handleLogout">Logout</button> -->
     </header>
 
-    <!-- Main View -->
-    <div v-if="activeView === 'main'" class="content">
-      <StatBlocks class="section" />
+    <Welcome v-if="activeView === 'welcome'" @setupProfile="setupProfileClicked" />
+    <div v-else-if="activeView === 'main'" class="content">
+      <StatBlocks class="section" :personalInfo="personalInfo" />
       <div class="section">
         <button class="autofill-btn" @click="autofillCurrentPage">
           <div class="bttn-main-txt">
             <span v-html="ICON_WAND" alt="Clipboard Icon" class="icon" />
             Auto-fill Application
           </div>
-          <div class="bttn-sub-txt">
-            <span v-if="fieldsDetected > 0">{{ fieldsDetected }} fields detected</span>
+          <div class="bttn-sub-txt" v-if="fieldsDetected > 0">
+            <span>{{ fieldsDetected }} fields detected</span>
           </div>
         </button>
       </div>
       <h3 class="section-title">DATA VAULT</h3>
-      <DataVault class="section" />
-      <!-- <AutoDetectSwitch /> -->
+      <DataVault
+        class="section"
+        :personalInfo="personalInfo"
+        :showSetupProfileModal="showSetupProfileModal"
+        @save="saveProfile"
+      />
     </div>
 
     <Success v-else-if="activeView === 'success'" />
@@ -155,10 +167,6 @@ onMounted(async () => {
 * {
   box-sizing: border-box;
 }
-// body {
-//   height: 500px;
-// }
-
 .container {
   width: 400px;
   height: 600px;
@@ -182,6 +190,9 @@ onMounted(async () => {
       font-size: 18px;
       font-weight: 700;
       color: #f0f6fc;
+    }
+    .logo {
+      height: 28px;
     }
   }
   .header-right {
@@ -318,6 +329,9 @@ onMounted(async () => {
 
 .notification.error {
   background: #ef4444;
+}
+.notification.info {
+  background: #3b82f6;
 }
 
 .notification-enter-active,

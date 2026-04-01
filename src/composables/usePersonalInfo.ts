@@ -11,6 +11,7 @@ export function usePersonalInfo() {
     city: '',
     state: '',
     zip: '',
+    country: '',
     linkedin: '',
     website: '',
     github: '',
@@ -58,9 +59,10 @@ export function usePersonalInfo() {
       personalInfo.value = {
         ...personalInfo.value,
         ...data.personalInfo,
-        education: data.personalInfo.education || [],
       }
     }
+    console.log('CONSUMABEL Loaded personal info:', personalInfo.value)
+    return personalInfo.value
   }
 
   const savePersonalInfo = async (updatedInfo?: PersonalInfo) => {

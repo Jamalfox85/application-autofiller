@@ -14,6 +14,10 @@ const emit = defineEmits<{
   save: [profile: PersonalInfo]
 }>()
 
+const editableProfile = ref<PersonalInfo>({
+  ...props.personalInfo,
+})
+
 // Watch for when dialog opens to populate form
 watch(
   () => props.show,
