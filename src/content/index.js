@@ -51,7 +51,6 @@ async function initialize() {
 
   // Watch for form changes (multi-step forms)
   const observer = new MutationObserver((mutations) => {
-    // console.log('DOM mutations detected: ', mutations)
     const siteSpecificChangeDetected =
       activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
 

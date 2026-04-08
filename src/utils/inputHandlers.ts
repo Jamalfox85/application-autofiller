@@ -11,7 +11,6 @@ export async function fillNativeInput(
 
   input.dispatchEvent(new Event('focus', { bubbles: true }))
 
-  console.log('FILLING INPUT WITH VALUE: ', value, 'FOR INPUT: ', input) // --- IGNORE ---
   // Type character by character
   for (const char of value) {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))

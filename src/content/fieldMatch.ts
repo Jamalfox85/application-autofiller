@@ -58,9 +58,6 @@ export function matchFieldToData(
             fieldKey: key,
           }
         }
-        // console.log('field: ', fieldText)
-        // console.log('Matching key:', key)
-        // console.log('Pattern:', pattern)
         return { fieldValue: personalInfo[key as keyof PersonalInfo] || null, fieldKey: key }
       }
     }
@@ -194,7 +191,6 @@ function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    console.log('MATCHING DEGREE FIELD')
     return { fieldValue: latestEducation.degreeType || null, fieldKey: 'degreeType' }
   }
 

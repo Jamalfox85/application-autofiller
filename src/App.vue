@@ -69,7 +69,6 @@ const autofillCurrentPage = async () => {
       showNotification('No available fields found to autofill', 'error')
     }
   } catch (error) {
-    console.log("ERROR: Couldn't autofill the page", error)
     showNotification('Unable to autofill this page', 'error')
   }
 }

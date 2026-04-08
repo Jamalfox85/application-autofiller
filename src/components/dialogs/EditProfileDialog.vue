@@ -101,11 +101,8 @@ const removeExperience = (index: number) => {
 const skillInput = ref('')
 
 function addTagFromInput() {
-  console.log('ping 1')
   const raw = skillInput.value.trim()
   if (!raw) return
-
-  console.log('raw: ', raw)
 
   // Optional: allow comma-separated paste, still creates multiple tags
   const parts = raw
@@ -116,11 +113,8 @@ function addTagFromInput() {
   for (const p of parts) {
     // Optional normalization
     const normalized = p.toLowerCase()
-    console.log('normalized: ', normalized)
-    console.log('current skills: ', editableProfile.value.skills)
 
     if (editableProfile.value.skills && !editableProfile.value.skills.includes(normalized)) {
-      console.log('Adding skill:', normalized)
       editableProfile.value.skills.push(normalized)
     }
   }
@@ -135,7 +129,6 @@ function removeTag(tag: string) {
 
 function handleEditTagInputKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') {
-    console.log('ENTER key pressed in skill input')
     e.preventDefault()
     e.stopPropagation()
     addTagFromInput()

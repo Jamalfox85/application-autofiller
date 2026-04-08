@@ -9,8 +9,6 @@ export default function workdayConfig(): SiteRule {
     detect: () => window.location.hostname.includes('myworkday'),
     // In your onMount:
     onMount: (personalInfo) => {
-      console.log('Personal info on mount: ', personalInfo)
-
       let step2Handled = false
 
       const observer = new MutationObserver(async () => {
@@ -21,30 +19,19 @@ export default function workdayConfig(): SiteRule {
           '[aria-labelledby="Education-section"] [data-automation-id="add-button"]',
         ) as HTMLElement
 
-        console.log(experienceAddBtn, 'educationAddBtn:', educationAddBtn)
-
         if (experienceAddBtn && educationAddBtn && !step2Handled) {
           step2Handled = true
           try {
             await handleWorkExperience(personalInfo)
-            console.log('Work experience done')
-          } catch (e) {
-            console.log('handleWorkExperience error:', e)
-          }
+          } catch (e) {}
 
           try {
             await handleEducation(personalInfo)
-            console.log('Education done')
-          } catch (e) {
-            console.log('handleEducation error:', e)
-          }
+          } catch (e) {}
 
           try {
             await handleSkills(personalInfo)
-            console.log('Skills done')
-          } catch (e) {
-            console.log('handleSkills error:', e)
-          }
+          } catch (e) {}
         }
       })
 
@@ -52,7 +39,6 @@ export default function workdayConfig(): SiteRule {
       return () => observer.disconnect()
     },
     apply: (input, fieldText, personalInfo) => {
-      console.log('INPUT: ', input, 'FIELDTEXT: ', fieldText) // --- IGNORE ---
       const inputLabel =
         input.closest('[aria-labelledby="country-section"]')?.querySelector('label')?.textContent ||
         ''
@@ -64,7 +50,6 @@ export default function workdayConfig(): SiteRule {
       return false
     },
     formChanged: (mutations) => {
-      console.log('Workday mutaitons: ', mutations)
       const container = document.querySelector('[data-automation-id="applyFlowPage"]')
       if (!container) return false
 
@@ -221,17 +206,13 @@ const fillWorkdayDate = (section: Element, fieldAutomationId: string, value: str
 }
 
 const handleWorkExperience = async (personalInfo: PersonalInfo) => {
-  console.log('handleWorkExperience called, entries:', personalInfo.experience)
-
   for (const experience of personalInfo.experience) {
     const addBtn = document.querySelector(
       '[aria-labelledby="Work-Experience-section"] [data-automation-id="add-button"]',
     ) as HTMLElement
-    console.log('Work experience addBtn:', addBtn)
     if (!addBtn) break
 
     addBtn.click()
-    console.log('Clicked work experience add button')
 
     // Wait for the inline form to appear
     let section: Element | null = null
@@ -241,12 +222,9 @@ const handleWorkExperience = async (personalInfo: PersonalInfo) => {
       )
       section = el.closest('[role="group"]')
       if (!section) {
-        console.log('Could not find parent section')
         break
       }
-      console.log('Found work experience section:', section)
     } catch (e) {
-      console.log('waitForElement failed:', e)
       break
     }
 
@@ -316,7 +294,6 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
       section = el.closest('[role="group"]')!
       if (!section) break
     } catch (e) {
-      console.log('waitForElement failed:', e)
       break
     }
 
@@ -462,7 +439,6 @@ const handleSkills = async (personalInfo: PersonalInfo) => {
       typeIntoInput('')
       await new Promise((resolve) => setTimeout(resolve, 150))
     } catch {
-      console.log('No options for skill:', skill)
       typeIntoInput('')
       await new Promise((resolve) => setTimeout(resolve, 150))
     }

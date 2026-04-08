@@ -11,7 +11,6 @@ export async function autofillPage() {
   try {
     const personalInfoData = await chrome.storage.local.get('personalInfo')
     const personalInfo = personalInfoData.personalInfo
-    console.log('Personal Info for autofill: ', personalInfo)
 
     const savedResponsesData = await chrome.storage.local.get('savedResponses')
     const savedResponses = savedResponsesData.savedResponses || {}
@@ -21,7 +20,6 @@ export async function autofillPage() {
     }
 
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
-    console.log('INPUTS: ', inputs)
 
     let filledCount = 0
 
