@@ -70,7 +70,7 @@ export type NotificationType = 'success' | 'error'
 
 export type SiteRule = {
   detect: () => boolean
-  onMount?: (personalInfo: PersonalInfo) => void | (() => void) // Optional function that runs when the site is detected. Can return a cleanup function if needed.
+  onMount?: (personalInfo: PersonalInfo) => void | (() => void)
   apply: (
     input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
     fieldText: string,

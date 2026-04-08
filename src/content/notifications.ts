@@ -81,29 +81,60 @@ export function showErrorNotification(message: string) {
 }
 
 export function showAutofillPrompt() {
-  // Remove existing prompt if present
   const existing = document.querySelector('.gofillr-autofill-prompt')
-  if (existing) {
-    existing.remove()
-  }
+  if (existing) existing.remove()
 
   const prompt = document.createElement('div')
   prompt.className = 'gofillr-autofill-prompt'
+
+  // All styles inline — external pages don't have your stylesheet
+  prompt.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 2147483647;
+    background: #1a1a2e;
+    color: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    width: 280px;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    overflow: hidden;
+  `
+
   prompt.innerHTML = `
-    <div class="gofillr-prompt-content">
-      <div class="gofillr-prompt-header">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
-          <rect x="3" y="14" width="7" height="7" rx="1" fill="#4F7CFF" />
-          <rect x="14" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
-          <rect x="14" y="14" width="7" height="7" rx="1" fill="#4F7CFF" opacity="0.4" />
-        </svg>
-        <span>gofillr</span>
+    <div style="padding: 16px;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+        <img src="${chrome.runtime.getURL('assets/images/logo.png')}" width="20" height="20" style="flex-shrink: 0;" />
+        <span style="font-weight: 600; font-size: 15px;">gofillr</span>
       </div>
-      <p>Job application detected! Would you like to auto-fill this form?</p>
-      <div class="gofillr-prompt-actions">
-        <button class="gofillr-btn-secondary" data-action="dismiss">Not now</button>
-        <button class="gofillr-btn-primary" data-action="autofill">Auto-fill Form</button>
+      <p style="margin: 0 0 14px; color: #ccc; line-height: 1.4;">
+        Job application detected! Would you like to auto-fill this form?
+      </p>
+      <div style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button data-action="dismiss" style="
+          background: transparent;
+          border: 1px solid #444;
+          color: #aaa;
+          padding: 6px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+        ">Not now</button>
+        <button data-action="autofill" style="
+          background: #4F7CFF;
+          border: none;
+          color: white;
+          padding: 6px 14px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
+        ">Auto-fill Form</button>
       </div>
     </div>
   `
@@ -111,28 +142,27 @@ export function showAutofillPrompt() {
   document.body.appendChild(prompt)
 
   // Fade in
-  setTimeout(() => {
-    prompt.style.opacity = '1'
-    prompt.style.transform = 'translateY(0)'
-  }, 10)
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      prompt.style.opacity = '1'
+      prompt.style.transform = 'translateY(0)'
+    })
+  })
 
-  // Handle button clicks
   prompt.querySelector('[data-action="dismiss"]')?.addEventListener('click', () => {
     prompt.style.opacity = '0'
-    prompt.style.transform = 'translateY(-20px)'
+    prompt.style.transform = 'translateY(20px)'
     setTimeout(() => prompt.remove(), 300)
   })
 
   prompt.querySelector('[data-action="autofill"]')?.addEventListener('click', async () => {
     prompt.style.opacity = '0'
-    prompt.style.transform = 'translateY(-20px)'
+    prompt.style.transform = 'translateY(20px)'
     setTimeout(() => prompt.remove(), 300)
 
-    // Run autofill
     const result = await autofillPage()
     if (result.success) {
       showAutofillNotification(result.fieldsCount ?? 0)
-      chrome.tabs.sendMessage({ action: 'trackAutofill' })
     } else {
       showErrorNotification(result.message)
     }

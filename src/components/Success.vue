@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-
-const fieldsDetected = ref(0)
 </script>
 <template>
   <div class="success-view">
@@ -19,20 +17,7 @@ const fieldsDetected = ref(0)
         </svg>
       </div>
       <h2 class="success-title">Form Successfully Filled</h2>
-      <p class="success-message">
-        Automation engine successfully identified and populated {{ fieldsDetected }} fields
-      </p>
     </div>
-
-    <button class="success-btn">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-        <path
-          fill-rule="evenodd"
-          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-        />
-      </svg>
-      Auto-fill Successful
-    </button>
   </div>
 </template>
 <style scoped lang="scss">

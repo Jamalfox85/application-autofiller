@@ -31,7 +31,6 @@ const personalInfo = ref<any>({})
 const userSettings = ref<any>({})
 const activeView = ref<'main' | 'success' | 'welcome'>('welcome')
 const showUpgradeModal = ref(false)
-const fieldsDetected = ref(0)
 
 const dialogs: Record<string, any> = {
   settings: ref(false),
@@ -61,8 +60,8 @@ const autofillCurrentPage = async () => {
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill' })
 
     if (response?.success && response.fieldsCount > 0) {
-      fieldsDetected.value = response.fieldsCount
       activeView.value = 'success'
+      chrome.runtime.sendMessage({ action: 'trackAutofill' })
       setTimeout(() => {
         activeView.value = 'main'
       }, 3000)
@@ -70,6 +69,7 @@ const autofillCurrentPage = async () => {
       showNotification('No available fields found to autofill', 'error')
     }
   } catch (error) {
+    console.log("ERROR: Couldn't autofill the page", error)
     showNotification('Unable to autofill this page', 'error')
   }
 }
@@ -159,9 +159,6 @@ onMounted(async () => {
           <div class="bttn-main-txt">
             <span v-html="ICON_WAND" alt="Clipboard Icon" class="icon" />
             Auto-fill Application
-          </div>
-          <div class="bttn-sub-txt">
-            <span>{{ fieldsDetected }} 30 fields detected</span>
           </div>
         </button>
       </div>
