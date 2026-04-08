@@ -1,9 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { usePersonalInfo } from '../composables/usePersonalInfo'
-
-const { personalInfo, fullName, displayEmail, displayPhone, loadPersonalInfo, savePersonalInfo } =
-  usePersonalInfo()
 
 const fieldsDetected = ref(0)
 </script>
@@ -26,22 +22,6 @@ const fieldsDetected = ref(0)
       <p class="success-message">
         Automation engine successfully identified and populated {{ fieldsDetected }} fields
       </p>
-    </div>
-
-    <div class="success-info">
-      <h3>CANDIDATE PROFILE</h3>
-      <div class="info-field">
-        <label>FULL NAME</label>
-        <div class="info-value">{{ fullName }}</div>
-      </div>
-      <div class="info-field">
-        <label>EMAIL ADDRESS</label>
-        <div class="info-value">{{ displayEmail }}</div>
-      </div>
-      <div class="info-field">
-        <label>LINKEDIN URL</label>
-        <div class="info-value">{{ personalInfo.linkedin || 'linkedin.com/in/johndoe-ux' }}</div>
-      </div>
     </div>
 
     <button class="success-btn">

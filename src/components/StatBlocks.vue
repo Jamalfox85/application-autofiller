@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import type { PersonalInfo } from '../types/index.ts'
 
 const props = defineProps<{
@@ -19,15 +19,23 @@ const profileHealthValue = computed(() => {
   if (props.personalInfo.skills?.length > 0) score += 10
   return Math.min(score, 100)
 })
+
+const autofillCount = ref(0)
+onMounted(() => {
+  chrome.storage.local.get('stats', (data) => {
+    const stats = data.stats || { totalAutofills: 0 }
+    autofillCount.value = stats.totalAutofills || 0
+  })
+})
 </script>
 <template lang="">
   <div class="stat-blocks">
     <div class="stat-block">
-      <h3 class="stat-title">APPLIED TODAY</h3>
+      <h3 class="stat-title">FORMS AUTOFILLED</h3>
       <div class="stat-content">
-        <span class="stat-value"> 12 </span>
+        <span class="stat-value"> {{ autofillCount }} </span>
         <span class="stat-change positive">
-          +20% <span v-html="ICON_ARROW_UP" alt="Arrow Up Icon" class="icon" />
+          <!-- +20% <span v-html="ICON_ARROW_UP" alt="Arrow Up Icon" class="icon" /> -->
         </span>
       </div>
     </div>
@@ -57,9 +65,7 @@ const profileHealthValue = computed(() => {
   flex-direction: column;
   justify-content: space-between;
   cursor: pointer;
-  &:first-of-type {
-    display: none;
-  }
+  width: 50%;
   &:hover {
     transform: translateY(-1px);
     .positive {

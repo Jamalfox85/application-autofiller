@@ -8,6 +8,7 @@ import StatBlocks from './components/StatBlocks.vue'
 import DataVault from './components/DataVault.vue'
 import Welcome from './components/Welcome.vue'
 import Success from './components/Success.vue'
+import AutoDetectSwitch from './components/AutoDetectSwitch.vue'
 
 import SettingsDialog from './components/dialogs/SettingsDialog.vue'
 import UpdatePersonalInfoDialog from './components/dialogs/UpdatePersonalInfoDialog.vue'
@@ -56,11 +57,6 @@ const autofillCurrentPage = async () => {
     // }
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-
-    if (!tab?.id) {
-      showNotification('Unable to access this tab', 'error')
-      return
-    }
 
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill' })
 
@@ -141,8 +137,6 @@ onMounted(async () => {
   if (personalInfo.value.firstName && personalInfo.value.lastName) {
     activeView.value = 'main'
   }
-
-  userSettings.value = await loadSettings()
 })
 </script>
 
@@ -152,16 +146,13 @@ onMounted(async () => {
       <div class="brand">
         <img src="././assets/images/logo-transparent-white.png" alt="GoFillr Logo" class="logo" />
       </div>
-      <div class="header-right">
-        <!-- <span v-html="ICON_HISTORY" alt="History Icon" class="icon" @click="openHistory" /> -->
-        <span v-html="ICON_SETTINGS" alt="Settings Icon" class="icon" @click="openSettings" />
-      </div>
 
       <!-- <button @click="handleLogout">Logout</button> -->
     </header>
 
     <Welcome v-if="activeView === 'welcome'" @setupProfile="setupProfileClicked" />
     <div v-else-if="activeView === 'main'" class="content">
+      <AutoDetectSwitch />
       <StatBlocks class="section" :personalInfo="personalInfo" />
       <div class="section">
         <button class="autofill-btn" @click="autofillCurrentPage">
@@ -169,8 +160,8 @@ onMounted(async () => {
             <span v-html="ICON_WAND" alt="Clipboard Icon" class="icon" />
             Auto-fill Application
           </div>
-          <div class="bttn-sub-txt" v-if="fieldsDetected > 0">
-            <span>{{ fieldsDetected }} fields detected</span>
+          <div class="bttn-sub-txt">
+            <span>{{ fieldsDetected }} 30 fields detected</span>
           </div>
         </button>
       </div>

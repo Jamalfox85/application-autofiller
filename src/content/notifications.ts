@@ -2,13 +2,13 @@ import { autofillPage } from './autofill.ts'
 
 export function showAutofillNotification(fieldsCount: number) {
   // Remove existing notification if present
-  const existing = document.querySelector('.rapidapply-autofill-notification')
+  const existing = document.querySelector('.gofillr-autofill-notification')
   if (existing) {
     existing.remove()
   }
 
   const notification = document.createElement('div')
-  notification.className = 'rapidapply-autofill-notification'
+  notification.className = 'gofillr-autofill-notification'
 
   // Add inline styles since this is injected into external pages
   notification.style.cssText = `
@@ -55,9 +55,9 @@ export function showAutofillNotification(fieldsCount: number) {
 
 export function showErrorNotification(message: string) {
   const notification = document.createElement('div')
-  notification.className = 'rapidapply-autofill-notification rapidapply-error'
+  notification.className = 'gofillr-autofill-notification gofillr-error'
   notification.innerHTML = `
-    <div class="rapidapply-notification-content">
+    <div class="gofillr-notification-content">
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="flex-shrink: 0;">
         <circle cx="10" cy="10" r="10" fill="#EF4444"/>
         <path d="M6 6l8 8M14 6l-8 8" stroke="white" stroke-width="2" stroke-linecap="round"/>
@@ -82,28 +82,28 @@ export function showErrorNotification(message: string) {
 
 export function showAutofillPrompt() {
   // Remove existing prompt if present
-  const existing = document.querySelector('.rapidapply-autofill-prompt')
+  const existing = document.querySelector('.gofillr-autofill-prompt')
   if (existing) {
     existing.remove()
   }
 
   const prompt = document.createElement('div')
-  prompt.className = 'rapidapply-autofill-prompt'
+  prompt.className = 'gofillr-autofill-prompt'
   prompt.innerHTML = `
-    <div class="rapidapply-prompt-content">
-      <div class="rapidapply-prompt-header">
+    <div class="gofillr-prompt-content">
+      <div class="gofillr-prompt-header">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
           <rect x="3" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
           <rect x="3" y="14" width="7" height="7" rx="1" fill="#4F7CFF" />
           <rect x="14" y="3" width="7" height="7" rx="1" fill="#4F7CFF" />
           <rect x="14" y="14" width="7" height="7" rx="1" fill="#4F7CFF" opacity="0.4" />
         </svg>
-        <span>RapidApply</span>
+        <span>gofillr</span>
       </div>
       <p>Job application detected! Would you like to auto-fill this form?</p>
-      <div class="rapidapply-prompt-actions">
-        <button class="rapidapply-btn-secondary" data-action="dismiss">Not now</button>
-        <button class="rapidapply-btn-primary" data-action="autofill">Auto-fill Form</button>
+      <div class="gofillr-prompt-actions">
+        <button class="gofillr-btn-secondary" data-action="dismiss">Not now</button>
+        <button class="gofillr-btn-primary" data-action="autofill">Auto-fill Form</button>
       </div>
     </div>
   `
@@ -132,6 +132,7 @@ export function showAutofillPrompt() {
     const result = await autofillPage()
     if (result.success) {
       showAutofillNotification(result.fieldsCount ?? 0)
+      chrome.tabs.sendMessage({ action: 'trackAutofill' })
     } else {
       showErrorNotification(result.message)
     }

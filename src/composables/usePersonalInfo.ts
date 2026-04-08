@@ -29,30 +29,6 @@ export function usePersonalInfo() {
     accountPassword: '',
   })
 
-  const fullName = computed(() => {
-    return `${personalInfo.value.firstName} ${personalInfo.value.lastName}`.trim() || 'John Doe'
-  })
-
-  const displayEmail = computed(() => {
-    return personalInfo.value.email || 'john.doe@email.com'
-  })
-
-  const displayPhone = computed(() => {
-    return personalInfo.value.phone || '+1 234 567 890'
-  })
-
-  const displayLinkedin = computed(() => {
-    return personalInfo.value.linkedin || 'linkedin.com/in/johndoe-ux'
-  })
-
-  const displayWebsite = computed(() => {
-    return personalInfo.value.website || 'www.johndoe.com'
-  })
-
-  const displayGithub = computed(() => {
-    return personalInfo.value.github || 'github.com/johndoe'
-  })
-
   const loadPersonalInfo = async () => {
     const data = await chrome.storage.local.get('personalInfo')
     if (data.personalInfo) {
@@ -79,12 +55,6 @@ export function usePersonalInfo() {
 
   return {
     personalInfo,
-    fullName,
-    displayEmail,
-    displayPhone,
-    displayLinkedin,
-    displayWebsite,
-    displayGithub,
     loadPersonalInfo,
     savePersonalInfo,
   }
