@@ -12,6 +12,7 @@ if (document.readyState === 'loading') {
   initialize()
 }
 
+let hasShownPopup = false
 async function initialize() {
   // Check if this is a job application page
   if (!isLikelyJobApplicationPage()) {
