@@ -54,6 +54,10 @@ export interface Experience {
   locationState?: string
 }
 
+export interface Settings {
+  autoFillEnabled: boolean
+}
+
 export interface SavedResponse {
   id: number
   title: string

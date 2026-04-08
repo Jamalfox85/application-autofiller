@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import type { PersonalInfo } from '../../types/index.ts'
-
 const props = defineProps<{
   show: boolean
   personalInfo: PersonalInfo
@@ -25,16 +24,33 @@ const handleClose = () => {
   emit('close')
 }
 
-const addEducation = () => {
-  editableProfile.value.education.push({
-    id: Date.now(),
-    schoolName: '',
-    degreeType: '',
-    major: '',
-    startYear: '',
-    graduationYear: '',
-    gpa: '',
-  })
+const addEducation = async () => {
+  if (editableProfile.value.education.length >= 5) {
+    alert('You can add up to 5 education entries.')
+    return
+  }
+  if (
+    editableProfile.value.education[editableProfile.value.education.length - 1].schoolName === ''
+  ) {
+    alert('Please fill out the current education entry before adding a new one.')
+    return
+  }
+  if (editableProfile)
+    editableProfile.value.education.push({
+      id: Date.now(),
+      schoolName: '',
+      degreeType: '',
+      major: '',
+      startYear: '',
+      graduationYear: '',
+      gpa: '',
+    })
+
+  await nextTick()
+
+  const container = document.querySelector('.dialog-content')
+  const lastEducationItem = container?.querySelector('.education-item:last-of-type')
+  lastEducationItem?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 const removeEducation = (index: number) => {

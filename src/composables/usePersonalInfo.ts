@@ -61,7 +61,6 @@ export function usePersonalInfo() {
         ...data.personalInfo,
       }
     }
-    console.log('CONSUMABEL Loaded personal info:', personalInfo.value)
     return personalInfo.value
   }
 

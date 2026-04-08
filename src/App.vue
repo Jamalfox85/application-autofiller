@@ -2,23 +2,47 @@
 import { ref, onMounted } from 'vue'
 import { ICON_SETTINGS, ICON_HISTORY, ICON_WAND } from '@/utils/icons'
 import { usePersonalInfo } from './composables/usePersonalInfo'
+import { useSettings } from './composables/useSettings'
 import { useNotification } from './composables/useNotification'
 import StatBlocks from './components/StatBlocks.vue'
 import DataVault from './components/DataVault.vue'
 import Welcome from './components/Welcome.vue'
 import Success from './components/Success.vue'
 
+import SettingsDialog from './components/dialogs/SettingsDialog.vue'
+import UpdatePersonalInfoDialog from './components/dialogs/UpdatePersonalInfoDialog.vue'
+import UpdateSocialProfilesDialog from './components/dialogs/UpdateSocialProfilesDialog.vue'
+import UpdateResumeDialog from './components/dialogs/UpdateResumeDialog.vue'
+import UpdateEducationDialog from './components/dialogs/UpdateEducationDialog.vue'
+import UpdateExperienceDialog from './components/dialogs/UpdateExperienceDialog.vue'
+import UpdateSkillsDialog from './components/dialogs/UpdateSkillsDialog.vue'
+import UpdateEEODialog from './components/dialogs/UpdateEEODialog.vue'
+import UpdateOtherInfoDialog from './components/dialogs/UpdateOtherInfoDialog.vue'
+
 // Composables
 const { loadPersonalInfo, savePersonalInfo } = usePersonalInfo()
+const { loadSettings } = useSettings()
 const { notification, showNotification } = useNotification()
 
 // State
 const isAuthenticated = ref(false)
 const personalInfo = ref<any>({})
+const userSettings = ref<any>({})
 const activeView = ref<'main' | 'success' | 'welcome'>('welcome')
 const showUpgradeModal = ref(false)
 const fieldsDetected = ref(0)
-const showSetupProfileModal = ref(false)
+
+const dialogs: Record<string, any> = {
+  settings: ref(false),
+  personalInfo: ref(false),
+  socialProfiles: ref(false),
+  resume: ref(false),
+  education: ref(false),
+  experience: ref(false),
+  skills: ref(false),
+  eeoInfo: ref(false),
+  otherDetails: ref(false),
+}
 
 // Methods
 const autofillCurrentPage = async () => {
@@ -67,7 +91,7 @@ const openLink = (url: string) => {
 }
 
 const setupProfileClicked = () => {
-  showSetupProfileModal.value = true
+  dialogs.personalInfo.value = true
   activeView.value = 'main'
 }
 
@@ -75,6 +99,22 @@ const saveProfile = (profile: any) => {
   personalInfo.value = profile
   savePersonalInfo(profile)
   showNotification('Profile saved successfully', 'success')
+}
+
+const openDialog = (key: string) => {
+  if (dialogs[key]) {
+    if (key == 'resume') {
+      showNotification('Resume management is coming soon!', 'info')
+      return
+    }
+    dialogs[key].value = true
+  }
+}
+
+const closeDialog = (key: string) => {
+  if (dialogs[key]) {
+    dialogs[key].value = false
+  }
 }
 
 // async function checkAuth() {
@@ -101,6 +141,8 @@ onMounted(async () => {
   if (personalInfo.value.firstName && personalInfo.value.lastName) {
     activeView.value = 'main'
   }
+
+  userSettings.value = await loadSettings()
 })
 </script>
 
@@ -109,10 +151,9 @@ onMounted(async () => {
     <header class="header">
       <div class="brand">
         <img src="././assets/images/logo-transparent-white.png" alt="GoFillr Logo" class="logo" />
-        <!-- <h1>GoFillr</h1> -->
       </div>
       <div class="header-right">
-        <span v-html="ICON_HISTORY" alt="History Icon" class="icon" @click="openHistory" />
+        <!-- <span v-html="ICON_HISTORY" alt="History Icon" class="icon" @click="openHistory" /> -->
         <span v-html="ICON_SETTINGS" alt="Settings Icon" class="icon" @click="openSettings" />
       </div>
 
@@ -134,12 +175,7 @@ onMounted(async () => {
         </button>
       </div>
       <h3 class="section-title">DATA VAULT</h3>
-      <DataVault
-        class="section"
-        :personalInfo="personalInfo"
-        :showSetupProfileModal="showSetupProfileModal"
-        @save="saveProfile"
-      />
+      <DataVault class="section" :personalInfo="personalInfo" @openDialog="openDialog" />
     </div>
 
     <Success v-else-if="activeView === 'success'" />
@@ -160,6 +196,62 @@ onMounted(async () => {
         {{ notification.message }}
       </div>
     </Transition>
+
+    <!-- Dialogs -->
+    <SettingsDialog
+      :show="dialogs.settings.value"
+      :settings="userSettings"
+      @close="closeDialog('settings')"
+      @save="saveSettings"
+    />
+    <UpdatePersonalInfoDialog
+      :show="dialogs.personalInfo.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('personalInfo')"
+      @save="saveProfile"
+    />
+    <UpdateSocialProfilesDialog
+      :show="dialogs.socialProfiles.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('socialProfiles')"
+      @save="saveProfile"
+    />
+    <UpdateResumeDialog
+      :show="dialogs.resume.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('resume')"
+      @save="saveProfile"
+    />
+    <UpdateEducationDialog
+      :show="dialogs.education.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('education')"
+      @save="saveProfile"
+    />
+    <UpdateExperienceDialog
+      :show="dialogs.experience.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('experience')"
+      @save="saveProfile"
+    />
+    <UpdateSkillsDialog
+      :show="dialogs.skills.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('skills')"
+      @save="saveProfile"
+    />
+    <UpdateEEODialog
+      :show="dialogs.eeoInfo.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('eeoInfo')"
+      @save="saveProfile"
+    />
+    <UpdateOtherInfoDialog
+      :show="dialogs.otherDetails.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('otherDetails')"
+      @save="saveProfile"
+    />
   </div>
 </template>
 
@@ -312,19 +404,34 @@ onMounted(async () => {
 }
 
 /* Notification */
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .notification {
   position: fixed;
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 40px); /* 20px padding on each side */
   background: #10b981;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
+  text-align: center;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 1000;
+  animation: slide-down 0.25s ease-out;
 }
 
 .notification.error {

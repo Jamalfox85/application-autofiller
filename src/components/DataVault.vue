@@ -1,161 +1,21 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useNotification } from '../composables/useNotification'
-import UpdatePersonalInfoDialog from './dialogs/UpdatePersonalInfoDialog.vue'
-import UpdateSocialProfilesDialog from './dialogs/UpdateSocialProfilesDialog.vue'
-import UpdateResumeDialog from './dialogs/UpdateResumeDialog.vue'
-import UpdateEducationDialog from './dialogs/UpdateEducationDialog.vue'
-import UpdateExperienceDialog from './dialogs/UpdateExperienceDialog.vue'
-import UpdateSkillsDialog from './dialogs/UpdateSkillsDialog.vue'
-import UpdateEEODialog from './dialogs/UpdateEEODialog.vue'
-import UpdateOtherInfoDialog from './dialogs/UpdateOtherInfoDialog.vue'
+import { ref } from 'vue'
 import type { PersonalInfo } from '../types/index.ts'
-import {
-  coloredIcon,
-  ICON_USER,
-  ICON_EDIT,
-  ICON_SOCIAL_LINKS,
-  ICON_LINK,
-  ICON_RESUME,
-  ICON_FOLDER,
-  ICON_EDUCATION,
-  ICON_BOOK,
-  ICON_EXPERIENCE,
-  ICON_BUILDING,
-  ICON_STARS,
-  ICON_HAND_SPARKLES,
-  ICON_EEO,
-  ICON_INFO,
-  ICON_OTHER_DETAILS,
-  ICON_PEN_RULER,
-} from '@/utils/icons'
+import { infoCards } from '@/utils/infocards.ts'
+import { coloredIcon } from '@/utils/icons.ts'
 
 const props = defineProps<{
   personalInfo: PersonalInfo
-  showSetupProfileModal: boolean
 }>()
 const emit = defineEmits<{
-  save: [profile: PersonalInfo]
+  openDialog: [dialogName: string]
 }>()
-
-const { notification, showNotification } = useNotification()
-
-const dialogs: Record<string, any> = {
-  personalInfo: ref(false),
-  socialProfiles: ref(false),
-  resume: ref(false),
-  education: ref(false),
-  experience: ref(false),
-  skills: ref(false),
-  eeoInfo: ref(false),
-  otherDetails: ref(false),
-}
-
-const openDialog = (key: string) => {
-  if (dialogs[key]) {
-    if (key == 'resume') {
-      showNotification('Resume management is coming soon!', 'info')
-      return
-    }
-    dialogs[key].value = true
-  }
-}
-
-const closeDialog = (key: string) => {
-  if (dialogs[key]) {
-    dialogs[key].value = false
-  }
-}
-
-const handleSave = (profile: any) => {
-  emit('save', profile)
-  showNotification('Information updated successfully', 'success')
-}
-
-const infoCards = [
-  {
-    title: 'Personal Info',
-    description: 'Name, Email, Phone, Address',
-    color: '#3B82F6',
-    icon: ICON_USER,
-    actionIcon: ICON_EDIT,
-    dialog: 'personalInfo',
-  },
-  {
-    title: 'Social Profiles',
-    description: 'LinkedIn, Portfolio, Github',
-    color: '#3B82F6',
-    // color: '#F59E0B',
-    icon: ICON_SOCIAL_LINKS,
-    actionIcon: ICON_LINK,
-    dialog: 'socialProfiles',
-  },
-  {
-    title: 'Resume',
-    description: 'Upload your latest resume',
-    color: '#3B82F6',
-    // color: '#22C55E',
-    icon: ICON_RESUME,
-    actionIcon: ICON_FOLDER,
-    dialog: 'resume',
-  },
-  {
-    title: 'Education',
-    description: 'Degree, School, Graduation Year',
-    color: '#3B82F6',
-    // color: '#C084FC',
-    icon: ICON_EDUCATION,
-    actionIcon: ICON_BOOK,
-    dialog: 'education',
-  },
-  {
-    title: 'Experience',
-    description: 'Previous jobs and roles',
-    color: '#3B82F6',
-    icon: ICON_EXPERIENCE,
-    actionIcon: ICON_BUILDING,
-    dialog: 'experience',
-  },
-  {
-    title: 'Skills',
-    description: 'List your key skills',
-    color: '#3B82F6',
-    // color: '#F59E0B',
-    icon: ICON_STARS,
-    actionIcon: ICON_HAND_SPARKLES,
-    dialog: 'skills',
-  },
-  {
-    title: 'EEO Info',
-    description: 'Race, Gender, Veteran Status',
-    color: '#3B82F6',
-    // color: '#22C55E',
-    icon: ICON_EEO,
-    actionIcon: ICON_INFO,
-    dialog: 'eeoInfo',
-  },
-  {
-    title: 'Other Details',
-    description: 'Salary, Work Authorization, etc.',
-    color: '#3B82F6',
-    // color: '#C084FC',
-    icon: ICON_OTHER_DETAILS,
-    actionIcon: ICON_PEN_RULER,
-    dialog: 'otherDetails',
-  },
-]
-
-onMounted(() => {
-  if (props.showSetupProfileModal) {
-    openDialog('personalInfo')
-  }
-})
 </script>
 <template>
   <div
     class="info-card"
     v-for="card in infoCards"
-    @click="openDialog(card.dialog)"
+    @click="$emit('openDialog', card.dialog)"
     :key="card.title"
   >
     <div class="card-icon" :style="{ background: `${card.color}25` }">
@@ -169,60 +29,6 @@ onMounted(() => {
       <span v-html="card.actionIcon" alt="Edit Icon" class="icon" />
     </div>
   </div>
-  <UpdatePersonalInfoDialog
-    :show="dialogs.personalInfo.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('personalInfo')"
-    @save="handleSave"
-  />
-  <UpdateSocialProfilesDialog
-    :show="dialogs.socialProfiles.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('socialProfiles')"
-    @save="handleSave"
-  />
-  <UpdateResumeDialog
-    :show="dialogs.resume.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('resume')"
-    @save="handleSave"
-  />
-  <UpdateEducationDialog
-    :show="dialogs.education.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('education')"
-    @save="handleSave"
-  />
-  <UpdateExperienceDialog
-    :show="dialogs.experience.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('experience')"
-    @save="handleSave"
-  />
-  <UpdateSkillsDialog
-    :show="dialogs.skills.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('skills')"
-    @save="handleSave"
-  />
-  <UpdateEEODialog
-    :show="dialogs.eeoInfo.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('eeoInfo')"
-    @save="handleSave"
-  />
-  <UpdateOtherInfoDialog
-    :show="dialogs.otherDetails.value"
-    :personalInfo="personalInfo"
-    @close="closeDialog('otherDetails')"
-    @save="handleSave"
-  />
-  <!-- Notification -->
-  <Transition name="notification">
-    <div v-if="notification.show" :class="['notification', notification.type]">
-      {{ notification.message }}
-    </div>
-  </Transition>
 </template>
 <style lang="scss">
 .info-card {
@@ -349,7 +155,7 @@ onMounted(() => {
 .form-section {
   margin-bottom: 24px;
   padding-bottom: 24px;
-  border-bottom: 1px solid #4a5568;
+  border-bottom: 1px solid #30363d;
 }
 
 .form-section:last-child {
@@ -397,8 +203,8 @@ onMounted(() => {
   width: 100%;
   max-width: 100%; /* Prevent overflow */
   padding: 10px 12px;
-  background: #1a202c;
-  border: 1px solid #4a5568;
+  background: #0d1117;
+  border: 1px solid #30363d;
   border-radius: 6px;
   font-size: 14px;
   color: #e2e8f0;
@@ -422,7 +228,7 @@ onMounted(() => {
 }
 
 .form-group select option {
-  background: #1a202c;
+  background: #0d1117;
   color: #e2e8f0;
 }
 
@@ -460,7 +266,7 @@ onMounted(() => {
   padding: 24px;
   background: #2d3748;
   border-radius: 8px;
-  border: 2px dashed #4a5568;
+  border: 2px dashed #30363d;
 }
 
 .empty-education p {
@@ -470,8 +276,8 @@ onMounted(() => {
 }
 
 .education-item {
-  background: #2d3748;
-  border: 1px solid #4a5568;
+  background: #0d1117;
+  border: 1px solid #30363d;
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
@@ -483,7 +289,7 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #4a5568;
+  border-bottom: 1px solid #30363d;
 }
 
 .education-number {
@@ -525,7 +331,7 @@ onMounted(() => {
 }
 
 .btn-secondary-dialog:hover {
-  background: #4a5568;
+  background: #30363d;
 }
 
 .btn-primary-dialog {
@@ -557,8 +363,8 @@ onMounted(() => {
   width: 100%;
   max-width: 100%;
   padding: 10px 12px;
-  background: #1a202c;
-  border: 1px solid #4a5568;
+  background: #0d1117;
+  border: 1px solid #30363d;
   border-radius: 6px;
   font-size: 14px;
   color: #e2e8f0;
@@ -576,6 +382,46 @@ onMounted(() => {
 
 .form-group textarea::placeholder {
   color: #718096;
+}
+
+input[type='month'] {
+  width: 100%;
+  padding: 10px 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e2e8f0;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+  cursor: pointer;
+  color-scheme: dark; /* makes the browser's native picker use dark mode */
+}
+
+input[type='month']:hover:not(:disabled) {
+  border-color: #4f7cff;
+}
+
+input[type='month']:focus {
+  outline: none;
+  border-color: #4f7cff;
+  box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.15);
+}
+
+input[type='month']:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+input[type='month']::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+
+input[type='month']:hover:not(:disabled)::-webkit-calendar-picker-indicator {
+  filter: invert(0.9);
 }
 
 .checkbox-label {
@@ -607,7 +453,7 @@ onMounted(() => {
 
 /* Override Naive UI NTag styles */
 :deep(.n-tag) {
-  background: #4a5568 !important;
+  background: #30363d !important;
   color: #e2e8f0 !important;
   border: none !important;
   padding: 4px 10px !important;
@@ -627,8 +473,8 @@ onMounted(() => {
 
 /* Override Naive UI NInput styles */
 :deep(.n-input) {
-  background: #1a202c !important;
-  border: 1px solid #4a5568 !important;
+  background: #0d1117 !important;
+  border: 1px solid #30363d !important;
   border-radius: 6px !important;
 }
 
@@ -646,7 +492,7 @@ onMounted(() => {
 }
 
 :deep(.n-input:hover) {
-  border-color: #4a5568 !important;
+  border-color: #30363d !important;
 }
 
 :deep(.n-input.n-input--focus) {
@@ -663,5 +509,28 @@ onMounted(() => {
 :deep(.n-input__state-border) {
   border: none !important;
   box-shadow: none !important;
+}
+
+:deep(.n-input) {
+  --n-color: #0d1117 !important;
+  --n-color-focus: #0d1117 !important;
+  --n-border: 1px solid #30363d !important;
+  --n-border-hover: 1px solid #4f7cff !important;
+  --n-border-focus: 1px solid #4f7cff !important;
+  --n-text-color: #e2e8f0 !important;
+  --n-placeholder-color: #718096 !important;
+  --n-box-shadow-focus: 0 0 0 3px rgba(79, 124, 255, 0.15) !important;
+  --n-caret-color: #4f7cff !important;
+}
+
+:deep(.n-tag) {
+  --n-color: #30363d !important;
+  --n-text-color: #e2e8f0 !important;
+  --n-border: none !important;
+  --n-close-icon-color: #8b949e !important;
+  --n-close-icon-color-hover: #ef4444 !important;
+  --n-close-color-hover: transparent !important;
+  --n-close-color-pressed: transparent !important;
+  --n-border-radius: 12px !important;
 }
 </style>

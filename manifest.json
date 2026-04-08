@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Fillr - Job Application Autofill",
+  "name": "GoFillr - Job Application Autofill",
   "version": "1.0.2",
   "description": "Autofill job applications instantly. Save your info once, apply to hundreds of jobs in seconds.",
   "permissions": ["storage", "activeTab"],

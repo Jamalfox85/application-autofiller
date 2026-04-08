@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { usStates } from '../../utils/locationLists.ts'
 import type { PersonalInfo } from '../../types/index.ts'
 
@@ -26,7 +26,17 @@ const handleClose = () => {
   emit('close')
 }
 
-const addExperience = () => {
+const addExperience = async () => {
+  if (editableProfile.value.experience.length >= 5) {
+    alert('You can add up to 5 experience entries.')
+    return
+  }
+  if (
+    editableProfile.value.experience[editableProfile.value.experience.length - 1].companyName === ''
+  ) {
+    alert('Please fill out the current experience entry before adding a new one.')
+    return
+  }
   editableProfile.value.experience.push({
     id: Date.now(),
     companyName: '',
@@ -38,6 +48,12 @@ const addExperience = () => {
     present: false,
     description: '',
   })
+
+  await nextTick()
+
+  const container = document.querySelector('.dialog-content')
+  const lastEducationItem = container?.querySelector('.education-item:last-of-type')
+  lastEducationItem?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 const removeExperience = (index: number) => {
