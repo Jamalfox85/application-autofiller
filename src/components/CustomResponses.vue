@@ -1,22 +1,22 @@
-<script setup lang="ts">
+<!-- <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import SavedResponsesDialog from './dialogs/SavedResponsesDialog.vue'
-import { useSavedResponses } from '../composables/useSavedResponses'
+import SavedResponsesDialog from './dialogs/CustomResponsesDialog.vue'
+import { useCustomResponses } from '../composables/useCustomResponses'
 import { useNotification } from '../composables/useNotification'
-import type { SavedResponse } from '../types'
+import type { CustomResponse } from '../types'
 
 const showQuestionsDialog = ref(false)
 
 const { savedResponses, loadSavedResponses, addSavedResponse, deleteSavedResponse } =
-  useSavedResponses()
+  useCustomResponses()
 const { notification, showNotification } = useNotification()
 
-const handleAddResponse = async (response: SavedResponse) => {
+const handleAddResponse = async (response: CustomResponse) => {
   await addSavedResponse(response)
   showNotification('Response saved!')
 }
-const handleUpdateResponse = async (response: SavedResponse) => {
-  const index = savedResponses.value.findIndex((r) => r.id === response.id)
+const handleUpdateResponse = async (response: CustomResponse) => {
+  const index = savedResponses.value.findIndex((r: any) => r.id === response.id)
   if (index !== -1) {
     savedResponses.value[index] = response
     await chrome.storage.local.set({
@@ -56,7 +56,7 @@ onMounted(async () => {
         <button class="view-btn" @click="showQuestionsDialog = true">View Responses</button>
       </div>
     </div>
-    <SavedResponsesDialog
+    <CustomResponsesDialog
       :show="showQuestionsDialog"
       :saved-responses="savedResponses"
       @close="showQuestionsDialog = false"
@@ -95,4 +95,4 @@ onMounted(async () => {
     }
   }
 }
-</style>
+</style> -->

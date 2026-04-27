@@ -175,45 +175,12 @@ function isLikelyJobApplicationPage() {
 
   const hasApplicationUrl = applicationUrlPatterns.some((pattern) => url.includes(pattern))
 
-  // Check for job application input fields
-  const inputs = document.querySelectorAll('input, textarea, select')
-  const jobFieldPatterns = [
-    'resume',
-    'cv',
-    'cover.letter',
-    'coverletter',
-    'linkedin',
-    'portfolio',
-    'salary',
-    'visa',
-    'sponsor',
-    'authorized',
-    'work.authorization',
-  ]
-
-  const basicFieldPatterns = ['first.?name', 'last.?name', 'email', 'phone']
-
-  let jobFieldCount = 0
-  let basicFieldCount = 0
-
-  inputs.forEach((input) => {
-    const text =
-      `${input.name} ${input.id} ${input.placeholder} ${input.getAttribute('aria-label') || ''}`.toLowerCase()
-
-    if (jobFieldPatterns.some((p) => new RegExp(p).test(text))) {
-      jobFieldCount++
-    }
-    if (basicFieldPatterns.some((p) => new RegExp(p).test(text))) {
-      basicFieldCount++
-    }
-  })
-
   // It's likely a job application if:
   // 1. URL suggests application page AND has basic form fields, OR
   // 2. Page has job-specific fields (resume, cover letter, etc.)
   const hasForm = document.querySelectorAll('form').length > 0
 
-  return (hasApplicationUrl && hasForm && basicFieldCount >= 2) || jobFieldCount >= 1
+  return hasApplicationUrl && hasForm
 }
 
 // Listen for messages from popup

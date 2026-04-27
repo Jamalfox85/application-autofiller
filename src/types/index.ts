@@ -58,12 +58,11 @@ export interface Settings {
   autoFillEnabled: boolean
 }
 
-export interface SavedResponse {
+export interface CustomResponse {
   id: number
   title: string
   text: string
   tags: string[]
-  createdAt: string
 }
 
 export type NotificationType = 'success' | 'error'

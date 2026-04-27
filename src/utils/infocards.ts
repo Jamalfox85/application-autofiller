@@ -27,6 +27,15 @@ export const infoCards = [
     dialog: 'personalInfo',
   },
   {
+    title: 'Custom Responses',
+    description: 'Tailor responses for specific questions',
+    color: '#3B82F6',
+    // color: '#22C55E',
+    icon: ICON_EDIT,
+    actionIcon: ICON_EDIT,
+    dialog: 'customResponses',
+  },
+  {
     title: 'Social Profiles',
     description: 'LinkedIn, Portfolio, Github',
     color: '#3B82F6',

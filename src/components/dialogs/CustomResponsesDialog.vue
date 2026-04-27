@@ -1,20 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { SavedResponse } from '../../types'
+import { ref, onMounted } from 'vue'
+import type { CustomResponse } from '../../types'
 import { NTag, NInput } from 'naive-ui'
+import { useCustomResponses } from '../../composables/useCustomResponses'
+import { useNotification } from '../../composables/useNotification'
 
 defineProps<{
   show: boolean
-  savedResponses: SavedResponse[]
+  //   customResponses: CustomResponse[]
 }>()
 
 const emit = defineEmits<{
   close: []
-  addResponse: [response: SavedResponse]
-  updateResponse: [response: SavedResponse]
-  deleteResponse: [id: number]
+  //   addResponse: [response: CustomResponse]
+  //   updateResponse: [response: CustomResponse]
+  //   deleteResponse: [id: number]
 }>()
 
+const { loadCustomResponses, addCustomResponse, deleteCustomResponse, saveCustomResponse } =
+  useCustomResponses()
+const { notification, showNotification } = useNotification()
+
+const customResponses = ref<any[]>([])
 const showCreateResponseForm = ref(false)
 const newResponse = ref<{
   title: string
@@ -25,23 +32,39 @@ const newResponse = ref<{
   text: '',
   tags: [],
 })
-
 const tagInput = ref('')
+
+const handleAddResponse = () => {
+  if (!newResponse.value.title.trim() || !newResponse.value.text.trim()) {
+    return
+  }
+
+  const response: CustomResponse = {
+    id: Date.now(), // Using timestamp as a simple unique ID. Replace with generated id when switching to supabase
+    title: newResponse.value.title.trim(),
+    text: newResponse.value.text.trim(),
+    tags: newResponse.value.tags,
+  }
+
+  addCustomResponse(response)
+
+  // Clear form
+  newResponse.value = { title: '', text: '', tags: [] }
+  tagInput.value = ''
+  showCreateResponseForm.value = false
+}
 
 function addTagFromInput() {
   const raw = tagInput.value.trim()
   if (!raw) return
 
-  // Optional: allow comma-separated paste, still creates multiple tags
   const parts = raw
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
 
   for (const p of parts) {
-    // Optional normalization
     const normalized = p.toLowerCase()
-
     if (!newResponse.value.tags.includes(normalized)) {
       newResponse.value.tags.push(normalized)
     }
@@ -63,27 +86,6 @@ function handleTagInputKeydown(e: KeyboardEvent) {
   }
 }
 
-const handleAddResponse = () => {
-  if (!newResponse.value.title.trim() || !newResponse.value.text.trim()) {
-    return
-  }
-
-  const response: SavedResponse = {
-    id: Date.now(),
-    title: newResponse.value.title.trim(),
-    text: newResponse.value.text.trim(),
-    tags: newResponse.value.tags,
-    createdAt: new Date().toISOString(),
-  }
-
-  emit('addResponse', response)
-
-  // Clear form
-  newResponse.value = { title: '', text: '', tags: [] }
-  tagInput.value = ''
-  showCreateResponseForm.value = false
-}
-
 const editingResponseId = ref<number | null>(null)
 const editingResponse = ref<{
   title: string
@@ -95,7 +97,7 @@ const editingResponse = ref<{
   tags: [],
 })
 
-const startEditingResponse = (response: SavedResponse) => {
+const startEditingResponse = (response: CustomResponse) => {
   editingResponseId.value = response.id
   editingResponse.value = {
     title: response.title,
@@ -104,7 +106,7 @@ const startEditingResponse = (response: SavedResponse) => {
   }
 }
 
-const cancelEditingResponse = () => {
+const resetEditingResponse = () => {
   editingResponseId.value = null
   editingResponse.value = {
     title: '',
@@ -113,22 +115,22 @@ const cancelEditingResponse = () => {
   }
 }
 
-const saveEditedResponse = () => {
+const saveEditedResponse = async () => {
   if (!editingResponse.value.title.trim() || !editingResponse.value.text.trim()) {
     return
   }
 
-  const response: SavedResponse = {
+  const response: CustomResponse = {
     id: editingResponseId.value!,
     title: editingResponse.value.title.trim(),
     text: editingResponse.value.text.trim(),
     tags: editingResponse.value.tags,
-    createdAt: new Date().toISOString(),
   }
 
-  emit('updateResponse', response)
-
-  cancelEditingResponse()
+  await saveCustomResponse(response).then(() => {
+    showNotification('Response updated!', 'success')
+    resetEditingResponse()
+  })
 }
 
 const editTagInput = ref('')
@@ -171,8 +173,14 @@ const handleClose = () => {
 }
 
 const handleDelete = (id: number) => {
-  emit('deleteResponse', id)
+  deleteCustomResponse(id).then(() => {
+    showNotification('Response deleted!', 'success')
+  })
 }
+
+onMounted(async () => {
+  await loadCustomResponses()
+})
 </script>
 
 <template>
@@ -180,7 +188,7 @@ const handleDelete = (id: number) => {
     <div v-if="show" class="dialog-overlay" @click.self="handleClose">
       <div class="dialog">
         <div class="dialog-header">
-          <h2>Saved Responses</h2>
+          <h2>Edit Custom Responses</h2>
           <button class="close-btn" @click="handleClose">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
               <path
@@ -216,8 +224,7 @@ const handleDelete = (id: number) => {
                 ></textarea>
               </div>
               <div class="form-group">
-                <label for="dialogResponseTags">Tags</label>
-
+                <label for="dialogResponseTags">Key Words</label>
                 <!-- Existing tags list (nice UX) -->
                 <div
                   v-if="newResponse.tags.length > 0"
@@ -253,15 +260,16 @@ const handleDelete = (id: number) => {
 
           <!-- Responses List -->
           <div v-else>
-            <div v-if="savedResponses.length === 0" class="empty-state">
-              <p>No saved responses yet.</p>
+            <div v-if="customResponses.length === 0" class="empty-state">
+              <p>No custom responses yet.</p>
               <p class="hint">
-                Responses are automatically saved when you submit job applications.
+                Create a new response to quickly fill in common questions during your job
+                applications!
               </p>
             </div>
 
             <div v-else class="responses-list">
-              <div v-for="response in savedResponses" :key="response.id" class="response-item">
+              <div v-for="response in customResponses" :key="response.id" class="response-item">
                 <!-- View Mode -->
                 <div v-if="editingResponseId !== response.id">
                   <div class="response-header">
@@ -314,7 +322,7 @@ const handleDelete = (id: number) => {
                     ></textarea>
                   </div>
                   <div class="form-group">
-                    <label>Tags</label>
+                    <label>Key Words</label>
                     <div
                       v-if="editingResponse.tags.length > 0"
                       class="tags-list"
@@ -338,7 +346,7 @@ const handleDelete = (id: number) => {
                     />
                   </div>
                   <div class="form-actions">
-                    <button type="button" class="btn-cancel" @click="cancelEditingResponse">
+                    <button type="button" class="btn-cancel" @click="resetEditingResponse">
                       Cancel
                     </button>
                     <button type="button" class="btn-save" @click="saveEditedResponse">
@@ -354,7 +362,7 @@ const handleDelete = (id: number) => {
         <div class="dialog-footer">
           <button
             v-if="!showCreateResponseForm"
-            class="btn-primary-dialog"
+            class="create-new-response-bttn"
             @click="showCreateResponseForm = true"
           >
             + Create New Response
@@ -367,78 +375,6 @@ const handleDelete = (id: number) => {
 </template>
 
 <style scoped>
-* {
-  box-sizing: border-box;
-}
-/* Dialog Overlay */
-.dialog-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.dialog {
-  background: #1a202c;
-  border-radius: 12px;
-  width: 100%;
-  max-width: 500px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-}
-
-.dialog-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #2d3748;
-}
-
-.dialog-header h2 {
-  font-size: 18px;
-  font-weight: 600;
-  color: #f0f6fc;
-  margin: 0;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  color: #a0aec0;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  transition: color 0.2s;
-}
-
-.close-btn:hover {
-  color: #e2e8f0;
-}
-
-.dialog-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-.dialog-footer {
-  padding: 16px 20px;
-  border-top: 1px solid #2d3748;
-  display: flex;
-  gap: 10px;
-}
-
 /* Empty State */
 .empty-state {
   text-align: center;
@@ -487,8 +423,8 @@ const handleDelete = (id: number) => {
 .create-response-form textarea {
   width: 100%;
   padding: 10px 12px;
-  background: #1a202c;
-  border: 1px solid #4a5568;
+  background: #0d1117;
+  border: 1px solid #30363d;
   border-radius: 6px;
   font-size: 14px;
   color: #e2e8f0;
@@ -499,7 +435,7 @@ const handleDelete = (id: number) => {
 .create-response-form input:focus,
 .create-response-form textarea:focus {
   outline: none;
-  border-color: #4f7cff;
+  border-color: #3b82f6;
 }
 
 .create-response-form textarea {
@@ -540,10 +476,11 @@ const handleDelete = (id: number) => {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
-}
-
-.btn-save:hover {
-  background: #4169e1;
+  &:hover {
+    background: #3baef6;
+    box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
+    transform: translateY(-1px);
+  }
 }
 
 /* Responses List */
@@ -606,7 +543,7 @@ const handleDelete = (id: number) => {
 }
 
 /* Footer Buttons */
-.btn-primary-dialog {
+.create-new-response-bttn {
   padding: 10px 20px;
   background: #3b82f6;
   color: white;
@@ -617,10 +554,11 @@ const handleDelete = (id: number) => {
   cursor: pointer;
   transition: background 0.2s;
   margin-right: auto;
-}
-
-.btn-primary-dialog:hover {
-  background: #4169e1;
+  &:hover {
+    background: #3baef6;
+    box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
+    transform: translateY(-1px);
+  }
 }
 
 .btn-secondary-dialog {
@@ -675,7 +613,7 @@ const handleDelete = (id: number) => {
 /* Override Naive UI NInput styles */
 :deep(.n-input) {
   background: #1a202c !important;
-  border: 1px solid #4a5568 !important;
+  border: none !important;
   border-radius: 6px !important;
 }
 
@@ -697,7 +635,7 @@ const handleDelete = (id: number) => {
 }
 
 :deep(.n-input.n-input--focus) {
-  border-color: #4f7cff !important;
+  border-color: #3b82f6 !important;
   box-shadow: none !important;
 }
 
@@ -722,16 +660,17 @@ const handleDelete = (id: number) => {
 .edit-btn-small {
   background: none;
   border: none;
-  color: #4f7cff;
+  color: #3b82f6;
   cursor: pointer;
   padding: 4px;
   display: flex;
   align-items: center;
   transition: color 0.2s;
-}
-
-.edit-btn-small:hover {
-  color: #4169e1;
+  &:hover {
+    background: #3baef6;
+    box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
+    transform: translateY(-1px);
+  }
 }
 
 /* Edit Response Form */
@@ -767,7 +706,7 @@ const handleDelete = (id: number) => {
 .edit-response-form input:focus,
 .edit-response-form textarea:focus {
   outline: none;
-  border-color: #4f7cff;
+  border-color: #3b82f6;
 }
 
 .edit-response-form textarea {

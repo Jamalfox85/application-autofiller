@@ -19,6 +19,7 @@ import UpdateExperienceDialog from './components/dialogs/UpdateExperienceDialog.
 import UpdateSkillsDialog from './components/dialogs/UpdateSkillsDialog.vue'
 import UpdateEEODialog from './components/dialogs/UpdateEEODialog.vue'
 import UpdateOtherInfoDialog from './components/dialogs/UpdateOtherInfoDialog.vue'
+import CustomResponsesDialog from './components/dialogs/CustomResponsesDialog.vue'
 
 // Composables
 const { loadPersonalInfo, savePersonalInfo } = usePersonalInfo()
@@ -42,6 +43,7 @@ const dialogs: Record<string, any> = {
   skills: ref(false),
   eeoInfo: ref(false),
   otherDetails: ref(false),
+  customResponses: ref(false),
 }
 
 // Methods
@@ -238,6 +240,10 @@ onMounted(async () => {
       :personalInfo="personalInfo"
       @close="closeDialog('otherDetails')"
       @save="saveProfile"
+    />
+    <CustomResponsesDialog
+      :show="dialogs.customResponses.value"
+      @close="closeDialog('customResponses')"
     />
   </div>
 </template>
