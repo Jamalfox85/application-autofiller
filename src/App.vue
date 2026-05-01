@@ -20,6 +20,7 @@ import UpdateSkillsDialog from './components/dialogs/UpdateSkillsDialog.vue'
 import UpdateEEODialog from './components/dialogs/UpdateEEODialog.vue'
 import UpdateOtherInfoDialog from './components/dialogs/UpdateOtherInfoDialog.vue'
 import CustomResponsesDialog from './components/dialogs/CustomResponsesDialog.vue'
+import ConfirmDeleteDialog from './components/dialogs/ConfirmDeleteDialog.vue'
 
 // Composables
 const { loadPersonalInfo, savePersonalInfo } = usePersonalInfo()

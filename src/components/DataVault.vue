@@ -212,6 +212,9 @@ const emit = defineEmits<{
   transition: border-color 0.2s;
   box-sizing: border-box; /* Critical! */
 }
+.form-group input[placeholder*='tag'] {
+  border: none;
+}
 
 .form-group input:focus,
 .form-group select:focus {
@@ -344,13 +347,19 @@ const emit = defineEmits<{
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  &.delete {
+    background: #ef4444;
+  }
 }
 
 .btn-primary-dialog:hover {
   background: #3baef6;
   box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+  &.delete:hover {
+    background: #ef4444;
+    box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
+  }
 }
-
 .section-note {
   font-size: 12px;
   color: #a0aec0;

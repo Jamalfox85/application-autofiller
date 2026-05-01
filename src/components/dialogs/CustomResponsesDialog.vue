@@ -1,181 +1,79 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, reactive } from 'vue'
 import type { CustomResponse } from '../../types'
 import { NTag, NInput } from 'naive-ui'
 import { useCustomResponses } from '../../composables/useCustomResponses'
 import { useNotification } from '../../composables/useNotification'
+import { coloredIcon, ICON_EDIT, ICON_XMARK } from '@/utils/icons'
+import CreateResponseDialog from './CreateResponseDialog.vue'
+import EditResponseDialog from './EditResponseDialog.vue'
+import ConfirmDeleteDialog from './ConfirmDeleteDialog.vue'
 
 defineProps<{
   show: boolean
-  //   customResponses: CustomResponse[]
 }>()
 
 const emit = defineEmits<{
   close: []
-  //   addResponse: [response: CustomResponse]
-  //   updateResponse: [response: CustomResponse]
-  //   deleteResponse: [id: number]
 }>()
 
-const { loadCustomResponses, addCustomResponse, deleteCustomResponse, saveCustomResponse } =
-  useCustomResponses()
+const {
+  customResponses,
+  loadCustomResponses,
+  addCustomResponse,
+  deleteCustomResponse,
+  saveCustomResponse,
+} = useCustomResponses()
 const { notification, showNotification } = useNotification()
 
-const customResponses = ref<any[]>([])
-const showCreateResponseForm = ref(false)
-const newResponse = ref<{
-  title: string
-  text: string
-  tags: string[]
-}>({
-  title: '',
-  text: '',
-  tags: [],
+const dialogs = reactive({
+  createResponse: { show: false },
+  editResponse: { show: false, item: null as CustomResponse | null },
+
+  confirmDelete: {
+    show: false,
+    item: null as CustomResponse | null,
+  },
 })
-const tagInput = ref('')
 
-const handleAddResponse = () => {
-  if (!newResponse.value.title.trim() || !newResponse.value.text.trim()) {
-    return
-  }
-
-  const response: CustomResponse = {
-    id: Date.now(), // Using timestamp as a simple unique ID. Replace with generated id when switching to supabase
-    title: newResponse.value.title.trim(),
-    text: newResponse.value.text.trim(),
-    tags: newResponse.value.tags,
-  }
-
+const handleAddResponse = (response: CustomResponse) => {
   addCustomResponse(response)
-
-  // Clear form
-  newResponse.value = { title: '', text: '', tags: [] }
-  tagInput.value = ''
-  showCreateResponseForm.value = false
+  dialogs.createResponse.show = false
 }
-
-function addTagFromInput() {
-  const raw = tagInput.value.trim()
-  if (!raw) return
-
-  const parts = raw
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
-
-  for (const p of parts) {
-    const normalized = p.toLowerCase()
-    if (!newResponse.value.tags.includes(normalized)) {
-      newResponse.value.tags.push(normalized)
-    }
-  }
-
-  tagInput.value = ''
-}
-
-function removeTag(tag: string) {
-  newResponse.value.tags = newResponse.value.tags.filter((t) => t !== tag)
-}
-
-function handleTagInputKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    // Prevent form submit / modal close
-    e.preventDefault()
-    e.stopPropagation()
-    addTagFromInput()
-  }
-}
-
-const editingResponseId = ref<number | null>(null)
-const editingResponse = ref<{
-  title: string
-  text: string
-  tags: string[]
-}>({
-  title: '',
-  text: '',
-  tags: [],
-})
 
 const startEditingResponse = (response: CustomResponse) => {
-  editingResponseId.value = response.id
-  editingResponse.value = {
-    title: response.title,
-    text: response.text,
-    tags: [...response.tags],
-  }
+  dialogs.editResponse.item = response
+  dialogs.editResponse.show = true
 }
 
-const resetEditingResponse = () => {
-  editingResponseId.value = null
-  editingResponse.value = {
-    title: '',
-    text: '',
-    tags: [],
-  }
-}
-
-const saveEditedResponse = async () => {
-  if (!editingResponse.value.title.trim() || !editingResponse.value.text.trim()) {
-    return
-  }
-
-  const response: CustomResponse = {
-    id: editingResponseId.value!,
-    title: editingResponse.value.title.trim(),
-    text: editingResponse.value.text.trim(),
-    tags: editingResponse.value.tags,
-  }
-
-  await saveCustomResponse(response).then(() => {
-    showNotification('Response updated!', 'success')
-    resetEditingResponse()
-  })
-}
-
-const editTagInput = ref('')
-
-function addEditTagFromInput() {
-  const raw = editTagInput.value.trim()
-  if (!raw) return
-
-  const parts = raw
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
-
-  for (const p of parts) {
-    const normalized = p.toLowerCase()
-    if (!editingResponse.value.tags.includes(normalized)) {
-      editingResponse.value.tags.push(normalized)
-    }
-  }
-
-  editTagInput.value = ''
-}
-
-function removeEditTag(tag: string) {
-  editingResponse.value.tags = editingResponse.value.tags.filter((t) => t !== tag)
-}
-
-function handleEditTagInputKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    e.stopPropagation()
-    addEditTagFromInput()
-  }
+const handleSaveEditedResponse = async (response: CustomResponse) => {
+  await saveCustomResponse(response)
+  showNotification('Response updated!', 'success')
+  dialogs.editResponse.show = false
+  dialogs.editResponse.item = null
 }
 
 const handleClose = () => {
   emit('close')
-  showCreateResponseForm.value = false
-  newResponse.value = { title: '', text: '', tags: [] }
+  dialogs.createResponse.show = false
+}
+
+const showDeleteConfirm = (response: CustomResponse) => {
+  console.log('Showing delete confirm for response:', response)
+  dialogs.confirmDelete.item = response
+  dialogs.confirmDelete.show = true
+
+  console.log('dialogs.confirmDelete after setting:', dialogs.confirmDelete)
 }
 
 const handleDelete = (id: number) => {
   deleteCustomResponse(id).then(() => {
     showNotification('Response deleted!', 'success')
   })
+}
+const resetConfirmDeleteDialog = () => {
+  dialogs.confirmDelete.show = false
+  dialogs.confirmDelete.item = null
 }
 
 onMounted(async () => {
@@ -201,65 +99,7 @@ onMounted(async () => {
         </div>
 
         <div class="dialog-content">
-          <!-- Create New Response Form -->
-          <div v-if="showCreateResponseForm" class="create-response-form">
-            <h3>Create New Response</h3>
-            <form @submit.prevent="handleAddResponse" @keydown.enter.prevent>
-              <div class="form-group">
-                <label for="dialogResponseTitle">Question/Title</label>
-                <input
-                  type="text"
-                  id="dialogResponseTitle"
-                  v-model="newResponse.title"
-                  placeholder="e.g., Why do you want this job?"
-                />
-              </div>
-              <div class="form-group">
-                <label for="dialogResponseText">Your Response</label>
-                <textarea
-                  id="dialogResponseText"
-                  v-model="newResponse.text"
-                  rows="4"
-                  placeholder="Enter your response..."
-                ></textarea>
-              </div>
-              <div class="form-group">
-                <label for="dialogResponseTags">Key Words</label>
-                <!-- Existing tags list (nice UX) -->
-                <div
-                  v-if="newResponse.tags.length > 0"
-                  class="tags-list"
-                  style="margin-bottom: 8px"
-                >
-                  <NTag
-                    v-for="tag in newResponse.tags"
-                    :key="tag"
-                    closable
-                    @close="removeTag(tag)"
-                    style="margin-right: 6px; margin-bottom: 6px"
-                  >
-                    {{ tag }}
-                  </NTag>
-                </div>
-
-                <NInput
-                  v-model:value="tagInput"
-                  placeholder="Type a tag and press Enter"
-                  @keydown="handleTagInputKeydown"
-                  @blur="addTagFromInput"
-                />
-              </div>
-              <div class="form-actions">
-                <button type="button" class="btn-cancel" @click="showCreateResponseForm = false">
-                  Cancel
-                </button>
-                <button type="submit" class="btn-save">Save Response</button>
-              </div>
-            </form>
-          </div>
-
-          <!-- Responses List -->
-          <div v-else>
+          <div>
             <div v-if="customResponses.length === 0" class="empty-state">
               <p>No custom responses yet.</p>
               <p class="hint">
@@ -270,89 +110,28 @@ onMounted(async () => {
 
             <div v-else class="responses-list">
               <div v-for="response in customResponses" :key="response.id" class="response-item">
-                <!-- View Mode -->
-                <div v-if="editingResponseId !== response.id">
-                  <div class="response-header">
-                    <h4>{{ response.title }}</h4>
-                    <div class="response-actions">
-                      <button
-                        class="edit-btn-small"
-                        title="Edit response"
-                        @click="startEditingResponse(response)"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                          <path
-                            d="M0 11.083V14h2.917l8.6-8.6-2.917-2.917-8.6 8.6zM13.733 2.483a.774.774 0 000-1.096L12.613.267a.774.774 0 00-1.096 0l-.88.88 2.917 2.916.88-.88z"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        class="delete-btn"
-                        title="Delete response"
-                        @click="handleDelete(response.id)"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                  <p class="response-text">{{ response.text }}</p>
-                  <div v-if="response.tags.length > 0" class="response-tags">
-                    <span v-for="tag in response.tags" :key="tag" class="tag">
-                      {{ tag }}
-                    </span>
+                <div class="response-header">
+                  <h4>{{ response.title }}</h4>
+                  <div class="response-actions">
+                    <button
+                      class="edit-btn-small"
+                      title="Edit response"
+                      @click="startEditingResponse(response)"
+                    >
+                      <span v-html="coloredIcon(ICON_EDIT, '#3b82f6')" class="icon" />
+                    </button>
+                    <button
+                      class="delete-btn"
+                      title="Delete response"
+                      @click="showDeleteConfirm(response)"
+                    >
+                      <span v-html="coloredIcon(ICON_XMARK, '#e53e3e')" class="icon" />
+                    </button>
                   </div>
                 </div>
-
-                <!-- Edit Mode -->
-                <div v-else class="edit-response-form">
-                  <div class="form-group">
-                    <label>Question/Title</label>
-                    <input
-                      type="text"
-                      v-model="editingResponse.title"
-                      placeholder="e.g., Why do you want this job?"
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label>Your Response</label>
-                    <textarea
-                      v-model="editingResponse.text"
-                      rows="4"
-                      placeholder="Enter your response..."
-                    ></textarea>
-                  </div>
-                  <div class="form-group">
-                    <label>Key Words</label>
-                    <div
-                      v-if="editingResponse.tags.length > 0"
-                      class="tags-list"
-                      style="margin-bottom: 8px"
-                    >
-                      <NTag
-                        v-for="tag in editingResponse.tags"
-                        :key="tag"
-                        closable
-                        @close="removeEditTag(tag)"
-                        style="margin-right: 6px; margin-bottom: 6px"
-                      >
-                        {{ tag }}
-                      </NTag>
-                    </div>
-                    <NInput
-                      v-model:value="editTagInput"
-                      placeholder="Type a tag and press Enter"
-                      @keydown="handleEditTagInputKeydown"
-                      @blur="addEditTagFromInput"
-                    />
-                  </div>
-                  <div class="form-actions">
-                    <button type="button" class="btn-cancel" @click="resetEditingResponse">
-                      Cancel
-                    </button>
-                    <button type="button" class="btn-save" @click="saveEditedResponse">
-                      Save Changes
-                    </button>
-                  </div>
+                <p class="response-text">{{ response.text }}</p>
+                <div v-if="response.tags.length > 0" class="response-tags">
+                  <span v-for="tag in response.tags" :key="tag" class="tag">{{ tag }}</span>
                 </div>
               </div>
             </div>
@@ -360,21 +139,35 @@ onMounted(async () => {
         </div>
 
         <div class="dialog-footer">
-          <button
-            v-if="!showCreateResponseForm"
-            class="create-new-response-bttn"
-            @click="showCreateResponseForm = true"
-          >
+          <button class="btn-secondary-dialog" @click="handleClose">Close</button>
+          <button class="create-new-response-bttn" @click="dialogs.createResponse.show = true">
             + Create New Response
           </button>
-          <button class="btn-secondary-dialog" @click="handleClose">Close</button>
         </div>
       </div>
+
+      <CreateResponseDialog
+        :show="dialogs.createResponse.show"
+        @close="dialogs.createResponse.show = false"
+        @add="handleAddResponse"
+      />
+      <EditResponseDialog
+        :show="dialogs.editResponse.show"
+        :item="dialogs.editResponse.item"
+        @close="dialogs.editResponse.show = false"
+        @save="handleSaveEditedResponse"
+      />
+      <ConfirmDeleteDialog
+        :show="dialogs.confirmDelete.show"
+        :item="dialogs.confirmDelete.item"
+        @close="resetConfirmDeleteDialog()"
+        @delete="handleDelete"
+      />
     </div>
   </Transition>
 </template>
 
-<style scoped>
+<style>
 /* Empty State */
 .empty-state {
   text-align: center;
@@ -553,7 +346,6 @@ onMounted(async () => {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
-  margin-right: auto;
   &:hover {
     background: #3baef6;
     box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
@@ -576,6 +368,13 @@ onMounted(async () => {
 .btn-secondary-dialog:hover {
   background: #4a5568;
 }
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .tags-list {
   display: flex;
   flex-wrap: wrap;
@@ -591,14 +390,12 @@ onMounted(async () => {
 }
 
 /* Override Naive UI NTag styles */
-:deep(.n-tag) {
-  background: #4a5568 !important;
+.n-tag {
+  background: #3b82f6 !important;
   color: #e2e8f0 !important;
   border: none !important;
   padding: 4px 10px !important;
-  border-radius: 12px !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
+  border-radius: 2em !important;
 }
 
 :deep(.n-tag .n-tag__close) {
@@ -615,6 +412,9 @@ onMounted(async () => {
   background: #1a202c !important;
   border: none !important;
   border-radius: 6px !important;
+}
+.n-input-wrapper {
+  background: rgb(13, 17, 23) !important;
 }
 
 :deep(.n-input__input-el) {
@@ -665,10 +465,8 @@ onMounted(async () => {
   padding: 4px;
   display: flex;
   align-items: center;
-  transition: color 0.2s;
+  transition: 0.1s;
   &:hover {
-    background: #3baef6;
-    box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
     transform: translateY(-1px);
   }
 }
