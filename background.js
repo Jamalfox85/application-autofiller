@@ -53,24 +53,3 @@ function updateBadge(text, color) {
   chrome.action.setBadgeText({ text })
   chrome.action.setBadgeBackgroundColor({ color })
 }
-
-// // Listen for tab updates to potentially show badge on job sites
-// chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-//   if (changeInfo.status === 'complete' && tab.url) {
-//     const jobSites = [
-//       'greenhouse',
-//       'workday',
-//       'lever',
-//       'indeed',
-//       'linkedin',
-//       'apply',
-//       'careers',
-//       'jobs',
-//     ]
-//     const isJobSite = jobSites.some((site) => tab.url.toLowerCase().includes(site))
-
-//     if (isJobSite) {
-//       updateBadge('✓', '#667eea')
-//     }
-//   }
-// })

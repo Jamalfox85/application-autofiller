@@ -1,12 +1,12 @@
 import { FIELD_PATTERNS } from '../utils/fieldPatterns.ts'
 import { tokenize, normalizeText, coverageRatio } from './helpers.ts'
 
-import { PersonalInfo, SavedResponse } from '../types'
+import { PersonalInfo, CustomResponse } from '../types'
 
 export function matchFieldToData(
   fieldText: string,
   personalInfo: PersonalInfo,
-  savedResponses: SavedResponse[],
+  customResponses: CustomResponse[],
 ) {
   // Special exclusion checks  i.e. - Don't match "city" if field contains these
   const exclusions: { [key: string]: string[] } = {
@@ -19,23 +19,26 @@ export function matchFieldToData(
   }
 
   const response = matchFullNameField(fieldText, personalInfo)
-  if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
+  if (response)
+    return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
 
   // Special case: Current loccation (May only be jobs.lever.co)
   if (fieldText.includes('location-input')) {
     const city = personalInfo.city || ''
     const state = personalInfo.state || ''
-    return { fieldValue: `${city}, ${state}`.trim(), fieldKey: 'location' }
+    return { matchedValue: `${city}, ${state}`.trim(), relativeMatchKey: 'location' }
   }
 
   if (personalInfo.education && personalInfo.education.length > 0) {
     const response = matchEducationField(fieldText, personalInfo)
-    if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
+    if (response)
+      return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
   }
 
   if (personalInfo.experience && personalInfo.experience.length > 0) {
     const response = matchExperienceField(fieldText, personalInfo)
-    if (response) return { fieldValue: response.fieldValue, fieldKey: response.fieldKey }
+    if (response)
+      return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
   }
 
   // Check standard fields
@@ -54,11 +57,14 @@ export function matchFieldToData(
 
         if (key === 'workAuthorization') {
           return {
-            fieldValue: fieldText,
-            fieldKey: key,
+            matchedValue: fieldText,
+            relativeMatchKey: key,
           }
         }
-        return { fieldValue: personalInfo[key as keyof PersonalInfo] || null, fieldKey: key }
+        return {
+          matchedValue: String(personalInfo[key as keyof PersonalInfo]) || null,
+          relativeMatchKey: key,
+        }
       }
     }
   }
@@ -68,8 +74,8 @@ export function matchFieldToData(
   }
 
   // Check special cases for saved responses
-  const saved = matchSavedResponse(fieldText, savedResponses)
-  if (saved != null) return { fieldValue: saved, fieldKey: 'savedResponse' }
+  const saved = matchCustomResponse(fieldText, customResponses)
+  if (saved != null) return { matchedValue: saved, relativeMatchKey: 'savedResponse' }
 
   return null
 }
@@ -159,7 +165,7 @@ function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
   ) {
     const firstName = personalInfo.firstName || ''
     const lastName = personalInfo.lastName || ''
-    return { fieldValue: `${firstName} ${lastName}`.trim(), fieldKey: 'fullName' }
+    return { matchedValue: `${firstName} ${lastName}`.trim(), relativeMatchKey: 'fullName' }
   }
 }
 
@@ -176,7 +182,7 @@ function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestEducation.schoolName || null, fieldKey: 'schoolName' }
+    return { matchedValue: latestEducation.schoolName || null, relativeMatchKey: 'schoolName' }
   }
 
   if (
@@ -184,14 +190,14 @@ function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestEducation.major || null, fieldKey: 'major' }
+    return { matchedValue: latestEducation.major || null, relativeMatchKey: 'major' }
   }
   if (
     degreePatterns.some((pattern) =>
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestEducation.degreeType || null, fieldKey: 'degreeType' }
+    return { matchedValue: latestEducation.degreeType || null, relativeMatchKey: 'degreeType' }
   }
 
   if (
@@ -199,13 +205,16 @@ function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestEducation.graduationYear || null, fieldKey: 'graduationYear' }
+    return {
+      matchedValue: latestEducation.graduationYear || null,
+      relativeMatchKey: 'graduationYear',
+    }
   }
 
   if (
     gpaPatterns.some((pattern) => fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')))
   ) {
-    return { fieldValue: latestEducation.gpa || null, fieldKey: 'gpa' }
+    return { matchedValue: latestEducation.gpa || null, relativeMatchKey: 'gpa' }
   }
 }
 
@@ -222,7 +231,7 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestExperience.companyName || null, fieldKey: 'companyName' }
+    return { matchedValue: latestExperience.companyName || null, relativeMatchKey: 'companyName' }
   }
 
   if (
@@ -230,7 +239,7 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestExperience.description || null, fieldKey: 'description' }
+    return { matchedValue: latestExperience.description || null, relativeMatchKey: 'description' }
   }
 
   if (
@@ -238,7 +247,7 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestExperience.jobTitle || null, fieldKey: 'jobTitle' }
+    return { matchedValue: latestExperience.jobTitle || null, relativeMatchKey: 'jobTitle' }
   }
 
   if (
@@ -246,7 +255,7 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestExperience.startDate || null, fieldKey: 'startDate' }
+    return { matchedValue: latestExperience.startDate || null, relativeMatchKey: 'startDate' }
   }
 
   if (
@@ -254,7 +263,7 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
       fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
     )
   ) {
-    return { fieldValue: latestExperience.endDate || null, fieldKey: 'endDate' }
+    return { matchedValue: latestExperience.endDate || null, relativeMatchKey: 'endDate' }
   }
 }
 
@@ -267,8 +276,8 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
  * Returns best matching savedResponse.text, else null
  */
 
-function matchSavedResponse(fieldText: string, savedResponses: SavedResponse[]) {
-  if (!fieldText || !Array.isArray(savedResponses) || savedResponses.length === 0) {
+function matchCustomResponse(fieldText: string, customResponses: CustomResponse[]) {
+  if (!fieldText || !Array.isArray(customResponses) || customResponses.length === 0) {
     return null
   }
 
@@ -277,7 +286,7 @@ function matchSavedResponse(fieldText: string, savedResponses: SavedResponse[]) 
 
   let best = null
 
-  for (const r of savedResponses) {
+  for (const r of customResponses) {
     const text = String(r?.text ?? '').trim()
     if (!text) continue
 

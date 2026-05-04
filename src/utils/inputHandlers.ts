@@ -1,3 +1,5 @@
+import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
+
 export async function fillNativeInput(
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   value: string,
@@ -131,4 +133,112 @@ export const fillReactSelect = (
     }
     waitForOptions()
   })
+}
+
+export function setSelectValue(
+  selectElement: HTMLSelectElement,
+  desiredValue: string,
+  fieldKey: string,
+): boolean {
+  const relativeMatch =
+    fieldKey in RELATIVE_MATCHES
+      ? RELATIVE_MATCHES[fieldKey as keyof typeof RELATIVE_MATCHES]
+      : undefined
+
+  const options = Array.from(selectElement.options)
+  const normalizedDesired = desiredValue.toLowerCase().trim()
+
+  // Try 1: Exact match (case-insensitive)
+  let matchedOption = options.find(
+    (opt) =>
+      opt.value.toLowerCase() === normalizedDesired || opt.text.toLowerCase() === normalizedDesired,
+  )
+
+  // Try 2: Partial match - option contains desired value
+  if (!matchedOption) {
+    matchedOption = options.find(
+      (opt) =>
+        opt.value.toLowerCase().includes(normalizedDesired) ||
+        opt.text.toLowerCase().includes(normalizedDesired),
+    )
+  }
+
+  // Try 3: Partial match - desired value contains option
+  if (!matchedOption) {
+    matchedOption = options.find(
+      (opt) =>
+        normalizedDesired.includes(opt.value.toLowerCase()) ||
+        normalizedDesired.includes(opt.text.toLowerCase()),
+    )
+  }
+
+  // Try 4: Relative match - desired value is similar to option
+  if (!matchedOption) {
+    const similarOptions = relativeMatch?.find((group) => group.includes(normalizedDesired))
+    if (similarOptions) {
+      matchedOption = options.find((opt) =>
+        similarOptions.some(
+          (variant) =>
+            opt.value.toLowerCase() === variant || opt.value.toLowerCase().includes(variant),
+        ),
+      )
+    }
+  }
+
+  if (matchedOption) {
+    selectElement.value = matchedOption.value
+
+    // Trigger change events
+    selectElement.dispatchEvent(new Event('change', { bubbles: true }))
+    selectElement.dispatchEvent(new Event('input', { bubbles: true }))
+
+    return true
+  }
+
+  return false
+}
+
+export function setCheckboxValue(input: HTMLInputElement, matchedValue: string) {
+  const normalizedFieldValue = matchedValue.toLowerCase()
+  const isChecked =
+    normalizedFieldValue === 'true' ||
+    normalizedFieldValue === 'yes' ||
+    normalizedFieldValue === '1'
+
+  input.checked = isChecked
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  return true
+}
+
+export function setRadioValue(input: HTMLInputElement, matchedValue: string, fieldText: string) {
+  const normalizedFieldValue = matchedValue.toLowerCase().replace(/[\s_-]/g, '')
+  if (fieldText.includes(normalizedFieldValue)) {
+    input.checked = true
+    return true
+  }
+}
+
+export async function setDateValue(input: HTMLInputElement, matchedValue: string) {
+  const pattern = input.pattern
+  let formattedValue = String(matchedValue)
+
+  if (typeof matchedValue === 'string' && matchedValue.includes('-')) {
+    const [year, month, day] = matchedValue.split('-')
+
+    if (pattern.includes('\\d{4}') || pattern === '[0-9]{4}') {
+      // Year only: yyyy
+      formattedValue = year
+    } else if (pattern.includes('/')) {
+      // Month/Year: mm/yyyy
+      formattedValue = `${month}/${year}`
+    } else if (pattern.includes('-') && pattern.includes('d')) {
+      // Full date: yyyy-mm-dd
+      formattedValue = `${year}-${month}-${day}`
+    }
+  }
+
+  await fillNativeInput(input as HTMLInputElement | HTMLTextAreaElement, String(formattedValue))
+  await new Promise((resolve) => setTimeout(resolve, 100))
+
+  return true
 }

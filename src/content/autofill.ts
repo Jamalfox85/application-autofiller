@@ -1,27 +1,32 @@
-import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
 import { matchFieldToData } from './fieldMatch.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
-import { fillNativeInput } from '@/utils/inputHandlers.ts'
+import {
+  fillNativeInput,
+  setSelectValue,
+  setCheckboxValue,
+  setRadioValue,
+} from '@/utils/inputHandlers.ts'
+import { PersonalInfo } from '../types/index.ts'
 
 // import { api } from '../lib/api'
 type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+
+let filledCount = 0
 
 export async function autofillPage() {
   try {
     const personalInfoData = await chrome.storage.local.get('personalInfo')
     const personalInfo = personalInfoData.personalInfo
 
-    const savedResponsesData = await chrome.storage.local.get('savedResponses')
-    const savedResponses = savedResponsesData.savedResponses || {}
+    const customResponsesData = await chrome.storage.local.get('customResponses')
+    const customResponses = customResponsesData.customResponses || {}
 
     if (!personalInfo) {
       return { success: false, message: 'No personal info saved' }
     }
 
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
-
-    let filledCount = 0
 
     for (const input of inputs) {
       // Skip hidden, submit, button inputs
@@ -44,99 +49,25 @@ export async function autofillPage() {
         continue
       }
 
-      const name = (input.name || '').toLowerCase()
-      const id = (input.id || '').toLowerCase()
-      const placeholder = (input.getAttribute('placeholder') || '').toLowerCase()
-      const label = getFieldLabel(input)
-      const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase()
-      const autoComplete = (input.autocomplete || '').toLowerCase().replace(/\s+/g, '_')
-      const type = (input.type || '').toLowerCase()
+      const fieldText = constructFieldText(input)
+      const matchedResult = matchFieldToData(fieldText, personalInfo, customResponses)
+      const { matchedValue, relativeMatchKey } = matchedResult || {}
 
-      const fieldText =
-        `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
-      const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_,-]/g, '')
-
-      // Find an active site rule (if any)
-      const activeSiteRule = siteRules.find((rule) => rule.detect())
+      if (!matchedValue) {
+        continue
+      }
 
       // Try site-specific handling first
-      if (
-        activeSiteRule &&
-        (await activeSiteRule.apply(input, normalizedFieldText, personalInfo))
-      ) {
+      let handled = await fillBySiteRule(input, fieldText, personalInfo)
+      if (handled) {
         filledCount++
         continue
       }
 
-      const matchResult = matchFieldToData(normalizedFieldText, personalInfo, savedResponses)
-
-      if (!matchResult) {
+      handled = await fillByDefault(input, matchedValue, relativeMatchKey)
+      if (handled) {
+        filledCount++
         continue
-      }
-
-      const { fieldValue, fieldKey } = matchResult
-
-      if (fieldValue) {
-        // Handle SELECT elements
-        if (input instanceof HTMLSelectElement) {
-          if (setSelectValue(input, String(fieldValue), fieldKey)) {
-            filledCount++
-          }
-        } else if (input instanceof HTMLInputElement && input.type === 'checkbox') {
-          const normalizedFieldValue = String(fieldValue).toLowerCase()
-          const isChecked =
-            normalizedFieldValue === 'true' ||
-            normalizedFieldValue === 'yes' ||
-            normalizedFieldValue === '1'
-
-          input.checked = isChecked
-          input.dispatchEvent(new Event('change', { bubbles: true }))
-          filledCount++
-        } else if (input instanceof HTMLInputElement && input.type === 'radio') {
-          const normalizedFieldValue = String(fieldValue)
-            .toLowerCase()
-            .replace(/[\s_-]/g, '')
-          const normalizedLabel = label.toLowerCase().replace(/[\s_-]/g, '')
-          if (normalizedLabel.includes(normalizedFieldValue)) {
-            input.checked = true
-            filledCount++
-          }
-        } else if (
-          input instanceof HTMLInputElement &&
-          input.pattern &&
-          normalizedFieldText.includes('year')
-        ) {
-          const pattern = input.pattern
-          let formattedValue = String(fieldValue)
-
-          if (typeof fieldValue === 'string' && fieldValue.includes('-')) {
-            const [year, month, day] = fieldValue.split('-')
-
-            if (pattern.includes('\\d{4}') || pattern === '[0-9]{4}') {
-              // Year only: yyyy
-              formattedValue = year
-            } else if (pattern.includes('/')) {
-              // Month/Year: mm/yyyy
-              formattedValue = `${month}/${year}`
-            } else if (pattern.includes('-') && pattern.includes('d')) {
-              // Full date: yyyy-mm-dd
-              formattedValue = `${year}-${month}-${day}`
-            }
-          }
-
-          await fillNativeInput(
-            input as HTMLInputElement | HTMLTextAreaElement,
-            String(formattedValue),
-          )
-          await new Promise((resolve) => setTimeout(resolve, 100))
-
-          filledCount++
-        } else {
-          // Handle regular inputs and textareas (both have .value)
-          await fillNativeInput(input as HTMLInputElement | HTMLTextAreaElement, String(fieldValue))
-          await new Promise((resolve) => setTimeout(resolve, 100))
-          filledCount++
-        }
       }
     }
 
@@ -165,6 +96,21 @@ function deepQuerySelectorAll(root: Document | Element | ShadowRoot, selector: s
   }
 
   return results
+}
+
+function constructFieldText(input: FormField) {
+  const name = (input.name || '').toLowerCase()
+  const id = (input.id || '').toLowerCase()
+  const placeholder = (input.getAttribute('placeholder') || '').toLowerCase()
+  const label = getFieldLabel(input)
+  const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase()
+  const autoComplete = (input.autocomplete || '').toLowerCase().replace(/\s+/g, '_')
+  const type = (input.type || '').toLowerCase()
+
+  const fieldText =
+    `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
+  const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_,-]/g, '')
+  return normalizedFieldText
 }
 
 function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) {
@@ -198,66 +144,42 @@ function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelec
   return ''
 }
 
-function setSelectValue(
-  selectElement: HTMLSelectElement,
-  desiredValue: string,
-  fieldKey: string,
-): boolean {
-  const relativeMatch =
-    fieldKey in RELATIVE_MATCHES
-      ? RELATIVE_MATCHES[fieldKey as keyof typeof RELATIVE_MATCHES]
-      : undefined
+async function fillBySiteRule(input: FormField, fieldText: string, personalInfo: PersonalInfo) {
+  // Find an active site rule (if any)
+  const activeSiteRule = siteRules.find((rule) => rule.detect())
 
-  const options = Array.from(selectElement.options)
-  const normalizedDesired = desiredValue.toLowerCase().trim()
-
-  // Try 1: Exact match (case-insensitive)
-  let matchedOption = options.find(
-    (opt) =>
-      opt.value.toLowerCase() === normalizedDesired || opt.text.toLowerCase() === normalizedDesired,
-  )
-
-  // Try 2: Partial match - option contains desired value
-  if (!matchedOption) {
-    matchedOption = options.find(
-      (opt) =>
-        opt.value.toLowerCase().includes(normalizedDesired) ||
-        opt.text.toLowerCase().includes(normalizedDesired),
-    )
-  }
-
-  // Try 3: Partial match - desired value contains option
-  if (!matchedOption) {
-    matchedOption = options.find(
-      (opt) =>
-        normalizedDesired.includes(opt.value.toLowerCase()) ||
-        normalizedDesired.includes(opt.text.toLowerCase()),
-    )
-  }
-
-  // Try 4: Relative match - desired value is similar to option
-  if (!matchedOption) {
-    const similarOptions = relativeMatch?.find((group) => group.includes(normalizedDesired))
-    if (similarOptions) {
-      matchedOption = options.find((opt) =>
-        similarOptions.some(
-          (variant) =>
-            opt.value.toLowerCase() === variant || opt.value.toLowerCase().includes(variant),
-        ),
-      )
-    }
-  }
-
-  if (matchedOption) {
-    selectElement.value = matchedOption.value
-
-    // Trigger change events
-    selectElement.dispatchEvent(new Event('change', { bubbles: true }))
-    selectElement.dispatchEvent(new Event('input', { bubbles: true }))
-
+  if (activeSiteRule && (await activeSiteRule.apply(input, fieldText, personalInfo))) {
     return true
   }
+  return false
+}
 
+async function fillByDefault(
+  input: FormField,
+  matchedValue: string,
+  relativeMatchKey: string | undefined,
+) {
+  if (input instanceof HTMLSelectElement && relativeMatchKey) {
+    const handled = setSelectValue(input, matchedValue, relativeMatchKey)
+    if (handled) {
+      return true
+    }
+  } else if (input instanceof HTMLInputElement && input.type === 'checkbox') {
+    const handled = setCheckboxValue(input, matchedValue)
+    if (handled) {
+      return true
+    }
+  } else if (input instanceof HTMLInputElement && input.type === 'radio' && relativeMatchKey) {
+    const handled = setRadioValue(input, matchedValue, relativeMatchKey)
+    if (handled) {
+      return true
+    }
+  } else {
+    // Handle regular inputs and textareas (both have .value)
+    await fillNativeInput(input as HTMLInputElement | HTMLTextAreaElement, matchedValue)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    return true
+  }
   return false
 }
 
