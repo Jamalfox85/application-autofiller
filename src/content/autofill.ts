@@ -7,7 +7,7 @@ import {
   setCheckboxValue,
   setRadioValue,
 } from '@/utils/inputHandlers.ts'
-import { PersonalInfo } from '../types/index.ts'
+import { PersonalInfo, CustomResponse } from '../types/index.ts'
 
 // import { api } from '../lib/api'
 type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -50,20 +50,23 @@ export async function autofillPage() {
       }
 
       const fieldText = constructFieldText(input)
-      const matchedResult = matchFieldToData(fieldText, personalInfo, customResponses)
-      const { matchedValue, relativeMatchKey } = matchedResult || {}
-
-      if (!matchedValue) {
-        continue
-      }
 
       // Try site-specific handling first
-      let handled = await fillBySiteRule(input, fieldText, personalInfo)
+      let handled = await fillBySiteRule(input, fieldText, personalInfo, customResponses)
       if (handled) {
         filledCount++
         continue
       }
 
+      // Fill by default matching logic second
+      const matchedResult = matchFieldToData(fieldText, personalInfo, customResponses)
+      const { matchedValue, relativeMatchKey } = matchedResult || {}
+      if (!matchedValue) {
+        console.log(`No match for fieldText "${fieldText}"`)
+        continue
+      }
+
+      console.log(`Autofill matched "${fieldText}" to "${matchedValue}"`)
       handled = await fillByDefault(input, matchedValue, relativeMatchKey)
       if (handled) {
         filledCount++
@@ -107,10 +110,14 @@ function constructFieldText(input: FormField) {
   const autoComplete = (input.autocomplete || '').toLowerCase().replace(/\s+/g, '_')
   const type = (input.type || '').toLowerCase()
 
-  const fieldText =
-    `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`.toLowerCase()
-  const normalizedFieldText = fieldText.toLowerCase().replace(/[\s_,-]/g, '')
-  return normalizedFieldText
+  // Keep spaces! Just normalize special chars to spaces
+  const fieldText = `${name} ${id} ${placeholder} ${label} ${ariaLabel} ${autoComplete} ${type}`
+    .toLowerCase()
+    .replace(/[_,-]/g, ' ') // Convert separators to spaces, don't remove them
+    .replace(/\s+/g, ' ') // Collapse multiple spaces
+    .trim()
+
+  return fieldText
 }
 
 function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) {
@@ -144,11 +151,19 @@ function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelec
   return ''
 }
 
-async function fillBySiteRule(input: FormField, fieldText: string, personalInfo: PersonalInfo) {
+async function fillBySiteRule(
+  input: FormField,
+  fieldText: string,
+  personalInfo: PersonalInfo,
+  customResponses: CustomResponse[],
+) {
   // Find an active site rule (if any)
   const activeSiteRule = siteRules.find((rule) => rule.detect())
 
-  if (activeSiteRule && (await activeSiteRule.apply(input, fieldText, personalInfo))) {
+  if (
+    activeSiteRule &&
+    (await activeSiteRule.apply(input, fieldText, personalInfo, customResponses))
+  ) {
     return true
   }
   return false

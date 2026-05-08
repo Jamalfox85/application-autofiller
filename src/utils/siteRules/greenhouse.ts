@@ -1,5 +1,6 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { fillReactSelect } from '../../utils/inputHandlers'
+import { matchCustomResponse } from '../../utils/customResponses.ts'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -34,6 +35,15 @@ const fieldHandlers: Array<{
   match: FieldMatch
   handle: FieldHandler
 }> = [
+  //   {
+  //     match: (_, fieldText, customResponses) =>
+  //       matchCustomResponse(fieldText, customResponses) !== null,
+  //     handle: async (input, fieldText, personalInfo, fieldLabel, customResponses) => {
+  //       const matchedText = matchCustomResponse(fieldText, customResponses)
+  //       // Use matchedText as needed
+  //       return true
+  //     },
+  //   },
   {
     match: (input, _) => input.getAttribute('id') === 'country',
     handle: async (input, _, personalInfo) => {

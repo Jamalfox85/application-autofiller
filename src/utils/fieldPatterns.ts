@@ -204,7 +204,6 @@ export const FIELD_PATTERNS = {
   ],
 
   age18OrOlder: [
-    'age',
     'age_18',
     'over_18',
     'over18',

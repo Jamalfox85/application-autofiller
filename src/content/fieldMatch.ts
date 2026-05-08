@@ -1,5 +1,5 @@
 import { FIELD_PATTERNS } from '../utils/fieldPatterns.ts'
-import { tokenize, normalizeText, coverageRatio } from './helpers.ts'
+import { matchCustomResponse } from '@/utils/customResponses.ts'
 
 import { PersonalInfo, CustomResponse } from '../types'
 
@@ -55,6 +55,7 @@ export function matchFieldToData(
           }
         }
 
+        console.log(`Matched pattern "${pattern}" for key "${key}" in fieldText "${fieldText}"`)
         if (key === 'workAuthorization') {
           return {
             matchedValue: fieldText,
@@ -275,49 +276,3 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
  *
  * Returns best matching savedResponse.text, else null
  */
-
-function matchCustomResponse(fieldText: string, customResponses: CustomResponse[]) {
-  if (!fieldText || !Array.isArray(customResponses) || customResponses.length === 0) {
-    return null
-  }
-
-  // Build token set once for fast membership checks
-  const fieldTokens = new Set(tokenize(fieldText))
-
-  let best = null
-
-  for (const r of customResponses) {
-    const text = String(r?.text ?? '').trim()
-    if (!text) continue
-
-    // Keep this small and tuned to your domain; expand as needed.
-    const STOPWORDS = new Set<string>([])
-
-    const titleNorm = normalizeText(r?.title ?? '')
-    const titleTokens = tokenize(titleNorm).filter((t) => !STOPWORDS.has(t))
-    const titleCoverage = coverageRatio(titleTokens, fieldTokens) // 0..1
-
-    // Tag hits (>= 3)
-    // Treat "tag found" as: any token from that tag exists in fieldTokens.
-    const tags = Array.isArray(r?.tags) ? r.tags : []
-    const tagTokens = tags.map(normalizeText).flatMap(tokenize).filter(Boolean)
-
-    const uniqueTagTokens = [...new Set(tagTokens)]
-    let tagHits = 0
-    for (const t of uniqueTagTokens) {
-      if (fieldTokens.has(t)) tagHits++
-    }
-
-    const passes = tagHits >= 3 || titleCoverage >= 0.8
-    if (!passes) continue
-
-    // Prefer title match strongly; tags are secondary
-    const score = titleCoverage * 1000 + tagHits * 10 + titleTokens.length
-
-    if (!best || score > best.score) {
-      best = { score, text }
-    }
-  }
-
-  return best ? best.text : null
-}
