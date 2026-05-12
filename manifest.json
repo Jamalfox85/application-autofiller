@@ -41,7 +41,8 @@
         "*://*.recruitee.com/*",
         "*://*.workable.com/*",
         "*://*.joinstellar.ai/*",
-        "*;//jobs.dayforcehcm.com/*"
+        "*://jobs.dayforcehcm.com/*",
+        "*://*.bamboohr.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],

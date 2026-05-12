@@ -366,3 +366,176 @@ export async function setDateValue(input: HTMLInputElement, matchedValue: string
 
   return true
 }
+export const fillBambooHRSelect = (
+  selectButton: HTMLButtonElement,
+  value: string | string[],
+): Promise<void> => {
+  return new Promise((resolve) => {
+    const values = Array.isArray(value) ? value : [value]
+    let currentValueIndex = 0
+
+    const cleanup = () => {
+      selectButton.blur()
+      resolve()
+    }
+
+    const tryNextValue = async () => {
+      if (currentValueIndex >= values.length) {
+        cleanup()
+        return
+      }
+
+      const currentValue = values[currentValueIndex]
+      currentValueIndex++
+
+      console.log(`[fillBambooHRSelect] Attempting: "${currentValue}"`)
+
+      try {
+        // Step 1: Focus the button
+        console.log('[fillBambooHRSelect] Focusing select button')
+        selectButton.focus()
+        await new Promise((r) => setTimeout(r, 100))
+
+        // Step 2: Press Enter or Space to open the dropdown
+        console.log('[fillBambooHRSelect] Pressing Enter to open dropdown')
+        selectButton.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+        selectButton.dispatchEvent(
+          new KeyboardEvent('keyup', {
+            key: 'Enter',
+            code: 'Enter',
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+
+        // Wait for the dropdown to render
+        await new Promise((r) => setTimeout(r, 600))
+
+        // Step 3: Wait for the search input to appear
+        let searchInput: HTMLInputElement | null = null
+        let retries = 0
+        while (!searchInput && retries < 30) {
+          await new Promise((r) => setTimeout(r, 100))
+          searchInput = document.querySelector('.fab-MenuSearch__input') as HTMLInputElement
+          console.log(`[fillBambooHRSelect] Searching for input... attempt ${retries + 1}`)
+          retries++
+        }
+
+        if (!searchInput) {
+          console.log('[fillBambooHRSelect] Search input never appeared')
+          await new Promise((r) => setTimeout(r, 300))
+          tryNextValue()
+          return
+        }
+
+        console.log('[fillBambooHRSelect] Search input found, typing value')
+
+        // Step 4: Focus and type into the search input
+        searchInput.focus()
+        searchInput.value = ''
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }))
+        searchInput.dispatchEvent(new Event('change', { bubbles: true }))
+
+        await new Promise((r) => setTimeout(r, 100))
+
+        // Type the value character by character
+        for (const char of currentValue) {
+          searchInput.value += char
+          searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
+          searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
+          searchInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
+          searchInput.dispatchEvent(new Event('input', { bubbles: true }))
+          searchInput.dispatchEvent(new Event('change', { bubbles: true }))
+
+          await new Promise((r) => setTimeout(r, 50))
+        }
+
+        // Step 5: Wait for options to appear and click the first one
+        const found = await waitForBambooHROption(currentValue)
+
+        if (found) {
+          await new Promise((r) => setTimeout(r, 300))
+          cleanup()
+        } else {
+          // Try next value
+          console.log(`[fillBambooHRSelect] No match for "${currentValue}", trying next`)
+          await new Promise((r) => setTimeout(r, 300))
+          tryNextValue()
+        }
+      } catch (error) {
+        console.error('[fillBambooHRSelect] Error:', error)
+        cleanup()
+      }
+    }
+
+    tryNextValue()
+  })
+}
+
+const waitForBambooHROption = (
+  searchValue: string,
+  maxRetries = 20,
+  retryCount = 0,
+): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const options = document.querySelectorAll('[role="menuitem"]')
+
+    console.log(
+      `[waitForBambooHROption] Retry ${retryCount}/${maxRetries} - Found ${options.length} options`,
+    )
+
+    if (options.length === 0) {
+      if (retryCount < maxRetries) {
+        setTimeout(() => {
+          resolve(waitForBambooHROption(searchValue, maxRetries, retryCount + 1))
+        }, 100)
+      } else {
+        console.log(`[waitForBambooHROption] FAILED - No options found`)
+        resolve(false)
+      }
+      return
+    }
+
+    const normalizedSearch = searchValue.toLowerCase().trim()
+    const optionTexts = Array.from(options).map((el) => el.textContent?.trim())
+    console.log(`[waitForBambooHROption] Available options:`, optionTexts)
+    console.log(`[waitForBambooHROption] Looking for: "${normalizedSearch}"`)
+
+    const match = Array.from(options).find((el) => {
+      const text = el.textContent?.toLowerCase().trim() || ''
+      return text === normalizedSearch || text.includes(normalizedSearch)
+    }) as HTMLElement | undefined
+
+    if (match) {
+      console.log(
+        `[waitForBambooHROption] SUCCESS - Found and clicking: "${match.textContent?.trim()}"`,
+      )
+      match.click()
+      resolve(true)
+    } else {
+      const firstOption = options[0] as HTMLElement | undefined
+      if (firstOption) {
+        console.log(
+          `[waitForBambooHROption] No exact match, clicking first option: "${firstOption.textContent?.trim()}"`,
+        )
+        firstOption.click()
+        resolve(true)
+      } else {
+        if (retryCount < maxRetries) {
+          setTimeout(() => {
+            resolve(waitForBambooHROption(searchValue, maxRetries, retryCount + 1))
+          }, 100)
+        } else {
+          resolve(false)
+        }
+      }
+    }
+  })
+}

@@ -135,12 +135,3 @@ npm run build
 3. Upload to Chrome Web Store Developer Dashboard
 4. Fill in store listing details
 5. Submit for review (3-7 days)
-
-## 🎯 Next Steps
-
-- [ ] Create icons with Google Stitch
-- [ ] Test on common job sites (Indeed, LinkedIn, Greenhouse)
-- [ ] Add more field patterns for better detection
-- [ ] Create demo video
-- [ ] Write Chrome Web Store description
-- [ ] Launch on Reddit/LinkedIn

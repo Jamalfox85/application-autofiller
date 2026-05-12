@@ -54,6 +54,7 @@ export async function autofillPage() {
 
       const fieldText = constructFieldText(input)
 
+      console.log('Processing field:', fieldText, input)
       // Try site-specific handling first
       let handled = await fillBySiteRule(input, normalizeText(fieldText), personalInfo)
       if (handled) {
