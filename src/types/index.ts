@@ -74,7 +74,6 @@ export type SiteRule = {
     input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
     fieldText: string,
     personalInfo: PersonalInfo,
-    customResponses?: CustomResponse[],
   ) => boolean | Promise<boolean>
   formChanged?: (mutations: MutationRecord[]) => boolean
 }
@@ -82,12 +81,10 @@ export type SiteRule = {
 export type FieldMatch = (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   fieldText: string,
-  customResponses?: CustomResponse[],
 ) => boolean
 export type FieldHandler = (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   fieldText: string,
   personalInfo: PersonalInfo,
   fieldLabel: string,
-  customResponses?: CustomResponse[],
 ) => boolean | Promise<boolean>

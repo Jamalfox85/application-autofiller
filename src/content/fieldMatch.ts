@@ -13,6 +13,7 @@ export function matchFieldToData(
     address: ['city', 'postal', 'zip', 'state', 'country', 'province'], // Exclude these from address match
     city: ['ethnicity', 'ethnic', 'race'],
     state: ['estate', 'statement', 'realestate', 'unitedstates'],
+    country: ['zip'],
     phone: ['indefinitely', 'extension'],
     major: ['degree'],
     jobTitle: ['salary'],
@@ -55,7 +56,7 @@ export function matchFieldToData(
           }
         }
 
-        console.log(`Matched pattern "${pattern}" for key "${key}" in fieldText "${fieldText}"`)
+        // console.log(`Matched pattern "${pattern}" for key "${key}" in fieldText "${fieldText}"`)
         if (key === 'workAuthorization') {
           return {
             matchedValue: fieldText,

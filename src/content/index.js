@@ -55,11 +55,7 @@ async function initialize() {
     const siteSpecificChangeDetected =
       activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
 
-    const hasStructuralChange = mutations.some(
-      (mutation) => mutation.type === 'childList' && mutation.addedNodes.length > 0,
-    )
-
-    if (siteSpecificChangeDetected || (hasStructuralChange && hasFormChanged())) {
+    if (siteSpecificChangeDetected) {
       hasShownPopup = false
       attachFormListeners()
       debounceAutofill(autoDetectEnabled)
@@ -124,23 +120,6 @@ function attachFormListeners() {
       })
     })
   })
-}
-
-let lastFormSignature = ''
-
-function hasFormChanged() {
-  const activeSiteRule = siteRules.find((rule) => rule.detect())
-  //   if (activeSiteRule && activeSiteRule.formChanged) {
-  //     return activeSiteRule.formChanged()
-  //   }
-
-  const currentSignature = getDefaultFormSignature()
-
-  if (currentSignature !== lastFormSignature && currentSignature.length > 0) {
-    lastFormSignature = currentSignature
-    return true
-  }
-  return false
 }
 
 function getDefaultFormSignature() {

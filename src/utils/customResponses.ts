@@ -29,8 +29,8 @@ function coverageRatio(titleTokens: string[], fieldTokenSet: Set<string>): numbe
 }
 
 export function matchCustomResponse(fieldText: string, customResponses?: CustomResponse[]) {
-  console.log('Matching custom response for fieldText:', fieldText)
-  console.log('Available custom responses:', customResponses)
+  //   console.log('Matching custom response for fieldText:', fieldText)
+  //   console.log('Available custom responses:', customResponses)
   if (!fieldText || !Array.isArray(customResponses) || customResponses.length === 0) {
     return null
   }

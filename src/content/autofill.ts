@@ -8,11 +8,14 @@ import {
   setRadioValue,
 } from '@/utils/inputHandlers.ts'
 import { PersonalInfo, CustomResponse } from '../types/index.ts'
-
+import { normalizeText } from '@/utils/helpers.ts'
 // import { api } from '../lib/api'
+
 type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 
 let filledCount = 0
+let autofillDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let hasShownPopup = false
 
 export async function autofillPage() {
   try {
@@ -52,8 +55,9 @@ export async function autofillPage() {
       const fieldText = constructFieldText(input)
 
       // Try site-specific handling first
-      let handled = await fillBySiteRule(input, fieldText, personalInfo, customResponses)
+      let handled = await fillBySiteRule(input, normalizeText(fieldText), personalInfo)
       if (handled) {
+        console.log('Filled by site rule:', fieldText, input)
         filledCount++
         continue
       }
@@ -62,13 +66,12 @@ export async function autofillPage() {
       const matchedResult = matchFieldToData(fieldText, personalInfo, customResponses)
       const { matchedValue, relativeMatchKey } = matchedResult || {}
       if (!matchedValue) {
-        console.log(`No match for fieldText "${fieldText}"`)
         continue
       }
 
-      console.log(`Autofill matched "${fieldText}" to "${matchedValue}"`)
       handled = await fillByDefault(input, matchedValue, relativeMatchKey)
       if (handled) {
+        console.log('Filled by default logic:', fieldText, input)
         filledCount++
         continue
       }
@@ -151,19 +154,11 @@ function getFieldLabel(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelec
   return ''
 }
 
-async function fillBySiteRule(
-  input: FormField,
-  fieldText: string,
-  personalInfo: PersonalInfo,
-  customResponses: CustomResponse[],
-) {
+async function fillBySiteRule(input: FormField, fieldText: string, personalInfo: PersonalInfo) {
   // Find an active site rule (if any)
   const activeSiteRule = siteRules.find((rule) => rule.detect())
 
-  if (
-    activeSiteRule &&
-    (await activeSiteRule.apply(input, fieldText, personalInfo, customResponses))
-  ) {
+  if (activeSiteRule && (await activeSiteRule.apply(input, fieldText, personalInfo))) {
     return true
   }
   return false
@@ -198,24 +193,18 @@ async function fillByDefault(
   return false
 }
 
-let hasShownPopup = false
 export function debounceAutofill(autoDetectEnabled: boolean) {
-  let autofillDebounceTimer = null
-  // Clear existing timer
   if (autofillDebounceTimer) {
     clearTimeout(autofillDebounceTimer)
   }
 
-  // Wait 800ms after changes stop before autofilling
   autofillDebounceTimer = setTimeout(async () => {
     if (autoDetectEnabled) {
-      // Auto-fill the new form
       const result = await autofillPage()
       if (result.success) {
         showAutofillNotification(result.fieldsCount ?? 0)
       }
     } else {
-      // Show prompt if we haven't already for this form
       if (!hasShownPopup) {
         showAutofillPrompt()
         hasShownPopup = true

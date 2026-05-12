@@ -78,60 +78,184 @@ export async function fillWorkdayInput(
 
 export const fillReactSelect = (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-  value: string,
-  selectId: string,
+  value: string | string[],
+  selectId?: string, // Now optional
 ): Promise<void> => {
   return new Promise((resolve) => {
-    const handleBlur = (e: Event) => {
-      e.preventDefault()
-      e.stopImmediatePropagation()
-    }
-    input.addEventListener('blur', handleBlur, true)
-
-    input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    input.focus()
-    input.dispatchEvent(new Event('focus', { bubbles: true }))
-
-    for (const char of value) {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
-      input.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
-      input.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
-    }
-
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      'value',
-    )?.set
-    nativeInputValueSetter?.call(input, value)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const values = Array.isArray(value) ? value : [value]
+    let currentValueIndex = 0
 
     const cleanup = () => {
-      input.removeEventListener('blur', handleBlur, true)
+      input.blur()
       resolve()
     }
 
-    const waitForOptions = (retries = 20) => {
-      const options = document.querySelectorAll(selectId)
-      const isLoading = !!document.querySelector('.select2-searching, .select2-more-results')
-
-      if (options.length > 0 && !isLoading) {
-        const match = Array.from(options).find(
-          (el) => el.textContent?.trim().toLowerCase() === value.toLowerCase(),
-        ) as HTMLElement | undefined
-        const target = (match || options[0]) as HTMLElement
-
-        target?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-        target?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-        target?.click()
-
+    const tryNextValue = async () => {
+      if (currentValueIndex >= values.length) {
         cleanup()
-      } else if (retries > 0) {
-        setTimeout(() => waitForOptions(retries - 1), 300)
-      } else {
+        return
+      }
+
+      const currentValue = values[currentValueIndex]
+      currentValueIndex++
+
+      console.log(`[fillReactSelect] Attempting: "${currentValue}"`)
+
+      try {
+        // Focus and open the dropdown
+        input.focus()
+        input.click()
+        input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+        input.dispatchEvent(new FocusEvent('focus', { bubbles: true }))
+
+        // Wait for dropdown to render
+        await new Promise((r) => setTimeout(r, 300))
+
+        // Type the value character by character
+        for (const char of currentValue) {
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value',
+          )?.set
+          nativeInputValueSetter?.call(input, input.value + char)
+
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
+          input.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
+          input.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+
+          await new Promise((r) => setTimeout(r, 50))
+        }
+
+        // Wait for options to appear and find a match
+        const found = await waitForOptionMatch(input, currentValue)
+
+        if (found) {
+          // Give a moment for the selection to register
+          await new Promise((r) => setTimeout(r, 300))
+          cleanup()
+        } else {
+          // Clear input and try next value
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value',
+          )?.set
+          nativeInputValueSetter?.call(input, '')
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+          input.blur()
+
+          await new Promise((r) => setTimeout(r, 500))
+          tryNextValue()
+        }
+      } catch (error) {
+        console.error('[fillReactSelect] Error:', error)
         cleanup()
       }
     }
-    waitForOptions()
+
+    tryNextValue()
+  })
+}
+
+const waitForOptionMatch = (
+  input: HTMLInputElement,
+  searchValue: string,
+  maxRetries = 25,
+  retryCount = 0,
+): Promise<boolean> => {
+  return new Promise((resolve) => {
+    // Find the closest visible listbox to this input
+    const findVisibleListbox = (): Element | null => {
+      const inputId = input.id
+
+      // Try to find listbox by input ID first
+      let listbox = document.getElementById(`react-select-${inputId}-listbox`)
+      if (listbox) {
+        console.log(`[waitForOptionMatch] Found listbox by ID pattern`)
+        return listbox
+      }
+
+      // Try any listbox containing the input ID
+      listbox = document.querySelector(`[id*="${inputId}"][role="listbox"]`)
+      if (listbox) {
+        console.log(`[waitForOptionMatch] Found listbox by ID contains pattern`)
+        return listbox
+      }
+
+      // Find any visible listbox on the page
+      const allListboxes = document.querySelectorAll('[role="listbox"]')
+      for (const lb of allListboxes) {
+        const rect = lb.getBoundingClientRect()
+        const style = window.getComputedStyle(lb)
+        if (
+          rect.height > 0 &&
+          rect.width > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden'
+        ) {
+          console.log(`[waitForOptionMatch] Found visible listbox`)
+          return lb
+        }
+      }
+
+      return null
+    }
+
+    const listbox = findVisibleListbox()
+    let options: Element[] = []
+
+    if (listbox) {
+      options = Array.from(listbox.querySelectorAll('[role="option"]'))
+      console.log(`[waitForOptionMatch] Listbox contains ${options.length} options`)
+    }
+
+    console.log(
+      `[waitForOptionMatch] Retry ${retryCount}/${maxRetries} - Found ${options.length} options`,
+    )
+
+    if (options.length === 0) {
+      if (retryCount < maxRetries) {
+        setTimeout(() => {
+          resolve(waitForOptionMatch(input, searchValue, maxRetries, retryCount + 1))
+        }, 100)
+      } else {
+        console.log(`[waitForOptionMatch] FAILED - No options found after ${maxRetries} retries`)
+        resolve(false)
+      }
+      return
+    }
+
+    const normalizedSearch = searchValue.toLowerCase().trim()
+    const optionTexts = Array.from(options).map((el) => el.textContent?.trim())
+    console.log(`[waitForOptionMatch] Available options:`, optionTexts)
+    console.log(`[waitForOptionMatch] Looking for: "${normalizedSearch}"`)
+
+    // Find match (exact match first, then partial match)
+    const match = Array.from(options).find((el) => {
+      const text = el.textContent?.toLowerCase().trim() || ''
+      return text === normalizedSearch || text.includes(normalizedSearch)
+    }) as HTMLElement | undefined
+
+    if (match) {
+      console.log(
+        `[waitForOptionMatch] SUCCESS - Found and clicking: "${match.textContent?.trim()}"`,
+      )
+      match.click()
+      resolve(true)
+    } else {
+      if (retryCount < maxRetries) {
+        setTimeout(() => {
+          resolve(waitForOptionMatch(input, searchValue, maxRetries, retryCount + 1))
+        }, 100)
+      } else {
+        console.log(
+          `[waitForOptionMatch] FAILED - No match found for "${normalizedSearch}" after ${maxRetries} retries`,
+        )
+        resolve(false)
+      }
+    }
   })
 }
 
