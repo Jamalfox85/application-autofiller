@@ -20,6 +20,7 @@ import UpdateSkillsDialog from './components/dialogs/UpdateSkillsDialog.vue'
 import UpdateEEODialog from './components/dialogs/UpdateEEODialog.vue'
 import UpdateOtherInfoDialog from './components/dialogs/UpdateOtherInfoDialog.vue'
 import CustomResponsesDialog from './components/dialogs/CustomResponsesDialog.vue'
+import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDialog.vue'
 import ConfirmDeleteDialog from './components/dialogs/ConfirmDeleteDialog.vue'
 
 // Composables
@@ -45,6 +46,7 @@ const dialogs: Record<string, any> = {
   eeoInfo: ref(false),
   otherDetails: ref(false),
   customResponses: ref(false),
+  applicationAccount: ref(false),
 }
 
 // Methods
@@ -245,6 +247,12 @@ onMounted(async () => {
     <CustomResponsesDialog
       :show="dialogs.customResponses.value"
       @close="closeDialog('customResponses')"
+    />
+    <ApplicationAccountDialog
+      :show="dialogs.applicationAccount.value"
+      :personalInfo="personalInfo"
+      @close="closeDialog('applicationAccount')"
+      @save="saveProfile"
     />
   </div>
 </template>

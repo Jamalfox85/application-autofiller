@@ -64,7 +64,11 @@ export async function autofillPage() {
       }
 
       // Fill by default matching logic second
-      const matchedResult = matchFieldToData(fieldText, personalInfo, customResponses)
+      const matchedResult = matchFieldToData(
+        normalizeText(fieldText),
+        personalInfo,
+        customResponses,
+      )
       const { matchedValue, relativeMatchKey } = matchedResult || {}
       if (!matchedValue) {
         continue

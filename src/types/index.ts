@@ -29,6 +29,7 @@ export interface PersonalInfo {
   workAuthorization?: string
 
   // Workday
+  accountEmail?: string
   accountPassword?: string
 }
 

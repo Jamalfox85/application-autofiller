@@ -31,49 +31,61 @@ export async function fillWorkdayInput(
   input: HTMLInputElement | HTMLTextAreaElement,
   value: string,
 ) {
-  //   // Find the React fiber instance on the input element
-  //   const reactFiberKey = Object.keys(input).find(
-  //     (key) => key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance'),
-  //   )
-  const reactPropsKey = Object.keys(input).find((key) => key.startsWith('__reactProps'))
+  // Focus the input
+  input.focus()
 
-  const reactProps = reactPropsKey ? (input as any)[reactPropsKey] : null
-
-  // If we can find React's onChange handler, use it directly
-  if (reactProps?.onChange) {
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      input instanceof HTMLTextAreaElement
-        ? window.HTMLTextAreaElement.prototype
-        : window.HTMLInputElement.prototype,
-      'value',
-    )?.set
-
-    input.focus()
-    nativeSetter?.call(input, value)
-
-    // Simulate a React synthetic event
-    const syntheticEvent = new Event('input', { bubbles: true })
-    Object.defineProperty(syntheticEvent, 'target', { writable: false, value: input })
-    reactProps.onChange(syntheticEvent)
-
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    input.dispatchEvent(new Event('blur', { bubbles: true }))
-    return
-  }
-
-  // Fallback: set full value at once rather than char by char
-  const nativeSetter = Object.getOwnPropertyDescriptor(
-    input instanceof HTMLTextAreaElement
-      ? window.HTMLTextAreaElement.prototype
-      : window.HTMLInputElement.prototype,
-    'value',
-  )?.set
-
-  input.dispatchEvent(new Event('focus', { bubbles: true }))
-  nativeSetter?.call(input, value)
+  // Clear any existing value
+  input.value = ''
   input.dispatchEvent(new Event('input', { bubbles: true }))
   input.dispatchEvent(new Event('change', { bubbles: true }))
+
+  // Simulate typing character by character with keyboard events
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i]
+
+    // Add the character to the input
+    input.value += char
+
+    // Dispatch keyboard events like a real user would
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: char,
+        code: `Key${char.toUpperCase()}`,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+
+    input.dispatchEvent(
+      new KeyboardEvent('keypress', {
+        key: char,
+        code: `Key${char.toUpperCase()}`,
+        bubbles: true,
+        cancelable: true,
+        charCode: char.charCodeAt(0),
+      }),
+    )
+
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+
+    input.dispatchEvent(
+      new KeyboardEvent('keyup', {
+        key: char,
+        code: `Key${char.toUpperCase()}`,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+
+    // Small delay between characters to simulate real typing
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+
+  // Final events after typing is done
+  input.dispatchEvent(new Event('change', { bubbles: true }))
   input.dispatchEvent(new Event('blur', { bubbles: true }))
+
+  console.log(`Filled input with value: ${value}`)
 }
 
 export const fillReactSelect = (

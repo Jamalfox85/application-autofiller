@@ -2,6 +2,7 @@ import { FIELD_PATTERNS } from '../utils/fieldPatterns.ts'
 import { matchCustomResponse } from '@/utils/customResponses.ts'
 
 import { PersonalInfo, CustomResponse } from '../types'
+import { normalizeText } from '@/utils/helpers.ts'
 
 export function matchFieldToData(
   fieldText: string,
@@ -83,6 +84,7 @@ export function matchFieldToData(
 }
 
 function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
+  console.log('Matching full name for field:', fieldText)
   const fullNamePositivePatterns = [
     'fullname',
     'full_name',

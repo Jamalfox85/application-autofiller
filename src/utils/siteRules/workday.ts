@@ -9,29 +9,109 @@ export default function workdayConfig(): SiteRule {
     detect: () => window.location.hostname.includes('myworkday'),
     // In your onMount:
     onMount: (personalInfo) => {
-      let step2Handled = false
+      console.log('PING - Plugin initialized')
+      let applyManuallyClicked = false
+      let signInWithEmailClicked = false
+      let createAccountClicked = false
+      let accountInputHandled = false
+      let formStarted = false
 
       const observer = new MutationObserver(async () => {
-        const experienceAddBtn = document.querySelector(
-          '[aria-labelledby="Work-Experience-section"] [data-automation-id="add-button"]',
-        ) as HTMLElement
-        const educationAddBtn = document.querySelector(
-          '[aria-labelledby="Education-section"] [data-automation-id="add-button"]',
-        ) as HTMLElement
+        try {
+          // Step 1: Click "Apply Manually" link
+          if (!applyManuallyClicked) {
+            const applyManuallyLink = document.querySelector(
+              '[data-automation-id="applyManually"]',
+            ) as HTMLElement
 
-        if (experienceAddBtn && educationAddBtn && !step2Handled) {
-          step2Handled = true
-          try {
-            await handleWorkExperience(personalInfo)
-          } catch (e) {}
+            if (applyManuallyLink) {
+              applyManuallyClicked = true
+              console.log('✓ Found and clicking Apply Manually link')
+              applyManuallyLink.click()
+              await new Promise((resolve) => setTimeout(resolve, 1500))
+              return
+            }
+          }
 
-          try {
-            await handleEducation(personalInfo)
-          } catch (e) {}
+          // Step 2: Click "Sign in with email" button
+          if (!signInWithEmailClicked) {
+            const signInWithEmailBtn = document.querySelector(
+              'button[data-automation-id="SignInWithEmailButton"]',
+            ) as HTMLButtonElement
 
-          try {
-            await handleSkills(personalInfo)
-          } catch (e) {}
+            if (signInWithEmailBtn) {
+              signInWithEmailClicked = true
+              console.log('✓ Found and clicking Sign in with email button')
+              signInWithEmailBtn.click()
+              await new Promise((resolve) => setTimeout(resolve, 2000))
+              return
+            }
+          }
+
+          // Step 3: Click "Create Account" button
+          if (!createAccountClicked) {
+            const createAccountBtn = document.querySelector(
+              'button[data-automation-id="createAccountLink"]',
+            ) as HTMLButtonElement
+
+            if (createAccountBtn) {
+              createAccountClicked = true
+              console.log('✓ Found and clicking Create Account button')
+              createAccountBtn.click()
+              await new Promise((resolve) => setTimeout(resolve, 2000))
+              return
+            }
+          }
+
+          // Step 4: Fill in account information
+          if (!accountInputHandled) {
+            const accountEmailInput = document.querySelector(
+              '[data-automation-id="email"]',
+            ) as HTMLInputElement
+
+            if (accountEmailInput) {
+              accountInputHandled = true
+              console.log('✓ Account form loaded, filling account details')
+              await handleAccountInput(personalInfo)
+              await new Promise((resolve) => setTimeout(resolve, 2000))
+              return
+            }
+          }
+
+          // Step 5: Fill in work experience and education once those buttons appear
+          if (!formStarted) {
+            const experienceAddBtn = document.querySelector(
+              '[aria-labelledby="Work-Experience-section"] [data-automation-id="add-button"]',
+            ) as HTMLElement
+            const educationAddBtn = document.querySelector(
+              '[aria-labelledby="Education-section"] [data-automation-id="add-button"]',
+            ) as HTMLElement
+
+            if (experienceAddBtn && educationAddBtn) {
+              formStarted = true
+              console.log('✓ Application form loaded, starting to fill fields')
+
+              try {
+                await handleWorkExperience(personalInfo)
+              } catch (e) {
+                console.error('Error handling work experience:', e)
+              }
+
+              try {
+                await handleEducation(personalInfo)
+              } catch (e) {
+                console.error('Error handling education:', e)
+              }
+
+              try {
+                await handleSkills(personalInfo)
+              } catch (e) {
+                console.error('Error handling skills:', e)
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error in mutation observer:', error)
         }
       })
 
@@ -203,6 +283,97 @@ const fillWorkdayDate = (section: Element, fieldAutomationId: string, value: str
 
   if (monthInput) fillWorkdayInput(monthInput, month)
   if (yearInput) fillWorkdayInput(yearInput, year)
+}
+
+const handleAccountInput = async (personalInfo: PersonalInfo) => {
+  try {
+    console.log('Starting account input fill...')
+
+    // Wait longer for the form to fully render
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    // Get the form inputs
+    const emailInput = document.querySelector('[data-automation-id="email"]') as HTMLInputElement
+    const passwordInput = document.querySelector(
+      '[data-automation-id="password"]',
+    ) as HTMLInputElement
+    const verifyPasswordInput = document.querySelector(
+      '[data-automation-id="verifyPassword"]',
+    ) as HTMLInputElement
+    const createAccountCheckbox = document.querySelector(
+      '[data-automation-id="createAccountCheckbox"]',
+    ) as HTMLInputElement
+
+    console.log('Email input found:', !!emailInput)
+    console.log('Password input found:', !!passwordInput)
+    console.log('Verify password input found:', !!verifyPasswordInput)
+    console.log('Checkbox found:', !!createAccountCheckbox)
+
+    // Fill email
+    if (emailInput) {
+      console.log('Filling email with:', personalInfo.accountEmail)
+      emailInput.value = personalInfo.accountEmail || ''
+      emailInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+      emailInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      console.log('Email filled. Input now shows:', emailInput.value)
+    }
+
+    // Fill password
+    if (passwordInput) {
+      console.log('Filling password')
+      passwordInput.value = personalInfo.accountPassword || ''
+      passwordInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+      passwordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      console.log('Password filled. Input now shows:', passwordInput.value)
+    }
+
+    // Fill verify password
+    if (verifyPasswordInput) {
+      console.log('Filling verify password')
+      verifyPasswordInput.value = personalInfo.accountPassword || ''
+      verifyPasswordInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+      verifyPasswordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      console.log('Verify password filled. Input now shows:', verifyPasswordInput.value)
+    }
+
+    // Check the agreement checkbox
+    if (createAccountCheckbox && !createAccountCheckbox.checked) {
+      createAccountCheckbox.click()
+      console.log('✓ Checked account agreement')
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+
+    // Wait for form to stabilize after all inputs are filled
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    // Try to click the Create Account button with retry logic
+    let submitClicked = false
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const createAccountSubmitButton = document.querySelector(
+        '[data-automation-id="createAccountSubmitButton"]',
+      ) as HTMLButtonElement
+
+      if (createAccountSubmitButton && document.body.contains(createAccountSubmitButton)) {
+        console.log(`Attempt ${attempt}: Clicking Create Account button`)
+        createAccountSubmitButton.click()
+        console.log('✓ Clicked Create Account button')
+        submitClicked = true
+        break
+      } else {
+        console.log(`Attempt ${attempt}: Submit button not found or not connected, retrying...`)
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+    }
+
+    if (!submitClicked) {
+      console.error('Failed to click submit button after 3 attempts')
+    }
+  } catch (error) {
+    console.error('Error handling account input:', error)
+  }
 }
 
 const handleWorkExperience = async (personalInfo: PersonalInfo) => {

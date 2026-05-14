@@ -15,6 +15,8 @@ import {
   ICON_INFO,
   ICON_OTHER_DETAILS,
   ICON_PEN_RULER,
+  ICON_PASSWORD,
+  ICON_UNLOCK,
 } from '@/utils/icons'
 
 export const infoCards = [
@@ -29,11 +31,20 @@ export const infoCards = [
   {
     title: 'Custom Responses',
     description: 'Tailor responses for specific questions',
-    color: '#3B82F6',
+    color: '#C084FC',
     // color: '#22C55E',
     icon: ICON_EDIT,
     actionIcon: ICON_EDIT,
     dialog: 'customResponses',
+  },
+  {
+    title: 'Application Accounts',
+    description: 'Email and password combinations for job portals (e.g. Workday)',
+    color: '#3B82F6',
+    // color: '#22C55E',
+    icon: ICON_PASSWORD,
+    actionIcon: ICON_UNLOCK,
+    dialog: 'applicationAccount',
   },
   {
     title: 'Social Profiles',
@@ -47,11 +58,19 @@ export const infoCards = [
   {
     title: 'Resume',
     description: 'Upload your latest resume',
-    color: '#3B82F6',
+    color: '#C084FC',
     // color: '#22C55E',
     icon: ICON_RESUME,
     actionIcon: ICON_FOLDER,
     dialog: 'resume',
+  },
+  {
+    title: 'Experience',
+    description: 'Previous jobs and roles',
+    color: '#3B82F6',
+    icon: ICON_EXPERIENCE,
+    actionIcon: ICON_BUILDING,
+    dialog: 'experience',
   },
   {
     title: 'Education',
@@ -61,14 +80,6 @@ export const infoCards = [
     icon: ICON_EDUCATION,
     actionIcon: ICON_BOOK,
     dialog: 'education',
-  },
-  {
-    title: 'Experience',
-    description: 'Previous jobs and roles',
-    color: '#3B82F6',
-    icon: ICON_EXPERIENCE,
-    actionIcon: ICON_BUILDING,
-    dialog: 'experience',
   },
   {
     title: 'Skills',

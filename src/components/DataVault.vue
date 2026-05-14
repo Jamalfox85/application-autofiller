@@ -46,6 +46,7 @@ const emit = defineEmits<{
 }
 .card-icon {
   width: 40px;
+  min-width: 40px;
   height: 40px;
   background: #0d1117;
   border: 0.5px solid #30363d;

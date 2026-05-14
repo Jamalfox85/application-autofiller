@@ -26,6 +26,7 @@ export function usePersonalInfo() {
     age18OrOlder: '',
     desiredSalary: 0,
     workAuthorization: '',
+    accountEmail: '',
     accountPassword: '',
   })
 
