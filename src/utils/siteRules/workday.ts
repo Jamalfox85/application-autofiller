@@ -15,6 +15,11 @@ export default function workdayConfig(): SiteRule {
       let createAccountClicked = false
       let accountInputHandled = false
       let formStarted = false
+      let phoneTypeHandled = false
+      let stateHandled = false
+      let disabilityHandled = false
+      let selfIdNameHandled = false
+      let selfIdDateHandled = false
 
       const observer = new MutationObserver(async () => {
         try {
@@ -104,10 +109,194 @@ export default function workdayConfig(): SiteRule {
               }
 
               try {
-                await handleSkills(personalInfo)
+                // await handleSkills(personalInfo)
               } catch (e) {
                 console.error('Error handling skills:', e)
               }
+            }
+          }
+
+          // Step 6: Fill phone type select
+          if (!phoneTypeHandled) {
+            const phoneTypeButton = document.querySelector(
+              'button[name="phoneType"]',
+            ) as HTMLButtonElement
+
+            console.log('Phone type button found:', !!phoneTypeButton)
+            console.log('Phone type button text:', phoneTypeButton?.textContent)
+
+            if (phoneTypeButton && !phoneTypeButton.textContent?.includes('Mobile')) {
+              phoneTypeHandled = true
+              console.log('✓ Phone type select found, filling...')
+
+              // Click the button to open the dropdown
+              phoneTypeButton.click()
+              console.log('✓ Clicked phone type button to open dropdown')
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+
+              // Log all available options
+              const allOptions = Array.from(document.querySelectorAll('[role="option"]'))
+              console.log('All options found:', allOptions.length)
+              console.log(
+                'Option texts:',
+                allOptions.map((el) => el.textContent?.trim()),
+              )
+
+              // Find and click "Mobile" option
+              const mobileOption = allOptions.find(
+                (el) => el.textContent?.trim() === 'Mobile',
+              ) as HTMLElement
+
+              console.log('Mobile option found:', !!mobileOption)
+              console.log('Mobile option element:', mobileOption)
+
+              if (mobileOption) {
+                mobileOption.click()
+                console.log('✓ Selected "Mobile"')
+                await new Promise((resolve) => setTimeout(resolve, 500))
+              } else {
+                console.error('Mobile option not found')
+              }
+            }
+          }
+
+          // Step 7: Fill state select
+          if (!stateHandled) {
+            const stateButton = document.querySelector(
+              'button[name="countryRegion"]',
+            ) as HTMLButtonElement
+
+            console.log('State button found:', !!stateButton)
+            console.log('State button text:', stateButton?.textContent)
+
+            if (stateButton && !stateButton.textContent?.includes(personalInfo.state)) {
+              stateHandled = true
+              console.log('✓ State select found, filling...')
+
+              // Click the button to open the dropdown
+              stateButton.click()
+              console.log('✓ Clicked state button to open dropdown')
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+
+              // Find and click the state option matching personalInfo.state
+              const stateOption = Array.from(document.querySelectorAll('[role="option"]')).find(
+                (el) => el.textContent?.trim() === personalInfo.state,
+              ) as HTMLElement
+
+              console.log('State option found:', !!stateOption)
+              console.log('Looking for state:', personalInfo.state)
+
+              if (stateOption) {
+                stateOption.click()
+                console.log('✓ Selected state:', personalInfo.state)
+                await new Promise((resolve) => setTimeout(resolve, 500))
+              } else {
+                console.error('State option not found for:', personalInfo.state)
+                // Log available states for debugging
+                const allOptions = Array.from(document.querySelectorAll('[role="option"]'))
+                console.log(
+                  'Available states:',
+                  allOptions.map((el) => el.textContent?.trim()),
+                )
+              }
+            }
+          }
+
+          // Step 8: Fill disability status
+          if (!disabilityHandled) {
+            const disabilityCheckboxes = document.querySelectorAll(
+              '[data-automation-id="disabilityStatus-CheckboxGroup"] input[type="checkbox"]',
+            )
+
+            console.log('Disability checkboxes found:', disabilityCheckboxes.length)
+
+            if (disabilityCheckboxes.length > 0 && personalInfo.disabilityStatus) {
+              disabilityHandled = true
+              console.log('✓ Disability form found, selecting:', personalInfo.disabilityStatus)
+
+              // Map personalInfo.disabilityStatus to checkbox position
+              let checkboxIndex = -1
+              if (personalInfo.disabilityStatus === 'yes') {
+                checkboxIndex = 0 // "Yes, I have a disability..."
+              } else if (personalInfo.disabilityStatus === 'no') {
+                checkboxIndex = 1 // "No, I do not have a disability..."
+              } else if (personalInfo.disabilityStatus === 'decline') {
+                checkboxIndex = 2 // "I do not want to answer"
+              }
+
+              if (checkboxIndex >= 0 && checkboxIndex < disabilityCheckboxes.length) {
+                const targetCheckbox = disabilityCheckboxes[checkboxIndex] as HTMLInputElement
+                targetCheckbox.click()
+                console.log('✓ Selected disability option:', personalInfo.disabilityStatus)
+                await new Promise((resolve) => setTimeout(resolve, 500))
+              } else {
+                console.error('Invalid disability status:', personalInfo.disabilityStatus)
+              }
+            }
+          }
+          // Step 9: Fill self-identification name
+          if (!selfIdNameHandled) {
+            const nameInput = document.querySelector(
+              '[data-automation-id="formField-name"] input',
+            ) as HTMLInputElement
+
+            if (nameInput) {
+              selfIdNameHandled = true
+              console.log('✓ Self-identification name field found')
+              const fullName = `${personalInfo.firstName} ${personalInfo.lastName}`
+              await fillWorkdayInput(nameInput, fullName)
+              console.log('✓ Filled self-identification name:', fullName)
+              await new Promise((resolve) => setTimeout(resolve, 500))
+            }
+          }
+
+          // Step 10: Fill self-identification date (current date)
+          if (!selfIdDateHandled) {
+            const dateWrapper = document.querySelector(
+              '[id="selfIdentifiedDisabilityData--dateSignedOn"]',
+            ) as HTMLElement
+
+            if (dateWrapper) {
+              selfIdDateHandled = true
+              console.log('✓ Self-identification date wrapper found')
+
+              // Get today's date
+              const today = new Date()
+              const month = String(today.getMonth() + 1).padStart(2, '0')
+              const day = String(today.getDate()).padStart(2, '0')
+              const year = String(today.getFullYear())
+
+              // Fill month
+              const monthInput = dateWrapper.querySelector(
+                '[data-automation-id="dateSectionMonth-input"]',
+              ) as HTMLInputElement
+              if (monthInput) {
+                await fillWorkdayInput(monthInput, month)
+                console.log('✓ Filled month:', month)
+                await new Promise((resolve) => setTimeout(resolve, 300))
+              }
+
+              // Fill day
+              const dayInput = dateWrapper.querySelector(
+                '[data-automation-id="dateSectionDay-input"]',
+              ) as HTMLInputElement
+              if (dayInput) {
+                await fillWorkdayInput(dayInput, day)
+                console.log('✓ Filled day:', day)
+                await new Promise((resolve) => setTimeout(resolve, 300))
+              }
+
+              // Fill year
+              const yearInput = dateWrapper.querySelector(
+                '[data-automation-id="dateSectionYear-input"]',
+              ) as HTMLInputElement
+              if (yearInput) {
+                await fillWorkdayInput(yearInput, year)
+                console.log('✓ Filled year:', year)
+                await new Promise((resolve) => setTimeout(resolve, 300))
+              }
+
+              console.log('✓ Filled self-identification date:', `${month}/${day}/${year}`)
             }
           }
         } catch (error) {
@@ -119,9 +308,6 @@ export default function workdayConfig(): SiteRule {
       return () => observer.disconnect()
     },
     apply: (input, fieldText, personalInfo) => {
-      const inputLabel =
-        input.closest('[aria-labelledby="country-section"]')?.querySelector('label')?.textContent ||
-        ''
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {
           return handle(input, fieldText, personalInfo, '')
@@ -159,12 +345,92 @@ const fieldHandlers: Array<{
   handle: FieldHandler
 }> = [
   {
+    match: (_, fieldText) => {
+      return fieldText.includes('howdidyouhearaboutus')
+    },
+    handle: async (input, _, personalInfo) => {
+      try {
+        console.log('Handling "How Did You Hear About Us" field')
+
+        // Find the search input
+        const searchInput = document.querySelector(
+          '[data-uxi-widget-type="selectinput"][id*="source"]',
+        ) as HTMLInputElement
+
+        if (!searchInput) {
+          console.error('Search input not found')
+          return false
+        }
+
+        // Click to open dropdown
+        searchInput.click()
+        console.log('✓ Clicked search input to open dropdown')
+
+        // Wait for options to load and appear in the DOM
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+
+        // Now find "Internet Job Board" option by text and click it
+        let internetJobBoardOption = Array.from(
+          document.querySelectorAll('[data-automation-id="promptOption"]'),
+        ).find((el) => el.textContent?.trim() === 'Internet Job Board') as HTMLElement
+
+        if (internetJobBoardOption) {
+          console.log('✓ Found "Internet Job Board" option, clicking...')
+          internetJobBoardOption.click()
+          console.log('✓ Clicked "Internet Job Board"')
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        } else {
+          console.error('Internet Job Board option not found')
+          console.log(
+            'Available options:',
+            Array.from(document.querySelectorAll('[data-automation-id="promptOption"]')).map((el) =>
+              el.textContent?.trim(),
+            ),
+          )
+          return false
+        }
+
+        // Find and click "Indeed" option
+        const indeedOption = Array.from(
+          document.querySelectorAll('[data-automation-id="promptOption"]'),
+        ).find((el) => el.textContent?.trim() === 'Indeed') as HTMLElement
+
+        if (indeedOption) {
+          console.log('✓ Found "Indeed" option, clicking...')
+          indeedOption.click()
+          console.log('✓ Clicked "Indeed"')
+          return true
+        } else {
+          console.error('Indeed option not found')
+          console.log(
+            'Available options:',
+            Array.from(document.querySelectorAll('[data-automation-id="promptOption"]')).map((el) =>
+              el.textContent?.trim(),
+            ),
+          )
+          return false
+        }
+      } catch (error) {
+        console.error('Error in "How Did You Hear About Us" handler:', error)
+        return false
+      }
+    },
+  },
+  {
     match: (input, _) => {
       return input.getAttribute('id') == 'name--legalName--firstName'
     },
     handle: async (input, _, personalInfo) => {
       fillWorkdayInput(input as HTMLInputElement, personalInfo.firstName || '')
       return true
+    },
+  },
+  {
+    match: (input, _) => {
+      return input.getAttribute('id') == 'name--legalName--middleName'
+    },
+    handle: async (input, _, personalInfo) => {
+      return true // skip middle name on workday
     },
   },
   {
@@ -349,27 +615,18 @@ const handleAccountInput = async (personalInfo: PersonalInfo) => {
     // Wait for form to stabilize after all inputs are filled
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Try to click the Create Account button with retry logic
-    let submitClicked = false
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const createAccountSubmitButton = document.querySelector(
-        '[data-automation-id="createAccountSubmitButton"]',
-      ) as HTMLButtonElement
+    // The actual clickable element is the div with data-automation-id="click_filter"
+    // The submit button is hidden (aria-hidden="true")
+    const clickFilterDiv = document.querySelector(
+      '[data-automation-id="click_filter"]',
+    ) as HTMLElement
 
-      if (createAccountSubmitButton && document.body.contains(createAccountSubmitButton)) {
-        console.log(`Attempt ${attempt}: Clicking Create Account button`)
-        createAccountSubmitButton.click()
-        console.log('✓ Clicked Create Account button')
-        submitClicked = true
-        break
-      } else {
-        console.log(`Attempt ${attempt}: Submit button not found or not connected, retrying...`)
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    }
-
-    if (!submitClicked) {
-      console.error('Failed to click submit button after 3 attempts')
+    if (clickFilterDiv && document.body.contains(clickFilterDiv)) {
+      console.log('✓ Click filter div found')
+      clickFilterDiv.click()
+      console.log('✓ Clicked Create Account (via click_filter div)')
+    } else {
+      console.error('Click filter div not found')
     }
   } catch (error) {
     console.error('Error handling account input:', error)
@@ -377,25 +634,47 @@ const handleAccountInput = async (personalInfo: PersonalInfo) => {
 }
 
 const handleWorkExperience = async (personalInfo: PersonalInfo) => {
-  for (const experience of personalInfo.experience) {
+  for (let idx = 0; idx < personalInfo.experience.length; idx++) {
+    const experience = personalInfo.experience[idx]
+    console.log(`Processing work experience ${idx + 1}/${personalInfo.experience.length}`)
+
     const addBtn = document.querySelector(
       '[aria-labelledby="Work-Experience-section"] [data-automation-id="add-button"]',
     ) as HTMLElement
-    if (!addBtn) break
+
+    if (!addBtn) {
+      console.error('Add button not found')
+      break
+    }
+
+    // Count how many sections exist before clicking
+    const sectionsBefore = document.querySelectorAll(
+      '[aria-labelledby^="Work-Experience-"][aria-labelledby$="-panel"]',
+    ).length
+    console.log(`Sections before add: ${sectionsBefore}`)
 
     addBtn.click()
+    console.log('✓ Clicked add button')
 
-    // Wait for the inline form to appear
+    // Wait for a new section to be added
     let section: Element | null = null
-    try {
-      const el = await waitForElement(
-        '[aria-labelledby^="Work-Experience-"][aria-labelledby$="-panel"] [data-automation-id="formField-jobTitle"]',
+    let attempts = 0
+    while (!section && attempts < 10) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      const sectionsNow = document.querySelectorAll(
+        '[aria-labelledby^="Work-Experience-"][aria-labelledby$="-panel"]',
       )
-      section = el.closest('[role="group"]')
-      if (!section) {
+      if (sectionsNow.length > sectionsBefore) {
+        // Found a new section - get the last one (most recently added)
+        section = sectionsNow[sectionsNow.length - 1]
+        console.log(`✓ Found new section (attempt ${attempts + 1})`)
         break
       }
-    } catch (e) {
+      attempts++
+    }
+
+    if (!section) {
+      console.error('Could not find new work experience section')
       break
     }
 
@@ -413,67 +692,126 @@ const handleWorkExperience = async (personalInfo: PersonalInfo) => {
       '[data-automation-id="formField-location"] input',
     ) as HTMLInputElement
 
-    if (jobTitleInput) fillWorkdayInput(jobTitleInput, experience.jobTitle || '')
-    if (companyInput) fillWorkdayInput(companyInput, experience.companyName || '')
-    if (descriptionInput) fillWorkdayInput(descriptionInput, experience.description || '')
-    if (locationInput)
-      fillWorkdayInput(
+    console.log(
+      'Inputs found - jobTitle:',
+      !!jobTitleInput,
+      'company:',
+      !!companyInput,
+      'description:',
+      !!descriptionInput,
+      'location:',
+      !!locationInput,
+    )
+
+    if (jobTitleInput) {
+      await fillWorkdayInput(jobTitleInput, experience.jobTitle || '')
+      console.log('✓ Filled job title:', experience.jobTitle)
+    }
+    if (companyInput) {
+      await fillWorkdayInput(companyInput, experience.companyName || '')
+      console.log('✓ Filled company:', experience.companyName)
+    }
+    if (descriptionInput) {
+      await fillWorkdayInput(descriptionInput, experience.description || '')
+      console.log('✓ Filled description')
+    }
+    if (locationInput) {
+      await fillWorkdayInput(
         locationInput,
         `${experience.locationCity}, ${experience.locationState}` || '',
       )
+      console.log('✓ Filled location')
+    }
 
     // Fill dates
-    if (experience.startDate) fillWorkdayDate(section, 'formField-startDate', experience.startDate)
+    if (experience.startDate) {
+      await fillWorkdayDate(section, 'formField-startDate', experience.startDate)
+      console.log('✓ Filled start date')
+    }
 
     // Handle endDate - check "currently work here" if no end date
     if (experience.present || !experience.endDate) {
       const currentlyWorkHere = section.querySelector(
         '[data-automation-id="formField-currentlyWorkHere"] input[type="checkbox"]',
       ) as HTMLInputElement
-      if (currentlyWorkHere) currentlyWorkHere.click()
+      if (currentlyWorkHere) {
+        currentlyWorkHere.click()
+        console.log('✓ Checked currently work here')
+      }
     } else {
-      fillWorkdayDate(section, 'formField-endDate', experience.endDate)
+      await fillWorkdayDate(section, 'formField-endDate', experience.endDate)
+      console.log('✓ Filled end date')
     }
+
+    // Wait before adding the next experience
+    await new Promise((resolve) => setTimeout(resolve, 1000))
   }
+  console.log('✓ Finished handling all work experiences')
 }
 
 const handleEducation = async (personalInfo: PersonalInfo) => {
   const normalize = (str: string) => str.toLowerCase().replace(/[^a-z]/g, '')
 
-  const typeAndEnter = async (input: HTMLInputElement, value: string) => {
-    input.click()
-    input.focus()
-    await fillWorkdayInput(input, value)
-    await new Promise((r) => setTimeout(r, 200))
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }))
-    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }))
-    await new Promise((r) => setTimeout(r, 200))
-  }
+  for (let idx = 0; idx < personalInfo.education.length; idx++) {
+    const education = personalInfo.education[idx]
+    console.log(`Processing education ${idx + 1}/${personalInfo.education.length}`)
 
-  for (const education of personalInfo.education) {
     const addBtn = document.querySelector(
       '[aria-labelledby="Education-section"] [data-automation-id="add-button"]',
     ) as HTMLElement
-    if (!addBtn) break
-    addBtn.click()
 
-    let section: Element
-    try {
-      const el = await waitForElement(
-        '[aria-labelledby^="Education-"][aria-labelledby$="-panel"] [data-automation-id="formField-school"]',
-      )
-      section = el.closest('[role="group"]')!
-      if (!section) break
-    } catch (e) {
+    if (!addBtn) {
+      console.error('Education add button not found')
       break
     }
 
-    // School
-    const schoolInput = section.querySelector(
-      '[data-automation-id="formField-school"] input',
+    const sectionsBefore = document.querySelectorAll(
+      '[aria-labelledby^="Education-"][aria-labelledby$="-panel"]',
+    ).length
+
+    addBtn.click()
+    console.log('✓ Clicked add education button')
+
+    let section: Element | null = null
+    let attempts = 0
+    while (!section && attempts < 10) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      const sectionsNow = document.querySelectorAll(
+        '[aria-labelledby^="Education-"][aria-labelledby$="-panel"]',
+      )
+      if (sectionsNow.length > sectionsBefore) {
+        section = sectionsNow[sectionsNow.length - 1]
+        console.log(`✓ Found new education section`)
+        break
+      }
+      attempts++
+    }
+
+    if (!section) {
+      console.error('Could not find new education section')
+      break
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    // School Name
+    const schoolNameInput = section.querySelector(
+      '[data-automation-id="formField-schoolName"] input',
     ) as HTMLInputElement
-    if (schoolInput && education.schoolName) {
-      await typeAndEnter(schoolInput, education.schoolName)
+    if (schoolNameInput && education.schoolName) {
+      console.log('Filling school name:', education.schoolName)
+      schoolNameInput.click()
+      schoolNameInput.focus()
+      await fillWorkdayInput(schoolNameInput, education.schoolName)
+      await new Promise((r) => setTimeout(r, 200))
+      schoolNameInput.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }),
+      )
+      schoolNameInput.dispatchEvent(
+        new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }),
+      )
+      await new Promise((r) => setTimeout(r, 300))
+      console.log('✓ Filled school name')
     }
 
     // Degree — button-based listbox
@@ -481,36 +819,50 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
       '[data-automation-id="formField-degree"] button[aria-haspopup="listbox"]',
     ) as HTMLElement
     if (degreeBtn && education.degreeType) {
+      console.log('Clicking degree button for:', education.degreeType)
       degreeBtn.click()
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => reject('Degree timeout'), 5000)
-          const observer = new MutationObserver(() => {
-            const opts = document.querySelectorAll('[role="option"]')
-            if (opts.length > 1) {
-              clearTimeout(timeout)
-              observer.disconnect()
-              resolve()
-            }
-          })
-          observer.observe(document.body, { childList: true, subtree: true })
-        })
-        const options = document.querySelectorAll('[role="option"]')
-        const match = Array.from(options).find((el) =>
-          normalize(el.textContent || '').includes(normalize(education.degreeType)),
-        ) as HTMLElement | undefined
-        match ? match.click() : degreeBtn.click()
-      } catch {
+      await new Promise((resolve) => setTimeout(resolve, 800))
+
+      const options = Array.from(document.querySelectorAll('[role="option"]'))
+      console.log('Degree options found:', options.length)
+
+      const match = options.find((el) =>
+        normalize(el.textContent || '').includes(normalize(education.degreeType)),
+      ) as HTMLElement | undefined
+
+      if (match) {
+        console.log('Found matching degree:', match.textContent?.trim())
+        match.click()
+        console.log('✓ Selected degree')
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      } else {
+        console.error('Degree not found for:', education.degreeType)
+        // Try clicking button again to close
         degreeBtn.click()
       }
     }
 
-    // Field of study
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    // Field of study - also needs Enter key
     const majorInput = section.querySelector(
       '[data-automation-id="formField-fieldOfStudy"] input',
     ) as HTMLInputElement
     if (majorInput && education.major) {
-      await typeAndEnter(majorInput, education.major)
+      console.log('Filling major:', education.major)
+      majorInput.click()
+      majorInput.focus()
+      await new Promise((r) => setTimeout(r, 300))
+      await fillWorkdayInput(majorInput, education.major)
+      await new Promise((r) => setTimeout(r, 300))
+      majorInput.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }),
+      )
+      majorInput.dispatchEvent(
+        new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }),
+      )
+      await new Promise((r) => setTimeout(r, 300))
+      console.log('✓ Filled major')
     }
 
     // GPA
@@ -518,7 +870,9 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
       '[data-automation-id="formField-gradeAverage"] input',
     ) as HTMLInputElement
     if (gpaInput && education.gpa) {
+      console.log('Filling GPA:', education.gpa)
       await fillWorkdayInput(gpaInput, education.gpa)
+      console.log('✓ Filled GPA')
     }
 
     // Years
@@ -530,13 +884,22 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
     ) as HTMLInputElement
 
     if (fromYear && education.startYear) {
+      console.log('Filling start year:', education.startYear)
       await fillWorkdayInput(fromYear, education.startYear.toString())
+      console.log('✓ Filled start year')
     }
+
     if (toYear && education.graduationYear) {
+      console.log('Filling graduation year:', education.graduationYear)
       await fillWorkdayInput(toYear, education.graduationYear.toString())
+      console.log('✓ Filled graduation year')
     }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
   }
+  console.log('✓ Finished handling all education')
 }
+
 const handleSkills = async (personalInfo: PersonalInfo) => {
   if (!personalInfo.skills?.length) return
 

@@ -31,61 +31,22 @@ export async function fillWorkdayInput(
   input: HTMLInputElement | HTMLTextAreaElement,
   value: string,
 ) {
-  // Focus the input
-  input.focus()
+  try {
+    // Focus the input
+    input.focus()
 
-  // Clear any existing value
-  input.value = ''
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
+    // Directly set the value
+    input.value = value
 
-  // Simulate typing character by character with keyboard events
-  for (let i = 0; i < value.length; i++) {
-    const char = value[i]
+    // Dispatch events to notify React/listeners
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+    input.dispatchEvent(new Event('blur', { bubbles: true, composed: true }))
 
-    // Add the character to the input
-    input.value += char
-
-    // Dispatch keyboard events like a real user would
-    input.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: char,
-        code: `Key${char.toUpperCase()}`,
-        bubbles: true,
-        cancelable: true,
-      }),
-    )
-
-    input.dispatchEvent(
-      new KeyboardEvent('keypress', {
-        key: char,
-        code: `Key${char.toUpperCase()}`,
-        bubbles: true,
-        cancelable: true,
-        charCode: char.charCodeAt(0),
-      }),
-    )
-
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-
-    input.dispatchEvent(
-      new KeyboardEvent('keyup', {
-        key: char,
-        code: `Key${char.toUpperCase()}`,
-        bubbles: true,
-        cancelable: true,
-      }),
-    )
-
-    // Small delay between characters to simulate real typing
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    console.log(`Filled input with value: ${value}`)
+  } catch (error) {
+    console.error('Error filling input:', error)
   }
-
-  // Final events after typing is done
-  input.dispatchEvent(new Event('change', { bubbles: true }))
-  input.dispatchEvent(new Event('blur', { bubbles: true }))
-
-  console.log(`Filled input with value: ${value}`)
 }
 
 export const fillReactSelect = (
