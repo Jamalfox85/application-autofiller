@@ -1,8 +1,12 @@
 import { FIELD_PATTERNS } from '../utils/fieldPatterns.ts'
 import { matchCustomResponse } from '@/utils/customResponses.ts'
 
-import { PersonalInfo, CustomResponse } from '../types'
+import { PersonalInfo, CustomResponse, Education, Experience } from '../types'
 import { normalizeText } from '@/utils/helpers.ts'
+
+function matchesPattern(fieldText: string, pattern: string): boolean {
+  return fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, ''))
+}
 
 export function matchFieldToData(
   fieldText: string,
@@ -46,8 +50,7 @@ export function matchFieldToData(
   // Check standard fields
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
     for (const pattern of patterns) {
-      const normalizedPattern = pattern.toLowerCase().replace(/[\s_-]/g, '')
-      if (fieldText.includes(normalizedPattern)) {
+      if (matchesPattern(fieldText, pattern)) {
         if (exclusions[key]) {
           const hasExclusion = exclusions[key].some((excl) =>
             fieldText.includes(excl.toLowerCase()),
@@ -55,6 +58,18 @@ export function matchFieldToData(
           if (hasExclusion) {
             continue // Skip this pattern match
           }
+        }
+
+        const eeoKeys = ['gender', 'raceEthnicity', 'disabilityStatus', 'veteranStatus', 'age18OrOlder']
+        if (eeoKeys.includes(key) && personalInfo.eeoAnswersEnabled === false) {
+          continue
+        }
+
+        if (key === 'desiredSalary') {
+          if (personalInfo.salaryNegotiable) {
+            return { matchedValue: 'Negotiable', relativeMatchKey: key }
+          }
+          if (!personalInfo.desiredSalary) continue
         }
 
         // console.log(`Matched pattern "${pattern}" for key "${key}" in fieldText "${fieldText}"`)
@@ -173,101 +188,39 @@ function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
   }
 }
 
+const EDUCATION_FIELDS: Array<keyof Education> = [
+  'schoolName',
+  'major',
+  'degreeType',
+  'graduationYear',
+  'gpa',
+]
+
 function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
   const latestEducation = personalInfo.education[0]
-  const schoolNamePatterns = FIELD_PATTERNS.schoolName
-  const majorPatterns = FIELD_PATTERNS.major
-  const degreePatterns = FIELD_PATTERNS.degreeType
-  const graduationYearPatterns = FIELD_PATTERNS.graduationYear
-  const gpaPatterns = FIELD_PATTERNS.gpa
 
-  if (
-    schoolNamePatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestEducation.schoolName || null, relativeMatchKey: 'schoolName' }
-  }
-
-  if (
-    majorPatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestEducation.major || null, relativeMatchKey: 'major' }
-  }
-  if (
-    degreePatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestEducation.degreeType || null, relativeMatchKey: 'degreeType' }
-  }
-
-  if (
-    graduationYearPatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return {
-      matchedValue: latestEducation.graduationYear || null,
-      relativeMatchKey: 'graduationYear',
+  for (const key of EDUCATION_FIELDS) {
+    if (FIELD_PATTERNS[key].some((pattern) => matchesPattern(fieldText, pattern))) {
+      return { matchedValue: latestEducation[key] || null, relativeMatchKey: key }
     }
-  }
-
-  if (
-    gpaPatterns.some((pattern) => fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')))
-  ) {
-    return { matchedValue: latestEducation.gpa || null, relativeMatchKey: 'gpa' }
   }
 }
 
+const EXPERIENCE_FIELDS: Array<{ patternKey: keyof typeof FIELD_PATTERNS; dataKey: keyof Experience }> = [
+  { patternKey: 'companyName', dataKey: 'companyName' },
+  { patternKey: 'jobDescription', dataKey: 'description' },
+  { patternKey: 'jobTitle', dataKey: 'jobTitle' },
+  { patternKey: 'startDate', dataKey: 'startDate' },
+  { patternKey: 'endDate', dataKey: 'endDate' },
+]
+
 function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
   const latestExperience = personalInfo.experience[0]
-  const companyNamePatterns = FIELD_PATTERNS.companyName
-  const descriptionPatterns = FIELD_PATTERNS.jobDescription
-  const jobTitlePatterns = FIELD_PATTERNS.jobTitle
-  const startDatePatterns = FIELD_PATTERNS.startDate
-  const endDatePatterns = FIELD_PATTERNS.endDate
 
-  if (
-    companyNamePatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestExperience.companyName || null, relativeMatchKey: 'companyName' }
-  }
-
-  if (
-    descriptionPatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestExperience.description || null, relativeMatchKey: 'description' }
-  }
-
-  if (
-    jobTitlePatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestExperience.jobTitle || null, relativeMatchKey: 'jobTitle' }
-  }
-
-  if (
-    startDatePatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestExperience.startDate || null, relativeMatchKey: 'startDate' }
-  }
-
-  if (
-    endDatePatterns.some((pattern) =>
-      fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, '')),
-    )
-  ) {
-    return { matchedValue: latestExperience.endDate || null, relativeMatchKey: 'endDate' }
+  for (const { patternKey, dataKey } of EXPERIENCE_FIELDS) {
+    if (FIELD_PATTERNS[patternKey].some((pattern) => matchesPattern(fieldText, pattern))) {
+      return { matchedValue: latestExperience[dataKey] || null, relativeMatchKey: dataKey }
+    }
   }
 }
 

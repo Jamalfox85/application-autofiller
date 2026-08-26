@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="GoFillr">
+  <rect width="128" height="128" rx="31" fill="#7C3AED"></rect>
+  <rect x="24" y="37" width="80" height="11" rx="5.5" fill="#FFFFFF"></rect>
+  <rect x="24" y="58.5" width="51" height="11" rx="5.5" fill="#FFFFFF"></rect>
+  <rect x="24" y="80" width="32" height="11" rx="5.5" fill="#FFFFFF" fill-opacity="0.32"></rect>
+</svg>

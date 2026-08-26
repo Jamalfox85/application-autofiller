@@ -1,9 +1,21 @@
 // Runs on all pages on load
 
-import { autofillPage, debounceAutofill } from './autofill.ts'
-import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
-import { jobPlatforms, excludePatterns, applicationUrlPatterns } from '../utils/jobSitePatterns.ts'
+import { autofillPage, debounceAutofill, consumeAutofillTriggerForSubmission } from './autofill.ts'
+import {
+  showAutofillNotification,
+  showAutofillPrompt,
+  showErrorNotification,
+} from './notifications.ts'
+import {
+  jobPlatforms,
+  excludePatterns,
+  applicationUrlPatterns,
+  getSiteLabel,
+} from '../utils/jobSitePatterns.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
+
+import { trackEvent } from '../services/mixpanelHttp'
+import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 
 // Initialize when page loads
 if (document.readyState === 'loading') {
@@ -14,14 +26,23 @@ if (document.readyState === 'loading') {
 
 let hasShownPopup = false
 async function initialize() {
+  await maybeTrackConfirmationPage()
+
   // Check if this is a job application page
-  if (!isLikelyJobApplicationPage()) {
+  const detection = detectJobApplicationPage()
+  if (!detection.detected) {
     return
   }
+
   const personalInfoData = await chrome.storage.local.get('personalInfo')
   const personalInfo = personalInfoData.personalInfo
 
-  attachFormListeners()
+  // job_site_visit_detected only makes sense once the user actually has a profile to fill
+  // with — before that there's no meaningful "time since profile completed" to report.
+  const profileCompletedAt = await getProfileSetupCompletedAt()
+  if (profileCompletedAt) {
+    await trackJobSiteVisit(detection.method, profileCompletedAt)
+  }
 
   // Get user's auto-detect preference
   const settings = await chrome.storage.local.get('autoDetectEnabled')
@@ -30,7 +51,7 @@ async function initialize() {
   if (autoDetectEnabled) {
     // Auto-detect is ON - auto-fill after delay
     setTimeout(async () => {
-      const result = await autofillPage()
+      const result = await autofillPage('auto_on_detect')
       if (result.success) {
         showAutofillNotification(result.fieldsCount)
       }
@@ -57,7 +78,6 @@ async function initialize() {
 
     if (siteSpecificChangeDetected) {
       hasShownPopup = false
-      attachFormListeners()
       debounceAutofill(autoDetectEnabled)
     }
   })
@@ -77,7 +97,7 @@ async function initialize() {
 
       setTimeout(async () => {
         if (autoDetectEnabled) {
-          const result = await autofillPage()
+          const result = await autofillPage('auto_on_detect')
           if (result.success) {
             showAutofillNotification(result.fieldsCount)
           }
@@ -88,68 +108,74 @@ async function initialize() {
       }, 1000)
     }
   }, 500)
+
+  // Best-effort application_submitted detection: only fires on forms the extension actually
+  // engaged with (autofill was triggered this session). clicked_submit is the form submit
+  // event; confirmation_page is handled separately in maybeTrackConfirmationPage.
+  document.addEventListener(
+    'submit',
+    () => {
+      void trackApplicationSubmitted('clicked_submit')
+    },
+    true,
+  )
 }
 
-function attachFormListeners() {
-  const forms = document.querySelectorAll('form')
+async function trackJobSiteVisit(detectionMethod, profileCompletedAt) {
+  const visitKey = `mixpanelJobSiteVisit:${window.location.hostname}${window.location.pathname}`
+  try {
+    const existing = await chrome.storage.session.get(visitKey)
+    if (existing[visitKey]) return
+    await chrome.storage.session.set({ [visitKey]: Date.now() })
+  } catch {
+    // If session storage isn't available, still fire — better a duplicate than a miss.
+  }
 
-  forms.forEach((form, index) => {
-    if (form.dataset.autofillListenerAttached) return
-    form.dataset.autofillListenerAttached = 'true'
-
-    form.addEventListener('submit', async (e) => {
-      const capturedData = {}
-      const inputs = form.querySelectorAll('input, textarea, select')
-
-      inputs.forEach((input) => {
-        // Skip empty, hidden, password, submit buttons
-        if (
-          !input.value ||
-          input.type === 'hidden' ||
-          input.type === 'password' ||
-          input.type === 'submit' ||
-          input.type === 'button'
-        ) {
-          return
-        }
-
-        const name = input.name || input.id || input.placeholder || 'unknown'
-        const value = input.value.trim()
-
-        capturedData[name] = value
-      })
-    })
+  const isJobPlatform = jobPlatforms.some((platform) =>
+    window.location.href.toLowerCase().includes(platform),
+  )
+  trackEvent('job_site_visit_detected', {
+    job_site: window.location.hostname,
+    job_site_supported: isJobPlatform || siteRules.some((rule) => rule.detect()),
+    detection_method: detectionMethod,
+    time_since_profile_completed_seconds: (Date.now() - profileCompletedAt) / 1000,
   })
 }
 
-function getDefaultFormSignature() {
-  const forms = document.querySelectorAll('form')
-
-  // Create a signature of current forms (IDs + input count + input names)
-  const currentSignature = Array.from(forms)
-    .map((f) => {
-      const formId = f.id || f.className || 'unnamed'
-      const inputs = f.querySelectorAll('input, textarea, select')
-      const inputSignature = Array.from(inputs)
-        .map((input) => `${input.tagName}:${input.name || input.id || input.type}`)
-        .join(',')
-      return `${formId}:[${inputSignature}]`
-    })
-    .join('|')
-
-  return currentSignature
+function isConfirmationPage() {
+  const url = window.location.href.toLowerCase()
+  return /thank[-_ ]?you|application[-_ ]?(submitted|received|complete)|\/confirmation|\/success/.test(
+    url,
+  )
 }
 
-function isLikelyJobApplicationPage() {
+async function maybeTrackConfirmationPage() {
+  if (!isConfirmationPage()) return
+  await trackApplicationSubmitted('confirmation_page')
+}
+
+async function trackApplicationSubmitted(submitMethod) {
+  const trigger = await consumeAutofillTriggerForSubmission()
+  if (!trigger) return
+
+  trackEvent('application_submitted', {
+    job_site: trigger.jobSite || window.location.hostname,
+    submit_method: submitMethod,
+    time_since_autofill_triggered_seconds: (Date.now() - trigger.triggeredAt) / 1000,
+    submission_success: true,
+  })
+}
+
+function detectJobApplicationPage() {
   const url = window.location.href.toLowerCase()
 
   const isJobPlatform = jobPlatforms.some((platform) => url.includes(platform))
   if (isJobPlatform) {
-    return true
+    return { detected: true, method: 'url_pattern' }
   }
 
   if (excludePatterns.some((pattern) => url.includes(pattern))) {
-    return false
+    return { detected: false, method: null }
   }
 
   const hasApplicationUrl = applicationUrlPatterns.some((pattern) => url.includes(pattern))
@@ -159,15 +185,38 @@ function isLikelyJobApplicationPage() {
   // 2. Page has job-specific fields (resume, cover letter, etc.)
   const hasForm = document.querySelectorAll('form').length > 0
 
-  return hasApplicationUrl && hasForm
+  return { detected: hasApplicationUrl && hasForm, method: 'dom_detection' }
 }
 
-// Listen for messages from popup
+function isLikelyJobApplicationPage() {
+  return detectJobApplicationPage().detected
+}
+
+// Listen for messages from the popup and the keyboard-shortcut command
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'autofill') {
-    autofillPage().then((result) => {
+    autofillPage('user_clicked_button').then((result) => {
+      // Also show an on-page toast — needed for the ⌘⇧F shortcut path, where the popup
+      // (and its own success view) isn't open to give feedback.
+      if (result.success) {
+        showAutofillNotification(result.fieldsCount)
+      } else {
+        showErrorNotification(result.message)
+      }
       sendResponse(result)
     })
     return true // Keep message channel open for async response
+  }
+
+  if (request.action === 'detectApplication') {
+    const detected = isLikelyJobApplicationPage()
+    sendResponse({
+      detected,
+      siteLabel: detected ? getSiteLabel(window.location.hostname) : null,
+      fieldCount: detected
+        ? document.querySelectorAll('input, textarea, select').length
+        : 0,
+    })
+    return false
   }
 })

@@ -5,19 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && npm run copy-files",
+    "build": "vite build && vite build --config vite.content.config.ts && npm run copy-files",
     "copy-files": "cp manifest.json dist/ && cp content.css dist/ && cp background.js dist/ && mkdir -p dist/icons && cp -r icons/* dist/icons/ 2>/dev/null || true",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.95.3",
+    "@supabase/supabase-js": "^2.108.1",
     "lucide-vue-next": "^0.562.0",
+    "mixpanel-browser": "^2.82.1",
     "naive-ui": "^2.43.2",
+    "posthog-js": "^1.375.0",
     "sass": "^1.97.3",
     "vue": "^3.5.13"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.276",
+    "@types/mixpanel-browser": "^2.60.0",
     "@types/node": "^25.0.10",
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "^5.7.3",

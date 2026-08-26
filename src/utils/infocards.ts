@@ -2,110 +2,151 @@ import {
   ICON_USER,
   ICON_EDIT,
   ICON_SOCIAL_LINKS,
-  ICON_LINK,
-  ICON_RESUME,
-  ICON_FOLDER,
-  ICON_EDUCATION,
-  ICON_BOOK,
   ICON_EXPERIENCE,
-  ICON_BUILDING,
-  ICON_STARS,
-  ICON_HAND_SPARKLES,
+  ICON_EDUCATION,
   ICON_EEO,
-  ICON_INFO,
   ICON_OTHER_DETAILS,
-  ICON_PEN_RULER,
   ICON_PASSWORD,
-  ICON_UNLOCK,
+  ICON_STARS,
 } from '@/utils/icons'
+import type { PersonalInfo } from '@/types'
 
-export const infoCards = [
+export interface SectionDef {
+  num: string
+  key: string
+  title: string
+  dialog: string
+  icon: string
+  meta: (info: PersonalInfo) => string
+  done: (info: PersonalInfo) => boolean
+  required: boolean
+}
+
+// The 8-row main-popup section list. 01-06 mirror the design's core sections; 07/08
+// (Custom Responses, Application Accounts) are additions the design doesn't show but that
+// are real, working features — kept as extra rows rather than folded in or dropped.
+export const SECTIONS: SectionDef[] = [
   {
-    title: 'Personal Info',
-    description: 'Name, Email, Phone, Address',
-    color: '#3B82F6',
-    icon: ICON_USER,
-    actionIcon: ICON_EDIT,
+    num: '01',
+    key: 'personal',
+    title: 'Personal details',
     dialog: 'personalInfo',
+    icon: ICON_USER,
+    required: true,
+    meta: (info) => (info.city && info.state ? `${info.city}, ${info.state}` : 'Name, address'),
+    done: (info) => !!(info.firstName && info.lastName && info.email),
   },
   {
-    title: 'Custom Responses',
-    description: 'Tailor responses for specific questions',
-    color: '#C084FC',
-    // color: '#22C55E',
-    icon: ICON_EDIT,
-    actionIcon: ICON_EDIT,
-    dialog: 'customResponses',
-  },
-  {
-    title: 'Application Accounts',
-    description: 'Email and password combinations for job portals (e.g. Workday)',
-    color: '#3B82F6',
-    // color: '#22C55E',
-    icon: ICON_PASSWORD,
-    actionIcon: ICON_UNLOCK,
-    dialog: 'applicationAccount',
-  },
-  {
-    title: 'Social Profiles',
-    description: 'LinkedIn, Portfolio, Github',
-    color: '#3B82F6',
-    // color: '#F59E0B',
-    icon: ICON_SOCIAL_LINKS,
-    actionIcon: ICON_LINK,
-    dialog: 'socialProfiles',
-  },
-  {
-    title: 'Resume',
-    description: 'Upload your latest resume',
-    color: '#C084FC',
-    // color: '#22C55E',
-    icon: ICON_RESUME,
-    actionIcon: ICON_FOLDER,
-    dialog: 'resume',
-  },
-  {
-    title: 'Experience',
-    description: 'Previous jobs and roles',
-    color: '#3B82F6',
-    icon: ICON_EXPERIENCE,
-    actionIcon: ICON_BUILDING,
+    num: '02',
+    key: 'experience',
+    title: 'Work experience',
     dialog: 'experience',
+    icon: ICON_EXPERIENCE,
+    required: true,
+    meta: (info) => {
+      const count = info.experience?.length || 0
+      return count > 0 ? `${count} role${count === 1 ? '' : 's'}` : 'Add your most recent role'
+    },
+    done: (info) => (info.experience?.length || 0) > 0,
   },
   {
+    num: '03',
+    key: 'education',
     title: 'Education',
-    description: 'Degree, School, Graduation Year',
-    color: '#3B82F6',
-    // color: '#C084FC',
-    icon: ICON_EDUCATION,
-    actionIcon: ICON_BOOK,
     dialog: 'education',
+    icon: ICON_EDUCATION,
+    required: false,
+    meta: (info) => {
+      const count = info.education?.length || 0
+      return count > 0 ? `${count} school${count === 1 ? '' : 's'}` : 'School, degree, dates'
+    },
+    done: (info) => (info.education?.length || 0) > 0,
   },
   {
-    title: 'Skills',
-    description: 'List your key skills',
-    color: '#3B82F6',
-    // color: '#F59E0B',
-    icon: ICON_STARS,
-    actionIcon: ICON_HAND_SPARKLES,
-    dialog: 'skills',
+    num: '04',
+    key: 'links',
+    title: 'Links & files',
+    dialog: 'links',
+    icon: ICON_SOCIAL_LINKS,
+    required: false,
+    meta: (info) => {
+      const parts: string[] = []
+      if (info.resumeFileName) parts.push('Resumé on file')
+      const linkCount =
+        [info.linkedin, info.website, info.github].filter(Boolean).length +
+        (info.otherLinks?.filter((l) => l.url).length ?? 0)
+      if (linkCount > 0) parts.push(`${linkCount} link${linkCount === 1 ? '' : 's'}`)
+      return parts.length > 0 ? parts.join(' · ') : 'Resumé, portfolio, LinkedIn'
+    },
+    done: (info) =>
+      !!(info.resumeFileName || info.linkedin || info.website || info.github),
   },
   {
-    title: 'EEO Info',
-    description: 'Race, Gender, Veteran Status',
-    color: '#3B82F6',
-    // color: '#22C55E',
-    icon: ICON_EEO,
-    actionIcon: ICON_INFO,
-    dialog: 'eeoInfo',
-  },
-  {
-    title: 'Other Details',
-    description: 'Salary, Work Authorization, etc.',
-    color: '#3B82F6',
-    // color: '#C084FC',
-    icon: ICON_OTHER_DETAILS,
-    actionIcon: ICON_PEN_RULER,
+    num: '05',
+    key: 'authorization',
+    title: 'Work authorization',
     dialog: 'otherDetails',
+    icon: ICON_OTHER_DETAILS,
+    required: false,
+    meta: (info) => {
+      if (!info.workAuthorization) return 'Eligibility and notice period'
+      if (info.noticePeriod) return `${info.noticePeriod} notice`
+      return 'Complete'
+    },
+    done: (info) => !!info.workAuthorization,
+  },
+  {
+    num: '06',
+    key: 'demographics',
+    title: 'Demographics',
+    dialog: 'eeoInfo',
+    icon: ICON_EEO,
+    required: false,
+    meta: (info) =>
+      info.eeoAnswersEnabled === false ? 'Skipped on forms' : 'Answered only when asked',
+    done: (info) =>
+      info.eeoAnswersEnabled === false ||
+      !!(info.gender || info.raceEthnicity || info.veteranStatus || info.disabilityStatus),
+  },
+  {
+    num: '07',
+    key: 'skills',
+    title: 'Skills',
+    dialog: 'skills',
+    icon: ICON_STARS,
+    required: false,
+    meta: (info) => {
+      const count = info.skills?.length || 0
+      return count > 0 ? `${count} skill${count === 1 ? '' : 's'}` : 'List your key skills'
+    },
+    done: (info) => (info.skills?.length || 0) > 0,
+  },
+  {
+    num: '08',
+    key: 'customResponses',
+    title: 'Custom responses',
+    dialog: 'customResponses',
+    icon: ICON_EDIT,
+    required: false,
+    meta: () => 'Tailor responses for specific questions',
+    done: () => false,
+  },
+  {
+    num: '09',
+    key: 'applicationAccount',
+    title: 'Application accounts',
+    dialog: 'applicationAccount',
+    icon: ICON_PASSWORD,
+    required: false,
+    meta: (info) => {
+      const count = info.applicationAccounts?.length || 0
+      return count > 0 ? `${count} account${count === 1 ? '' : 's'}` : 'Logins for job portals'
+    },
+    done: (info) => (info.applicationAccounts?.length || 0) > 0,
   },
 ]
+
+// The 7 core sections used by the manual-entry onboarding wizard (1g/1h) — Custom Responses
+// and Application Accounts aren't part of the design's required checklist.
+const EXTRA_SECTION_KEYS = ['customResponses', 'applicationAccount']
+export const CORE_SECTIONS = SECTIONS.filter((s) => !EXTRA_SECTION_KEYS.includes(s.key))

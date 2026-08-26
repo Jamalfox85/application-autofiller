@@ -1,12 +1,28 @@
 {
   "manifest_version": 3,
   "name": "GoFillr - Job Application Autofill",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Autofill job applications instantly. Save your info once, apply to hundreds of jobs in seconds.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "identity"],
   "host_permissions": ["<all_urls>"],
+  "oauth2": {
+    "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": ["openid", "email", "profile"]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://app.posthog.com https://autofiller-api-dev.up.railway.app https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co"
+  },
   "action": {
     "default_popup": "popup.html"
+  },
+  "commands": {
+    "autofill-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Auto-fill the current job application"
+    }
   },
   "icons": {
     "16": "icons/icon16.png",
@@ -17,33 +33,6 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "old_matches": [
-        "*://*.indeed.com/*",
-        "*://*.linkedin.com/*",
-        "*://*.greenhouse.io/*",
-        "*://*.lever.co/*",
-        "*://*.workday.com/*",
-        "*://*.myworkdayjobs.com/*",
-        "*://*.myworkdaysite.com/*",
-        "*://*.icims.com/*",
-        "*://*.resumator.com/*",
-        "*://*.ultipro.com/*",
-        "*://*.paylocity.com/*",
-        "*://*.SuccessFactors.com/*",
-        "*://*.taleo.net/*",
-        "*://*.smartrecruiters.com/*",
-        "*://*.breezy.hr/*",
-        "*://*.bamboohr.com/*",
-        "*://*.jobs.com/*",
-        "*://*.ashbyhq.com/*",
-        "*://*.jobvite.com/*",
-        "*://*.applytojob.com/*",
-        "*://*.recruitee.com/*",
-        "*://*.workable.com/*",
-        "*://*.joinstellar.ai/*",
-        "*://jobs.dayforcehcm.com/*",
-        "*://*.bamboohr.com/*"
-      ],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle",
@@ -51,35 +40,13 @@
     }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "web_accessible_resources": [
     {
       "resources": ["icons/*.png", "assets/images/*"],
-      "matches": ["<all_urls>"],
-      "old_matches": [
-        "*://*.indeed.com/*",
-        "*://*.linkedin.com/*",
-        "*://*.greenhouse.io/*",
-        "*://*.lever.co/*",
-        "*://*.workday.com/*",
-        "*://*.myworkdayjobs.com/*",
-        "*://*.icims.com/*",
-        "*://*.resumator.com/*",
-        "*://*.ultipro.com/*",
-        "*://*.paylocity.com/*",
-        "*://*.SuccessFactors.com/*",
-        "*://*.taleo.net/*",
-        "*://*.smartrecruiters.com/*",
-        "*://*.breezy.hr/*",
-        "*://*.bamboohr.com/*",
-        "*://*.jobs.com/*",
-        "*://*.ashbyhq.com/*",
-        "*://*.jobvite.com/*",
-        "*://*.applytojob.com/*",
-        "*://*.recruitee.com/*",
-        "*://*.workable.com/*"
-      ]
+      "matches": ["<all_urls>"]
     }
   ]
 }

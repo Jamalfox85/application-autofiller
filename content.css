@@ -15,8 +15,12 @@
   }
 }
 
-/* Highlight autofilled fields (optional visual feedback) */
+/* Highlight autofilled fields when "Review before submitting" is enabled */
 .job-autofill-filled {
-  background-color: rgba(102, 126, 234, 0.1) !important;
-  transition: background-color 0.3s ease;
+  background-color: rgba(124, 58, 237, 0.12) !important;
+  outline: 2px solid rgba(124, 58, 237, 0.45) !important;
+  outline-offset: 1px;
+  transition:
+    background-color 0.3s ease,
+    outline-color 0.3s ease;
 }

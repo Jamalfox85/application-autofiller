@@ -1,7 +1,19 @@
-// src/lib/supabase.ts
 import { createClient } from '@supabase/supabase-js'
 
-export const supabase = createClient(
-  'https://noxtfmasxlzgijwlreoz.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5veHRmbWFzeGx6Z2lqd2xyZW96Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTIwNjM3OSwiZXhwIjoyMDg2NzgyMzc5fQ.jKd4mH3hPfytu8RKY-ViPnrrP4Sbb1toFyvoqxdvpHQ',
-)
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    // Chrome extensions can't use localStorage — use this instead
+    storage: {
+      getItem: (key) =>
+        new Promise((resolve) => chrome.storage.local.get(key, (res) => resolve(res[key] ?? null))),
+      setItem: (key, value) => chrome.storage.local.set({ [key]: value }),
+      removeItem: (key) => chrome.storage.local.remove(key),
+    },
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false, // Important: disable for extensions
+  },
+})

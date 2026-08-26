@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import type { CustomResponse } from '../../types/index.ts'
+import BaseDialog from './BaseDialog.vue'
 
-const props = defineProps<{
-  show: boolean
-  item: CustomResponse | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    show: boolean
+    item: { id: number; title: string } | null
+    label?: string
+  }>(),
+  { label: 'response' },
+)
 
 const emit = defineEmits<{
   close: []
@@ -24,35 +27,16 @@ const handleClose = () => {
 }
 </script>
 <template>
-  <Transition name="dialog">
-    <div v-if="show" class="dialog-overlay" @click.self="handleClose">
-      <div class="dialog">
-        <div class="dialog-header">
-          <h2>Confirm Delete</h2>
-          <button class="close-btn" @click="handleClose">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-              <path
-                fill-rule="evenodd"
-                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                clip-rule="evenodd"
-              />
-            </svg>
-          </button>
-        </div>
+  <BaseDialog :show="show" title="Confirm Delete" @close="handleClose">
+    <p>
+      Are you sure you want to delete the {{ label }} "<strong>{{ item?.title }}</strong
+      >"?
+    </p>
+    <p>This action cannot be undone.</p>
 
-        <div class="dialog-content">
-          <p>
-            Are you sure you want to delete the response "<strong>{{ item?.title }}</strong
-            >"?
-          </p>
-          <p>This action cannot be undone.</p>
-        </div>
-
-        <div class="dialog-footer">
-          <button class="btn-secondary-dialog" @click="handleClose">Cancel</button>
-          <button class="btn-primary-dialog delete" @click="confirmDelete">Delete</button>
-        </div>
-      </div>
-    </div>
-  </Transition>
+    <template #footer>
+      <button class="btn-secondary-dialog" @click="handleClose">Cancel</button>
+      <button class="btn-primary-dialog delete" @click="confirmDelete">Delete</button>
+    </template>
+  </BaseDialog>
 </template>

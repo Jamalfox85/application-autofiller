@@ -1,158 +1,173 @@
 <script setup lang="ts">
-const emit = defineEmits<{
-  'setup-profile': []
+import { ref } from 'vue'
+import { mergeParsedResume } from '@/utils/resumeParsing'
+import type { ParsedResumeData, PersonalInfo } from '../types'
+import PickPath from './onboarding/PickPath.vue'
+import ConfirmResume from './onboarding/ConfirmResume.vue'
+import EnablePermissions from './onboarding/EnablePermissions.vue'
+import ManualEntryChecklist from './onboarding/ManualEntryChecklist.vue'
+import { CORE_SECTIONS } from '@/utils/infocards.ts'
+import { trackEvent } from '@/services/mixpanel'
+import { completeProfileSetupSession, getProfileSetupSession } from '@/services/profileSetupSession'
+
+const props = defineProps<{
+  personalInfo: PersonalInfo
 }>()
 
-const handleSetUpProfile = () => {
-  emit('setup-profile')
+const emit = defineEmits<{
+  save: [profile: PersonalInfo]
+  finish: [profile?: PersonalInfo]
+}>()
+
+type Step = 'pick' | 'parsing' | 'confirm' | 'manual' | 'permissions'
+
+const step = ref<Step>('pick')
+const errorMessage = ref('')
+const parsedData = ref<(ParsedResumeData & { fileName?: string }) | null>(null)
+
+const handleParsing = () => {
+  errorMessage.value = ''
+  step.value = 'parsing'
+}
+
+const handleParsed = (data: ParsedResumeData & { fileName?: string }) => {
+  parsedData.value = data
+  step.value = 'confirm'
+}
+
+const handleParseFailed = (message: string) => {
+  errorMessage.value = message
+  step.value = 'pick'
+}
+
+const handleConfirmContinue = () => {
+  step.value = 'permissions'
+}
+
+const handleManualSave = (profile: PersonalInfo) => {
+  emit('save', profile)
+}
+
+const handleFinish = async () => {
+  const finalProfile = parsedData.value
+    ? mergeParsedResume(parsedData.value, { fileName: parsedData.value.fileName })
+    : props.personalInfo
+
+  const session = await getProfileSetupSession()
+  if (session) {
+    trackEvent('profile_setup_completed', {
+      required_fields_completed_count: CORE_SECTIONS.filter(
+        (s) => s.required && s.done(finalProfile),
+      ).length,
+      time_to_complete_seconds: (Date.now() - session.startedAt) / 1000,
+      // experience_level omitted — the profile form does not collect a stated level.
+    })
+    await completeProfileSetupSession()
+  }
+
+  if (parsedData.value) {
+    emit('finish', finalProfile)
+  } else {
+    emit('finish')
+  }
 }
 </script>
 
 <template>
-  <div class="intro-screen">
-    <div class="content">
-      <div class="logo-box"></div>
-      <div class="text-block">
-        <h1 class="title">Welcome to GoFillr</h1>
-        <p class="subtitle">
-          Automate your job applications in seconds. Enter your profile details once and let us do
-          the rest.
-        </p>
-      </div>
+  <div class="onboarding-container">
+    <PickPath
+      v-if="step === 'pick'"
+      @parsing="handleParsing"
+      @parsed="handleParsed"
+      @parse-failed="handleParseFailed"
+      @manual="step = 'manual'"
+      @skip="$emit('finish')"
+    />
 
-      <button class="cta-button" @click="handleSetUpProfile">
-        <span>Set Up My Profile</span>
-        <span class="arrow">→</span>
-      </button>
-
-      <div class="version-row">
-        <span class="version-badge">V1.0.0</span>
-        <span class="version-label">READY TO LAUNCH</span>
-      </div>
+    <div v-else-if="step === 'parsing'" class="parsing-state">
+      <div class="spinner"></div>
+      <p class="parsing-text">Reading your resume…</p>
+      <p class="parsing-hint">Keep this window open — this takes about 10 seconds.</p>
     </div>
+
+    <ConfirmResume
+      v-else-if="step === 'confirm' && parsedData"
+      :parsedData="parsedData"
+      @back="step = 'pick'"
+      @replace="step = 'pick'"
+      @continue="handleConfirmContinue"
+    />
+
+    <ManualEntryChecklist
+      v-else-if="step === 'manual'"
+      :personalInfo="personalInfo"
+      @save="handleManualSave"
+      @finish-later="step = 'permissions'"
+    />
+
+    <EnablePermissions v-else-if="step === 'permissions'" @finish="handleFinish" />
+
+    <p v-if="errorMessage" class="error-banner">{{ errorMessage }}</p>
   </div>
 </template>
 
 <style scoped>
-.intro-screen {
-  position: relative;
+.onboarding-container {
+  flex: 1;
   display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #0c0c0e;
+}
+
+.parsing-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  background-color: #0f1117;
-  overflow: hidden;
+  gap: 10px;
 }
 
-.content {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 28px;
-  padding: 48px 32px;
-  width: 100%;
-  max-width: 400px;
-  text-align: center;
+.spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid #23272f;
+  border-top-color: #7c3aed;
+  animation: spin 0.8s linear infinite;
 }
 
-.logo-box {
-  width: 88px;
-  height: 88px;
-  border-radius: 22px;
-  background: #1c1f2a;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  flex-shrink: 0;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-.text-block {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #ffffff;
-  margin: 0;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-}
-
-.subtitle {
+.parsing-text {
   font-size: 0.975rem;
-  color: #8a8f9e;
+  font-weight: 600;
+  color: #e2e8f0;
   margin: 0;
-  line-height: 1.65;
 }
 
-.cta-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  padding: 16px 24px;
-  border-radius: 14px;
-  border: none;
-  background: #3b82f6;
-  color: #ffffff;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    transform 0.15s ease,
-    box-shadow 0.2s ease;
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.35);
+.parsing-hint {
+  font-size: 0.825rem;
+  color: #6b7280;
+  margin: 0;
 }
 
-.cta-button:hover {
-  background: #3baef6;
-  box-shadow: 0 8px 16px rgba(79, 124, 255, 0.3);
-  transform: translateY(-1px);
-}
-
-.cta-button:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3);
-}
-
-.arrow {
-  font-size: 1.1rem;
-  transition: transform 0.2s ease;
-}
-
-.cta-button:hover .arrow {
-  transform: translateX(3px);
-}
-
-/* Version row */
-.version-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.version-badge {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  border-radius: 6px;
-  padding: 3px 8px;
-  letter-spacing: 0.04em;
-}
-
-.version-label {
-  font-size: 0.7rem;
-  font-weight: 500;
-  color: #4b5263;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.error-banner {
+  position: absolute;
+  bottom: 8px;
+  left: 13px;
+  right: 13px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  font-size: 11.5px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: center;
 }
 </style>

@@ -4,10 +4,13 @@ export function useNotification() {
   const notification = ref({
     show: false,
     message: '',
-    type: 'success' as 'success' | 'error' | 'info',
+    type: 'success' as 'success' | 'error' | 'warning' | 'info',
   })
 
-  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showNotification = (
+    message: string,
+    type: 'success' | 'error' | 'warning' | 'info' = 'success',
+  ) => {
     notification.value = { show: true, message, type }
     setTimeout(() => {
       notification.value.show = false

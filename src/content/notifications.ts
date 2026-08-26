@@ -1,5 +1,61 @@
 import { autofillPage } from './autofill.ts'
 
+// Shared "on-page toast" chrome: a dark card with a colored accent bar on the left, sized to
+// stay legible when injected into an arbitrary page's own styles/zoom level. Uses the system
+// font stack (not IBM Plex, which the popup uses) since loading a webfont into every page a
+// user visits isn't worth the privacy/perf cost for a small toast.
+function createToast(accentColor: string, title: string, subtitle?: string) {
+  const toast = document.createElement('div')
+  toast.className = 'gofillr-autofill-notification'
+  toast.style.cssText = `
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #1b1b21;
+    border: 1px solid #2e2e36;
+    border-radius: 10px;
+    padding: 10px 11px;
+    box-shadow: 0 10px 26px -12px rgba(0, 0, 0, 0.7);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #ebebee;
+    max-width: 300px;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  `
+
+  toast.innerHTML = `
+    <span style="width: 6px; height: 30px; border-radius: 4px; background: ${accentColor}; flex-shrink: 0;"></span>
+    <div style="flex: 1; min-width: 0;">
+      <div style="font-size: 12.5px; font-weight: 500;">${title}</div>
+      ${subtitle ? `<div style="font-size: 11px; color: #8f8f99; margin-top: 2px;">${subtitle}</div>` : ''}
+    </div>
+  `
+
+  return toast
+}
+
+function showToast(toast: HTMLElement) {
+  document.body.appendChild(toast)
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      toast.style.opacity = '1'
+      toast.style.transform = 'translateY(0)'
+    })
+  })
+
+  setTimeout(() => {
+    toast.style.opacity = '0'
+    toast.style.transform = 'translateY(-20px)'
+    setTimeout(() => toast.remove(), 300)
+  }, 4000)
+}
+
 export function showAutofillNotification(fieldsCount: number) {
   // Remove existing notification if present
   const existing = document.querySelector('.gofillr-autofill-notification')
@@ -7,77 +63,11 @@ export function showAutofillNotification(fieldsCount: number) {
     existing.remove()
   }
 
-  const notification = document.createElement('div')
-  notification.className = 'gofillr-autofill-notification'
-
-  // Add inline styles since this is injected into external pages
-  notification.style.cssText = `
-    position: fixed;
-    top: 80px;
-    right: 20px;
-    z-index: 2147483647;
-    background: #1a1a2e;
-    color: white;
-    padding: 12px 16px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 14px;
-    opacity: 0;
-    transform: translateY(-80px);
-    transition: opacity 0.3s ease, transform 0.3s ease;
-  `
-
-  notification.innerHTML = `
-    <div style="display: flex; align-items: center; gap: 8px;">
-      <img src="${chrome.runtime.getURL('assets/images/logo.png')}" width="20" height="20" style="flex-shrink: 0;" />
-      <span>Auto-filled ${fieldsCount} field${fieldsCount !== 1 ? 's' : ''} ✨</span>
-    </div>
-  `
-
-  document.body.appendChild(notification)
-
-  // Fade in
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      notification.style.opacity = '1'
-      notification.style.transform = 'translateY(0)'
-    })
-  })
-
-  // Auto-remove after 4 seconds
-  setTimeout(() => {
-    notification.style.opacity = '0'
-    notification.style.transform = 'translateY(-20px)'
-    setTimeout(() => notification.remove(), 300)
-  }, 4000)
+  showToast(createToast('#4ea172', `Auto-filled ${fieldsCount} field${fieldsCount !== 1 ? 's' : ''}`))
 }
 
 export function showErrorNotification(message: string) {
-  const notification = document.createElement('div')
-  notification.className = 'gofillr-autofill-notification gofillr-error'
-  notification.innerHTML = `
-    <div class="gofillr-notification-content">
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="flex-shrink: 0;">
-        <circle cx="10" cy="10" r="10" fill="#EF4444"/>
-        <path d="M6 6l8 8M14 6l-8 8" stroke="white" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-      <span>${message}</span>
-    </div>
-  `
-
-  document.body.appendChild(notification)
-
-  setTimeout(() => {
-    notification.style.opacity = '1'
-    notification.style.transform = 'translateY(0)'
-  }, 10)
-
-  setTimeout(() => {
-    notification.style.opacity = '0'
-    notification.style.transform = 'translateY(-20px)'
-    setTimeout(() => notification.remove(), 300)
-  }, 4000)
+  showToast(createToast('#b05454', message))
 }
 
 export function showAutofillPrompt() {
@@ -93,10 +83,11 @@ export function showAutofillPrompt() {
     bottom: 24px;
     right: 24px;
     z-index: 2147483647;
-    background: #1a1a2e;
-    color: white;
+    background: #1b1b21;
+    border: 1px solid #2e2e36;
+    color: #ebebee;
     border-radius: 12px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 10px 26px -12px rgba(0, 0, 0, 0.7);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 14px;
     width: 280px;
@@ -110,30 +101,30 @@ export function showAutofillPrompt() {
     <div style="padding: 16px;">
       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
         <img src="${chrome.runtime.getURL('assets/images/logo.png')}" width="20" height="20" style="flex-shrink: 0;" />
-        <span style="font-weight: 600; font-size: 15px;">gofillr</span>
+        <span style="font-weight: 600; font-size: 15px;">GoFillr</span>
       </div>
-      <p style="margin: 0 0 14px; color: #ccc; line-height: 1.4;">
+      <p style="margin: 0 0 14px; color: #8f8f99; line-height: 1.4;">
         Job application detected! Would you like to auto-fill this form?
       </p>
       <div style="display: flex; gap: 8px; justify-content: flex-end;">
         <button data-action="dismiss" style="
-          background: transparent;
-          border: 1px solid #444;
-          color: #aaa;
+          background: #232329;
+          border: 1px solid #33333d;
+          color: #ebebee;
           padding: 6px 12px;
           border-radius: 6px;
           cursor: pointer;
           font-size: 13px;
         ">Not now</button>
         <button data-action="autofill" style="
-          background: #4F7CFF;
+          background: #7c3aed;
           border: none;
           color: white;
           padding: 6px 14px;
           border-radius: 6px;
           cursor: pointer;
           font-size: 13px;
-          font-weight: 500;
+          font-weight: 600;
         ">Auto-fill Form</button>
       </div>
     </div>

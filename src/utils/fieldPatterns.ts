@@ -246,5 +246,14 @@ export const FIELD_PATTERNS = {
     'sponsorship',
   ],
 
+  noticePeriod: [
+    'notice_period',
+    'noticeperiod',
+    'notice-period',
+    'notice',
+    'availability',
+    'start_availability',
+  ],
+
   accountPassword: ['password', 'new-password'],
 }

@@ -14,57 +14,94 @@ watch(autoDetectEnabled, async (newValue) => {
 </script>
 
 <template>
-  <div class="switch-container">
-    <div class="auto-detect">
-      <span>Auto-detect</span>
-      <button
-        class="toggle-btn"
-        :class="{ active: autoDetectEnabled }"
-        @click="autoDetectEnabled = !autoDetectEnabled"
-      >
-        <span class="toggle-slider"></span>
-      </button>
+  <div class="auto-detect-row">
+    <div class="auto-detect-copy">
+      <div class="auto-detect-title">Detect forms as I browse</div>
+      <div class="auto-detect-hint">
+        {{ autoDetectEnabled ? 'Scanning pages as you browse' : 'Off — fill manually from here' }}
+      </div>
     </div>
+    <button
+      class="toggle-track"
+      :class="{ active: autoDetectEnabled }"
+      role="switch"
+      :aria-checked="autoDetectEnabled"
+      @click="autoDetectEnabled = !autoDetectEnabled"
+    >
+      <span class="toggle-knob"></span>
+    </button>
   </div>
 </template>
 
-<style scoped lang="scss">
-.switch-container {
+<style scoped>
+.auto-detect-row {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
-  .auto-detect {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: #a0aec0;
-    .toggle-btn {
-      width: 40px;
-      height: 24px;
-      background: #4a5568;
-      border: none;
-      border-radius: 12px;
-      position: relative;
-      cursor: pointer;
-      transition: background 0.2s;
-      &.active {
-        background: #3b82f6;
-        .toggle-slider {
-          transform: translateX(16px);
-        }
-      }
-      .toggle-slider {
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 20px;
-        height: 20px;
-        background: white;
-        border-radius: 50%;
-        transition: transform 0.2s;
-      }
-    }
-  }
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #26262c;
+  background: #17171b;
+  border-radius: 9px;
+  padding: 9px 11px;
+}
+
+.auto-detect-copy {
+  min-width: 0;
+}
+
+.auto-detect-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #ebebee;
+}
+
+.auto-detect-hint {
+  font-size: 11px;
+  color: #7c7c86;
+  margin-top: 2px;
+}
+
+.toggle-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  border-radius: 20px;
+  border: 1px solid #33333d;
+  background: #1e1e24;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.toggle-track.active {
+  border-color: #7c3aed;
+  background: #7c3aed;
+}
+
+.toggle-track:hover {
+  border-color: #47475a;
+}
+
+.toggle-track.active:hover {
+  border-color: #8b5cf6;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: left 140ms ease;
+}
+
+.toggle-track.active .toggle-knob {
+  left: 18px;
 }
 </style>

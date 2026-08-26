@@ -492,45 +492,6 @@ const fieldHandlers: Array<{
 
 // helpers
 
-const waitForElement = (selector: string, timeout = 3000): Promise<Element> =>
-  new Promise((resolve, reject) => {
-    const el = document.querySelector(selector)
-    if (el) return resolve(el)
-
-    const observer = new MutationObserver(() => {
-      const el = document.querySelector(selector)
-      if (el) {
-        observer.disconnect()
-        resolve(el)
-      }
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
-    setTimeout(() => {
-      observer.disconnect()
-      reject(`Timeout: ${selector}`)
-    }, timeout)
-  })
-
-const fillWorkdaySection = (
-  section: Element,
-  fields: { automationId: string; value: string | null; isDate?: boolean }[],
-) => {
-  for (const field of fields) {
-    if (!field.value) continue
-
-    if (field.isDate) {
-      fillWorkdayDate(section, field.automationId, field.value)
-      continue
-    }
-
-    const input = section.querySelector(
-      `[data-automation-id="${field.automationId}"] input, [data-automation-id="${field.automationId}"] textarea`,
-    ) as HTMLInputElement | HTMLTextAreaElement | null
-
-    if (input) fillWorkdayInput(input, field.value)
-  }
-}
-
 const fillWorkdayDate = (section: Element, fieldAutomationId: string, value: string) => {
   // value expected as YYYY-MM or MM/YYYY
   let month: string, year: string
@@ -551,9 +512,23 @@ const fillWorkdayDate = (section: Element, fieldAutomationId: string, value: str
   if (yearInput) fillWorkdayInput(yearInput, year)
 }
 
+// Prefers the per-portal entry in applicationAccounts (added when accounts became one-per-portal
+// rather than a single global pair) and falls back to the legacy flat fields for profiles saved
+// before that migration.
+const getWorkdayAccount = (personalInfo: PersonalInfo) => {
+  const saved = personalInfo.applicationAccounts?.find(
+    (account) => account.portal.toLowerCase() === 'workday',
+  )
+  return {
+    email: saved?.email || personalInfo.accountEmail || '',
+    password: saved?.password || personalInfo.accountPassword || '',
+  }
+}
+
 const handleAccountInput = async (personalInfo: PersonalInfo) => {
   try {
     console.log('Starting account input fill...')
+    const workdayAccount = getWorkdayAccount(personalInfo)
 
     // Wait longer for the form to fully render
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -577,8 +552,8 @@ const handleAccountInput = async (personalInfo: PersonalInfo) => {
 
     // Fill email
     if (emailInput) {
-      console.log('Filling email with:', personalInfo.accountEmail)
-      emailInput.value = personalInfo.accountEmail || ''
+      console.log('Filling email with:', workdayAccount.email)
+      emailInput.value = workdayAccount.email
       emailInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
       emailInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
       await new Promise((resolve) => setTimeout(resolve, 300))
@@ -588,7 +563,7 @@ const handleAccountInput = async (personalInfo: PersonalInfo) => {
     // Fill password
     if (passwordInput) {
       console.log('Filling password')
-      passwordInput.value = personalInfo.accountPassword || ''
+      passwordInput.value = workdayAccount.password
       passwordInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
       passwordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
       await new Promise((resolve) => setTimeout(resolve, 300))
@@ -598,7 +573,7 @@ const handleAccountInput = async (personalInfo: PersonalInfo) => {
     // Fill verify password
     if (verifyPasswordInput) {
       console.log('Filling verify password')
-      verifyPasswordInput.value = personalInfo.accountPassword || ''
+      verifyPasswordInput.value = workdayAccount.password
       verifyPasswordInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
       verifyPasswordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
       await new Promise((resolve) => setTimeout(resolve, 300))
