@@ -6,11 +6,11 @@
   "permissions": ["storage", "activeTab", "identity"],
   "host_permissions": ["<all_urls>"],
   "oauth2": {
-    "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "client_id": "628494525589-8i2v9kg3hdgil3tqoo1oesmooa8ofi37.apps.googleusercontent.com",
     "scopes": ["openid", "email", "profile"]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://app.posthog.com https://autofiller-api-dev.up.railway.app https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://app.posthog.com https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co http://localhost:8080"
   },
   "action": {
     "default_popup": "popup.html"

@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { api } from '@/lib/api'
 import { captureEvent } from '@/services/posthog'
 import { trackEvent } from '@/services/mixpanel'
 import { startProfileSetupSession } from '@/services/profileSetupSession'
 import { CORE_SECTIONS } from '@/utils/infocards.ts'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-const ACCEPTED_EXTENSIONS = ['.pdf', '.doc', '.docx']
+const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
 
 const emit = defineEmits<{
-  parsing: []
-  parsed: [data: any]
-  parseFailed: [message: string]
+  // Hands the validated file up to Welcome.vue, which runs the upload via the service worker.
+  upload: [file: File]
+  invalid: [message: string]
   manual: []
   skip: []
 }>()
@@ -23,7 +22,7 @@ const triggerFilePicker = () => {
   fileInput.value?.click()
 }
 
-const handleFileChange = async (event: Event) => {
+const handleFileChange = (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
@@ -31,27 +30,17 @@ const handleFileChange = async (event: Event) => {
 
   const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
   if (!ACCEPTED_EXTENSIONS.includes(extension)) {
-    emit('parseFailed', 'Please upload a PDF or Word document (.pdf, .doc, .docx).')
+    emit('invalid', 'Please upload a PDF or DOCX file.')
     return
   }
   if (file.size > MAX_FILE_SIZE) {
-    emit('parseFailed', 'That file is too large — please upload something under 10MB.')
+    emit('invalid', 'That file is too large — please upload something under 10MB.')
     return
   }
 
-  emit('parsing')
   captureEvent('resume_upload_started', { fileType: extension })
   trackProfileSetupStarted('default')
-
-  try {
-    const parsed = await api.parseResume(file)
-    captureEvent('resume_upload_succeeded', {})
-    emit('parsed', { ...parsed, fileName: file.name })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Something went wrong reading your resume.'
-    captureEvent('resume_upload_failed', { message })
-    emit('parseFailed', message)
-  }
+  emit('upload', file)
 }
 
 const trackProfileSetupStarted = async (profileType: 'default' | 'custom') => {
@@ -102,7 +91,7 @@ const handleManual = () => {
       <input
         ref="fileInput"
         type="file"
-        accept=".pdf,.doc,.docx"
+        accept=".pdf,.docx"
         class="visually-hidden"
         @change="handleFileChange"
       />

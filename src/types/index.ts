@@ -14,7 +14,8 @@ export interface PersonalInfo {
   linkedin: string
   website: string
   github: string
-  // Display-only filename from onboarding or the Links sheet — file bytes are not stored.
+  // Filename shown in the UI. During onboarding the file is only parsed; from the Links sheet
+  // (signed in) the file itself is uploaded to and stored with the user's account.
   resumeFileName?: string
   education: Education[]
   experience: Experience[]

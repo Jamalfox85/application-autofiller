@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { api } from '@/lib/api'
 import { mergeParsedResumeIntoProfile } from '@/utils/resumeParsing'
+import { useResumeUpload } from '@/composables/useResumeUpload'
 import type { PersonalInfo, OtherLink } from '../../types/index.ts'
 import SectionSheet from './SectionSheet.vue'
 
@@ -15,7 +15,8 @@ const emit = defineEmits<{
   save: [profile: PersonalInfo]
 }>()
 
-const ACCEPTED_RESUME_EXTENSIONS = ['.pdf', '.doc', '.docx']
+const ACCEPTED_RESUME_EXTENSIONS = ['.pdf', '.docx']
+const MAX_RESUME_SIZE = 10 * 1024 * 1024 // 10MB
 
 const LINK_TYPES = [
   { label: 'Dribbble', ph: 'dribbble.com/you' },
@@ -29,11 +30,61 @@ const stripProtocol = (value: string) => value.replace(/^https?:\/\//i, '')
 const editableProfile = ref<PersonalInfo>({
   ...props.personalInfo,
 })
+
+// A resume upload only prefills the profile the first time — when there's no saved profile
+// data yet. Once the user has real data (entered manually or from a previous parse), an upload
+// just swaps the stored file and leaves their fields — experience, education, skills, contact
+// details — untouched, since they may have edited those by hand.
+const hasExistingProfileData = computed(() => {
+  const p = props.personalInfo
+  return !!(
+    p.firstName ||
+    p.lastName ||
+    p.email ||
+    p.phone ||
+    (p.experience?.length ?? 0) > 0 ||
+    (p.education?.length ?? 0) > 0 ||
+    (p.skills?.length ?? 0) > 0
+  )
+})
 const saved = ref(false)
-const resumeParsing = ref(false)
 const resumeError = ref('')
 const resumeInput = ref<HTMLInputElement | null>(null)
 let savedTimeout: ReturnType<typeof setTimeout> | undefined
+
+// The request runs in the service worker (survives the popup closing); we react to its state.
+const resumeUpload = useResumeUpload()
+const resumeUploading = computed(() => resumeUpload.phase.value === 'uploading')
+
+watch(
+  () => resumeUpload.phase.value,
+  (phase) => {
+    if (phase === 'done') {
+      if (resumeUpload.parsedResume.value && !hasExistingProfileData.value) {
+        // First upload, empty profile — prefill everything for review.
+        editableProfile.value = mergeParsedResumeIntoProfile(
+          editableProfile.value,
+          resumeUpload.parsedResume.value,
+          resumeUpload.fileName.value,
+        )
+      } else {
+        // Repeat upload, or the profile already has data — the API stored the new file; just
+        // reflect its name and leave the user's fields alone.
+        editableProfile.value = {
+          ...editableProfile.value,
+          resumeFileName: resumeUpload.fileName.value,
+        }
+      }
+      saved.value = false
+      resumeError.value = ''
+      resumeUpload.clear()
+    } else if (phase === 'error') {
+      resumeError.value = resumeUpload.errorMessage.value
+      resumeUpload.clear()
+    }
+  },
+  { immediate: true },
+)
 
 const handleClose = () => {
   emit('close')
@@ -53,7 +104,7 @@ const triggerResumePicker = () => {
   resumeInput.value?.click()
 }
 
-const handleResumeChange = async (event: Event) => {
+const handleResumeChange = (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
@@ -61,22 +112,16 @@ const handleResumeChange = async (event: Event) => {
 
   const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
   if (!ACCEPTED_RESUME_EXTENSIONS.includes(extension)) {
-    resumeError.value = 'Please upload a PDF or Word document (.pdf, .doc, .docx).'
+    resumeError.value = 'Please upload a PDF or DOCX file.'
+    return
+  }
+  if (file.size > MAX_RESUME_SIZE) {
+    resumeError.value = 'That file is too large — please upload something under 10MB.'
     return
   }
 
-  resumeParsing.value = true
   resumeError.value = ''
-  try {
-    const parsed = await api.parseResume(file)
-    editableProfile.value = mergeParsedResumeIntoProfile(editableProfile.value, parsed, file.name)
-    saved.value = false
-  } catch (error) {
-    resumeError.value =
-      error instanceof Error ? error.message : 'Something went wrong reading that resumé.'
-  } finally {
-    resumeParsing.value = false
-  }
+  resumeUpload.start(file)
 }
 
 function makeLinkModel(key: 'linkedin' | 'website' | 'github') {
@@ -131,7 +176,6 @@ watch(
       }
       saved.value = false
       resumeError.value = ''
-      resumeParsing.value = false
     }
   },
 )
@@ -150,7 +194,7 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
       <div class="links-group">
         <div class="fs-group-header">
           <span class="fs-group-label">Files</span>
-          <span class="fs-group-hint">Filename only — not uploaded anywhere</span>
+          <span class="fs-group-hint">Stored securely with your account</span>
         </div>
 
         <div class="file-card">
@@ -160,16 +204,20 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
               {{ editableProfile.resumeFileName || 'No resumé on file yet' }}
             </div>
             <div v-if="editableProfile.resumeFileName" class="file-card-meta">
-              Used to pre-fill your profile
+              {{
+                hasExistingProfileData
+                  ? 'On file with your account'
+                  : 'Used to pre-fill your profile'
+              }}
             </div>
           </div>
           <button
             type="button"
             class="file-card-action"
-            :disabled="resumeParsing"
+            :disabled="resumeUploading"
             @click="triggerResumePicker"
           >
-            {{ resumeParsing ? 'Reading…' : editableProfile.resumeFileName ? 'Replace' : 'Upload' }}
+            {{ resumeUploading ? 'Reading…' : editableProfile.resumeFileName ? 'Replace' : 'Upload' }}
           </button>
         </div>
 
@@ -178,7 +226,7 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
         <input
           ref="resumeInput"
           type="file"
-          accept=".pdf,.doc,.docx"
+          accept=".pdf,.docx"
           class="visually-hidden"
           @change="handleResumeChange"
         />

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import { mergeParsedResume } from '@/utils/resumeParsing'
 import type { ParsedResumeData, PersonalInfo } from '../types'
 import PickPath from './onboarding/PickPath.vue'
 import ConfirmResume from './onboarding/ConfirmResume.vue'
 import EnablePermissions from './onboarding/EnablePermissions.vue'
 import ManualEntryChecklist from './onboarding/ManualEntryChecklist.vue'
+import { useResumeUpload } from '@/composables/useResumeUpload'
+import { captureEvent } from '@/services/posthog'
 import { CORE_SECTIONS } from '@/utils/infocards.ts'
 import { trackEvent } from '@/services/mixpanel'
 import { completeProfileSetupSession, getProfileSetupSession } from '@/services/profileSetupSession'
@@ -25,20 +27,73 @@ const step = ref<Step>('pick')
 const errorMessage = ref('')
 const parsedData = ref<(ParsedResumeData & { fileName?: string }) | null>(null)
 
-const handleParsing = () => {
+const resumeUpload = useResumeUpload()
+
+// Hard stop on the parsing screen. The worker + storage-watch + poll should land the result
+// well inside this, but if none of them do (e.g. the service worker was killed mid-request),
+// the API has almost certainly still written the profile server-side — so just move on to the
+// main view, which reloads the profile from Supabase.
+const PARSING_FALLBACK_MS = 15_000
+let parsingFallback: ReturnType<typeof setTimeout> | undefined
+
+const clearParsingFallback = () => {
+  clearTimeout(parsingFallback)
+  parsingFallback = undefined
+}
+
+const armParsingFallback = () => {
+  clearParsingFallback()
+  parsingFallback = setTimeout(() => {
+    if (step.value !== 'parsing') return
+    resumeUpload.clear()
+    emit('finish')
+  }, PARSING_FALLBACK_MS)
+}
+
+const handleUpload = (file: File) => {
   errorMessage.value = ''
-  step.value = 'parsing'
+  resumeUpload.start(file)
 }
 
-const handleParsed = (data: ParsedResumeData & { fileName?: string }) => {
-  parsedData.value = data
-  step.value = 'confirm'
-}
-
-const handleParseFailed = (message: string) => {
+const handleInvalidFile = (message: string) => {
   errorMessage.value = message
-  step.value = 'pick'
 }
+
+// The worker owns the request; react to its outcome. immediate so a popup reopened after the
+// upload already finished still advances.
+watch(
+  () => resumeUpload.phase.value,
+  (phase) => {
+    if (phase === 'uploading') {
+      errorMessage.value = ''
+      step.value = 'parsing'
+      armParsingFallback()
+    } else if (phase === 'done') {
+      clearParsingFallback()
+      captureEvent('resume_upload_succeeded', {})
+      if (resumeUpload.parsedResume.value) {
+        parsedData.value = {
+          ...resumeUpload.parsedResume.value,
+          fileName: resumeUpload.fileName.value,
+        }
+        step.value = 'confirm'
+      } else {
+        // Repeat upload (parsed === null) — nothing new to review; carry on.
+        step.value = 'permissions'
+      }
+      resumeUpload.clear()
+    } else if (phase === 'error') {
+      clearParsingFallback()
+      captureEvent('resume_upload_failed', { message: resumeUpload.errorMessage.value })
+      errorMessage.value = resumeUpload.errorMessage.value
+      step.value = step.value === 'parsing' ? 'pick' : step.value
+      resumeUpload.clear()
+    }
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(clearParsingFallback)
 
 const handleConfirmContinue = () => {
   step.value = 'permissions'
@@ -77,9 +132,8 @@ const handleFinish = async () => {
   <div class="onboarding-container">
     <PickPath
       v-if="step === 'pick'"
-      @parsing="handleParsing"
-      @parsed="handleParsed"
-      @parse-failed="handleParseFailed"
+      @upload="handleUpload"
+      @invalid="handleInvalidFile"
       @manual="step = 'manual'"
       @skip="$emit('finish')"
     />
@@ -87,7 +141,7 @@ const handleFinish = async () => {
     <div v-else-if="step === 'parsing'" class="parsing-state">
       <div class="spinner"></div>
       <p class="parsing-text">Reading your resume…</p>
-      <p class="parsing-hint">Keep this window open — this takes about 10 seconds.</p>
+      <p class="parsing-hint">Keep this window open — this usually takes around 15 seconds.</p>
     </div>
 
     <ConfirmResume

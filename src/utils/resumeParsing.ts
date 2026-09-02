@@ -1,4 +1,4 @@
-import { cloneDefaultPersonalInfo } from '../composables/usePersonalInfo'
+import { cloneDefaultPersonalInfo } from '../lib/personalInfoDefaults'
 import type { ParsedResumeData, PersonalInfo } from '../types'
 
 function assignEntryIds<T extends { id?: number }>(entries: T[]): (T & { id: number })[] {

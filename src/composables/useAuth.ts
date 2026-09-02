@@ -49,6 +49,16 @@ export function useAuth() {
 
   const signOut = async () => {
     await signOutOfSupabase()
+    // Drop the local mirrors so the next person to sign in on this browser never sees the
+    // previous account's data, even for a frame. Supabase is the source of truth; these are
+    // rebuilt on the next load.
+    await chrome.storage.local.remove([
+      'personalInfo',
+      'customResponses',
+      'fillHistory',
+      'resumeUploadJob',
+      'localToSupabaseMigrated_v1',
+    ])
     applySession(null)
   }
 

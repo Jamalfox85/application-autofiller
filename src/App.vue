@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePersonalInfo } from './composables/usePersonalInfo'
+import { getUserIdOrNull } from './lib/sync/shared'
+import { migrateLocalDataToSupabase } from './lib/sync/migrateLocal'
 import { useNotification } from './composables/useNotification'
 import { useFillHistory } from './composables/useFillHistory'
 import { useAuth } from './composables/useAuth'
@@ -156,17 +158,31 @@ const autofillCurrentPage = async () => {
 const handleOnboardingFinish = async (profile?: any) => {
   if (profile) {
     personalInfo.value = profile
-    await savePersonalInfo(profile)
+    try {
+      await savePersonalInfo(profile)
+    } catch (error) {
+      // Saved to the local mirror already — Supabase sync will retry on the next save/open.
+      console.error('Profile sync to Supabase failed during onboarding', error)
+    }
     showNotification('We pre-filled your profile from your resume — please review it', 'success')
+  } else {
+    // No reviewed profile handed back (user skipped, or the parse-wait timed out and the API
+    // wrote the profile server-side) — pull whatever Supabase has now.
+    personalInfo.value = await loadPersonalInfo()
   }
   activeView.value = 'main'
   await detectApplication()
 }
 
-const saveProfile = (profile: any) => {
+const saveProfile = async (profile: any) => {
   personalInfo.value = profile
-  savePersonalInfo(profile)
-  showNotification('Profile saved successfully', 'success')
+  try {
+    await savePersonalInfo(profile)
+    showNotification('Profile saved successfully', 'success')
+  } catch (error) {
+    console.error('Profile sync to Supabase failed', error)
+    showNotification("Saved on this device — we'll sync it when you're back online", 'warning')
+  }
 }
 
 const openDialog = (key: string) => {
@@ -189,6 +205,13 @@ const handleSignOut = async () => {
 // Loads the account-gated app state — run once we know a signed-in session exists, whether
 // that was already true on mount or the user just completed sign-in.
 const loadAppState = async () => {
+  // One-time lift of any pre-Supabase local data into the user's account. No-op after it has
+  // run once (or if there was nothing local to move).
+  const userId = await getUserIdOrNull()
+  if (userId) {
+    await migrateLocalDataToSupabase(userId)
+  }
+
   personalInfo.value = await loadPersonalInfo()
   if (personalInfo.value.firstName && personalInfo.value.lastName) {
     activeView.value = 'main'

@@ -50,11 +50,33 @@ async function buildGoogleAuthUrl(): Promise<{ url: string; nonce: string }> {
   return { url: url.toString(), nonce }
 }
 
+// chrome.identity and Google return terse internal strings ("Only one web auth flow is
+// allowed at a time.", "The user did not approve access.", "access_denied", ...). Map the
+// ones a user can actually trigger to something they can act on; pass anything unrecognized
+// through so we don't hide a real bug.
+export function friendlyAuthError(raw: string | undefined | null): string {
+  const message = (raw ?? '').trim()
+
+  if (/only one web auth flow/i.test(message)) {
+    return 'A sign-in window is already open. Close it, wait a few seconds, then try again.'
+  }
+  if (/did not approve|closed the window|user cancell?ed|access_denied|interaction required/i.test(message)) {
+    return 'Sign-in was cancelled.'
+  }
+  if (/authorization page could not be loaded|network|failed to fetch|offline/i.test(message)) {
+    return "Couldn't reach Google. Check your connection and try again."
+  }
+  if (/redirect_uri_mismatch|invalid_client|client.*not found|deleted_client|unauthorized_client/i.test(message)) {
+    return "Sign-in isn't set up correctly on this build. Please contact support."
+  }
+  return message || 'Google sign-in failed. Please try again.'
+}
+
 function launchWebAuthFlow(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
     chrome.identity.launchWebAuthFlow({ url, interactive: true }, (redirectUrl) => {
       if (chrome.runtime.lastError || !redirectUrl) {
-        reject(new Error(chrome.runtime.lastError?.message || 'Google sign-in was cancelled.'))
+        reject(new Error(friendlyAuthError(chrome.runtime.lastError?.message)))
         return
       }
       resolve(redirectUrl)
@@ -66,7 +88,7 @@ function extractIdToken(redirectUrl: string): string {
   const params = new URLSearchParams(new URL(redirectUrl).hash.replace(/^#/, ''))
   const error = params.get('error')
   if (error) {
-    throw new Error(`Google sign-in failed: ${error}`)
+    throw new Error(friendlyAuthError(error))
   }
   const idToken = params.get('id_token')
   if (!idToken) {
@@ -95,7 +117,20 @@ export async function signInWithGoogle(): Promise<AuthResult> {
   })
 
   if (error || !data.session || !data.user) {
-    throw new Error(error?.message || 'Sign-in failed. Please try again.')
+    const detail = error?.message ?? ''
+    if (/failed to fetch|networkerror|load failed/i.test(detail)) {
+      throw new Error("Couldn't reach the sign-in server. Check your connection and try again.")
+    }
+    if (/provider is not enabled|unsupported provider/i.test(detail)) {
+      throw new Error("Google sign-in isn't enabled for this project yet.")
+    }
+    if (/nonce/i.test(detail)) {
+      throw new Error('Sign-in expired before it completed. Please try again.')
+    }
+    if (/audience|invalid.*token|bad_jwt/i.test(detail)) {
+      throw new Error("Sign-in isn't set up correctly on this build. Please contact support.")
+    }
+    throw new Error(detail || 'Sign-in failed. Please try again.')
   }
 
   return { session: data.session, user: data.user }

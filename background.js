@@ -99,11 +99,139 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// Resume upload — runs here, not in the popup.
+//
+// The parse takes 5–10s and an extension popup is destroyed the moment it loses focus, which
+// aborts any fetch it started (that's the "stuck on loading" bug). The popup base64-encodes
+// the file and sends it here; this worker does the request and writes the outcome to
+// chrome.storage.local["resumeUploadJob"], which the popup subscribes to (see
+// src/composables/useResumeUpload.ts).
+// ---------------------------------------------------------------------------
+const RESUME_JOB_KEY = 'resumeUploadJob'
+
+async function writeResumeJob(state) {
+  await chrome.storage.local.set({
+    [RESUME_JOB_KEY]: { ...state, updatedAt: Date.now() },
+  })
+}
+
+function classifyResumeUploadError(status, apiMessage) {
+  switch (status) {
+    case 401:
+      return { code: 'auth', message: 'Your session expired. Please sign in again.' }
+    case 413:
+      return { code: 'too_large', message: apiMessage || 'That file is too large — keep it under 10MB.' }
+    case 415:
+      return { code: 'bad_type', message: apiMessage || 'Please upload a PDF or DOCX file.' }
+    case 422:
+      return {
+        code: 'unreadable',
+        message: apiMessage || "We couldn't read this resume. Try a different file.",
+      }
+    case 502:
+      return { code: 'upstream', message: 'The resume service is temporarily unavailable. Please try again shortly.' }
+    case 503:
+      return { code: 'server', message: 'The resume service is temporarily unavailable. Please try again shortly.' }
+    default:
+      return {
+        code: `http_${status}`,
+        message: apiMessage || `Upload failed (${status}). Please try again.`,
+      }
+  }
+}
+
+function base64ToBytes(b64) {
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBase64 }) {
+  await writeResumeJob({ phase: 'uploading', fileName })
+
+  if (!token) {
+    await writeResumeJob({
+      phase: 'error',
+      code: 'no_session',
+      message: 'Please sign in again before uploading your resume.',
+    })
+    return
+  }
+
+  let res
+  let rawBody = ''
+  try {
+    const form = new FormData()
+    form.append(
+      'file',
+      new Blob([base64ToBytes(fileBytesBase64)], { type: fileType || 'application/octet-stream' }),
+      fileName,
+    )
+
+    res = await fetch(url, {
+      method: 'POST',
+      // No Content-Type — FormData sets multipart/form-data + boundary.
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    })
+    rawBody = await res.text()
+  } catch (err) {
+    console.error('[resume-upload] request failed', err)
+    await writeResumeJob({
+      phase: 'error',
+      code: 'network',
+      message: 'Upload failed — check your connection and that the API is running, then try again.',
+    })
+    return
+  }
+
+  let body = null
+  try {
+    body = rawBody ? JSON.parse(rawBody) : null
+  } catch {
+    // non-JSON body — leave `body` null, handled below
+  }
+  console.log('[resume-upload]', res.status, rawBody.slice(0, 2000))
+
+  try {
+    if (res.ok && body && body.success === true) {
+      await writeResumeJob({
+        phase: 'done',
+        fileName,
+        firstUpload: body.data ? body.data.first_upload ?? null : null,
+        parsed: body.data ? body.data.parsed ?? null : null,
+        storagePath: body.data ? body.data.storage_path ?? null : null,
+      })
+      return
+    }
+
+    const apiMessage = body && typeof body.error === 'string' ? body.error : ''
+    const { code, message } = classifyResumeUploadError(res.status, apiMessage)
+    await writeResumeJob({ phase: 'error', httpStatus: res.status, code, message, apiMessage })
+  } catch (err) {
+    console.error('[resume-upload] handling response failed', err)
+    await writeResumeJob({
+      phase: 'error',
+      code: 'unexpected',
+      message: 'Something went wrong reading the response. Please try again.',
+    })
+  }
+}
+
 // Handle messages from content scripts or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'openPopup') {
     chrome.action.openPopup()
     sendResponse({ success: true })
+  }
+
+  if (request.action === 'uploadResume') {
+    // Detached on purpose — the in-flight fetch keeps the worker alive; the popup watches
+    // chrome.storage.local for the result rather than waiting on this response.
+    handleResumeUpload(request)
+    sendResponse({ started: true })
   }
 
   if (request.action === 'trackAutofill') {
