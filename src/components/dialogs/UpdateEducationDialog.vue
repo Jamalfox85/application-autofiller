@@ -55,7 +55,6 @@ const addEducation = async () => {
     locationState: '',
   })
   openIndex.value = editableProfile.value.education.length - 1
-  saved.value = false
 
   await nextTick()
   const cards = document.querySelectorAll('.edu-card')
@@ -65,7 +64,6 @@ const addEducation = async () => {
 const removeEducation = (index: number) => {
   editableProfile.value.education = editableProfile.value.education.filter((_, i) => i !== index)
   openIndex.value = -1
-  saved.value = false
 }
 
 watch(
@@ -76,12 +74,9 @@ watch(
         ...props.personalInfo,
       }
       openIndex.value = -1
-      saved.value = false
     }
   },
 )
-
-onBeforeUnmount(() => clearTimeout(savedTimeout))
 </script>
 <template>
   <SectionSheet
@@ -208,9 +203,7 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
 
     <template #footer>
       <button class="btn-secondary-dialog" @click="handleClose">Cancel</button>
-      <button class="btn-primary-dialog" :class="{ 'save-btn-saved': saved }" @click="handleSave">
-        {{ saved ? 'Saved' : 'Save changes' }}
-      </button>
+      <button class="btn-primary-dialog" @click="handleSave">Save changes</button>
     </template>
   </SectionSheet>
 </template>
@@ -370,9 +363,5 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
   color: #6f6f7a;
   line-height: 1.5;
   padding: 4px 2px;
-}
-
-.save-btn-saved {
-  background: #2f2350 !important;
 }
 </style>
