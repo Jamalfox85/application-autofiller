@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { usStates } from '../../utils/locationLists.ts'
 import type { Education, PersonalInfo } from '../../types/index.ts'
 import SectionSheet from './SectionSheet.vue'
@@ -18,8 +18,6 @@ const editableProfile = ref<PersonalInfo>({
   ...props.personalInfo,
 })
 const openIndex = ref(-1)
-const saved = ref(false)
-let savedTimeout: ReturnType<typeof setTimeout> | undefined
 
 const handleClose = () => {
   emit('close')
@@ -27,11 +25,7 @@ const handleClose = () => {
 
 const handleSave = () => {
   emit('save', editableProfile.value)
-  saved.value = true
-  clearTimeout(savedTimeout)
-  savedTimeout = setTimeout(() => {
-    saved.value = false
-  }, 2200)
+  emit('close')
 }
 
 const toggleOpen = (index: number) => {
@@ -41,7 +35,6 @@ const toggleOpen = (index: number) => {
 const toggleCurrent = (edu: Education) => {
   edu.current = !edu.current
   if (edu.current) edu.graduationYear = ''
-  saved.value = false
 }
 
 const addEducation = async () => {

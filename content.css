@@ -24,3 +24,14 @@
     background-color 0.3s ease,
     outline-color 0.3s ease;
 }
+
+/* Flashed when the on-page confirmation widget's "Jump to first" scrolls to a field
+   that still needs an answer */
+.job-autofill-needs-answer {
+  background-color: rgba(232, 176, 98, 0.14) !important;
+  outline: 2px solid rgba(232, 176, 98, 0.55) !important;
+  outline-offset: 1px;
+  transition:
+    background-color 0.3s ease,
+    outline-color 0.3s ease;
+}

@@ -22,7 +22,6 @@ const email = ref('')
 const password = ref('')
 const requireConfirmation = ref(true)
 const showPassword = ref(false)
-const saved = ref(false)
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const emailInvalid = computed(() => email.value.length > 0 && !emailPattern.test(email.value))
@@ -64,7 +63,6 @@ const resetForm = () => {
     requireConfirmation.value = true
   }
   showPassword.value = false
-  saved.value = false
 }
 
 watch(
@@ -92,7 +90,7 @@ const handleSave = () => {
   } else {
     emit('add', account)
   }
-  saved.value = true
+  emit('close')
 }
 </script>
 
@@ -180,13 +178,8 @@ const handleSave = () => {
         Delete
       </button>
       <button class="btn-secondary-dialog" @click="handleClose">Cancel</button>
-      <button
-        class="btn-primary-dialog"
-        :class="{ 'save-btn-saved': saved }"
-        :disabled="!isReady"
-        @click="handleSave"
-      >
-        {{ saved ? 'Saved' : item ? 'Save changes' : 'Save account' }}
+      <button class="btn-primary-dialog" :disabled="!isReady" @click="handleSave">
+        {{ item ? 'Save changes' : 'Save account' }}
       </button>
     </template>
   </FullScreenSheet>
@@ -383,10 +376,6 @@ const handleSave = () => {
 
 .toggle-track.active .toggle-knob {
   left: 18px;
-}
-
-.save-btn-saved {
-  background: #2f2350 !important;
 }
 
 .account-delete-link {

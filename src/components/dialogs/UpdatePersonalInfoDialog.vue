@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import { usStates, canadaProvinces, ukRegions } from '../../utils/locationLists.ts'
 import type { PersonalInfo } from '../../types'
 import FullScreenSheet from './FullScreenSheet.vue'
@@ -19,19 +19,13 @@ const editableProfile = ref<PersonalInfo>({
 })
 
 const dirty = ref(false)
-const saved = ref(false)
-let savedTimeout: ReturnType<typeof setTimeout> | undefined
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const emailInvalid = computed(
   () => editableProfile.value.email.length > 0 && !emailPattern.test(editableProfile.value.email),
 )
 
-const statusText = computed(() => {
-  if (saved.value) return 'Saved'
-  if (dirty.value) return 'Unsaved changes'
-  return 'Used on nearly every application'
-})
+const statusText = computed(() => (dirty.value ? 'Unsaved changes' : 'Used on nearly every application'))
 
 const handleClose = () => {
   emit('close')
@@ -41,11 +35,7 @@ const handleSave = () => {
   if (emailInvalid.value) return
   emit('save', editableProfile.value)
   dirty.value = false
-  saved.value = true
-  clearTimeout(savedTimeout)
-  savedTimeout = setTimeout(() => {
-    saved.value = false
-  }, 2200)
+  emit('close')
 }
 
 const formatPhoneNumber = (value: string) => {
@@ -113,7 +103,6 @@ watch(
       // otherwise loading the panel would immediately read as "Unsaved changes".
       await nextTick()
       dirty.value = false
-      saved.value = false
     }
   },
 )
@@ -122,12 +111,9 @@ watch(
   editableProfile,
   () => {
     dirty.value = true
-    saved.value = false
   },
   { deep: true },
 )
-
-onBeforeUnmount(() => clearTimeout(savedTimeout))
 </script>
 <template>
   <FullScreenSheet :show="show" title="Personal details" @close="handleClose">
@@ -287,13 +273,8 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
 
     <template #footer>
       <button class="btn-secondary-dialog" @click="handleClose">Cancel</button>
-      <button
-        class="btn-primary-dialog"
-        :class="{ 'save-btn-saved': saved }"
-        :disabled="emailInvalid"
-        @click="handleSave"
-      >
-        {{ saved ? 'Saved' : 'Save details' }}
+      <button class="btn-primary-dialog" :disabled="emailInvalid" @click="handleSave">
+        Save details
       </button>
     </template>
   </FullScreenSheet>
@@ -306,9 +287,5 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
 
 .phone-code-group {
   align-self: end;
-}
-
-.save-btn-saved {
-  background: #2f2350 !important;
 }
 </style>

@@ -1,4 +1,15 @@
-import { autofillPage } from './autofill.ts'
+import { autofillPage, undoLastFill } from './autofill.ts'
+
+// Inlined rather than loaded via chrome.runtime.getURL so it renders correctly on any page
+// without needing an extra web_accessible_resources entry — matches
+// public/assets/logo/gofillr-icon-small.svg (the current purple mark).
+function brandIcon(size: number) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 32 32" style="flex-shrink: 0;">
+    <rect width="32" height="32" rx="8" fill="#7C3AED"/>
+    <rect x="6" y="10" width="20" height="4" rx="2" fill="#FFFFFF"/>
+    <rect x="6" y="18" width="13" height="4" rx="2" fill="#FFFFFF"/>
+  </svg>`
+}
 
 // Shared "on-page toast" chrome: a dark card with a colored accent bar on the left, sized to
 // stay legible when injected into an arbitrary page's own styles/zoom level. Uses the system
@@ -30,8 +41,9 @@ function createToast(accentColor: string, title: string, subtitle?: string) {
 
   toast.innerHTML = `
     <span style="width: 6px; height: 30px; border-radius: 4px; background: ${accentColor}; flex-shrink: 0;"></span>
+    ${brandIcon(18)}
     <div style="flex: 1; min-width: 0;">
-      <div style="font-size: 12.5px; font-weight: 500;">${title}</div>
+      <div style="font-size: 12.5px; font-weight: 600;">${title}</div>
       ${subtitle ? `<div style="font-size: 11px; color: #8f8f99; margin-top: 2px;">${subtitle}</div>` : ''}
     </div>
   `
@@ -56,18 +68,106 @@ function showToast(toast: HTMLElement) {
   }, 4000)
 }
 
-export function showAutofillNotification(fieldsCount: number) {
-  // Remove existing notification if present
+// Post-fill confirmation card: bottom-right so it never covers the form, dark against the
+// page so it reads as the extension rather than site content. Auto-hides after 6s; hovering
+// holds it open so a mid-read hover doesn't get cut off.
+export function showAutofillNotification(_summary?: { fieldsCount?: number; totalCount?: number }) {
   const existing = document.querySelector('.gofillr-autofill-notification')
-  if (existing) {
-    existing.remove()
+  if (existing) existing.remove()
+
+  const card = document.createElement('div')
+  card.className = 'gofillr-autofill-notification'
+  card.style.cssText = `
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 2147483647;
+    width: 280px;
+    background: #16161a;
+    border: 1px solid #2e2e36;
+    border-radius: 11px;
+    box-shadow: 0 18px 44px -14px rgba(0, 0, 0, 0.55);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #ebebee;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  `
+
+  card.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 9px; padding: 11px 12px;">
+      ${brandIcon(20)}
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em;">GoFillr</div>
+        <div style="font-size: 11px; color: #8f8f99; margin-top: 2px;">Autofill completed</div>
+      </div>
+      <button type="button" data-action="close" style="border: none; background: none; color: #6f6f7a; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 3px; flex-shrink: 0;">×</button>
+    </div>
+
+    <div style="height: 1px; background: #22222a;"></div>
+
+    <div style="padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+      <button type="button" data-action="undo" style="border: none; background: none; color: #8f8f99; font-size: 10.5px; cursor: pointer; padding: 0; font-family: inherit;">Undo fill</button>
+      <span data-role="countdown" style="font-family: 'IBM Plex Mono', Menlo, monospace; font-size: 10px; color: #5c5c66;">Hides in 6s</span>
+    </div>
+  `
+
+  document.body.appendChild(card)
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      card.style.opacity = '1'
+      card.style.transform = 'translateY(0)'
+    })
+  })
+
+  const countdownEl = card.querySelector('[data-role="countdown"]') as HTMLElement
+  let remaining = 6
+  let hideTimer: ReturnType<typeof setInterval> | undefined
+
+  const dismiss = () => {
+    if (hideTimer) clearInterval(hideTimer)
+    card.style.opacity = '0'
+    card.style.transform = 'translateY(16px)'
+    setTimeout(() => card.remove(), 300)
   }
 
-  showToast(createToast('#4ea172', `Auto-filled ${fieldsCount} field${fieldsCount !== 1 ? 's' : ''}`))
+  const startCountdown = () => {
+    if (hideTimer) clearInterval(hideTimer)
+    hideTimer = setInterval(() => {
+      remaining -= 1
+      if (remaining <= 0) {
+        dismiss()
+        return
+      }
+      countdownEl.textContent = `Hides in ${remaining}s`
+    }, 1000)
+  }
+
+  startCountdown()
+
+  card.addEventListener('mouseenter', () => {
+    if (hideTimer) clearInterval(hideTimer)
+    countdownEl.textContent = 'Paused'
+  })
+
+  card.addEventListener('mouseleave', () => {
+    remaining = 6
+    countdownEl.textContent = `Hides in ${remaining}s`
+    startCountdown()
+  })
+
+  card.querySelector('[data-action="close"]')?.addEventListener('click', dismiss)
+
+  card.querySelector('[data-action="undo"]')?.addEventListener('click', () => {
+    undoLastFill()
+    dismiss()
+  })
 }
 
 export function showErrorNotification(message: string) {
-  showToast(createToast('#b05454', message))
+  showToast(createToast('#b05454', 'GoFillr', message))
 }
 
 export function showAutofillPrompt() {
@@ -100,7 +200,7 @@ export function showAutofillPrompt() {
   prompt.innerHTML = `
     <div style="padding: 16px;">
       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-        <img src="${chrome.runtime.getURL('assets/images/logo.png')}" width="20" height="20" style="flex-shrink: 0;" />
+        ${brandIcon(20)}
         <span style="font-weight: 600; font-size: 15px;">GoFillr</span>
       </div>
       <p style="margin: 0 0 14px; color: #8f8f99; line-height: 1.4;">
@@ -153,7 +253,7 @@ export function showAutofillPrompt() {
 
     const result = await autofillPage()
     if (result.success) {
-      showAutofillNotification(result.fieldsCount ?? 0)
+      showAutofillNotification(result)
     } else {
       showErrorNotification(result.message)
     }

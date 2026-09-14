@@ -93,11 +93,7 @@ const handleClose = () => {
 
 const handleSave = () => {
   emit('save', editableProfile.value)
-  saved.value = true
-  clearTimeout(savedTimeout)
-  savedTimeout = setTimeout(() => {
-    saved.value = false
-  }, 2200)
+  emit('close')
 }
 
 const toggleEeo = () => {

@@ -24,7 +24,6 @@ const question = ref('')
 const answer = ref('')
 const tags = ref<string[]>([])
 const tagDraft = ref('')
-const saved = ref(false)
 
 const isReady = () => question.value.trim().length > 0 && answer.value.trim().length > 0
 
@@ -39,7 +38,6 @@ const resetForm = () => {
     tags.value = []
   }
   tagDraft.value = ''
-  saved.value = false
 }
 
 watch(
@@ -54,18 +52,15 @@ const addTagFromDraft = () => {
   tagDraft.value = ''
   if (!value || tags.value.includes(value)) return
   tags.value.push(value)
-  saved.value = false
 }
 
 const removeTag = (tag: string) => {
   tags.value = tags.value.filter((t) => t !== tag)
-  saved.value = false
 }
 
 const addSuggestedTag = (tag: string) => {
   if (tags.value.includes(tag)) return
   tags.value.push(tag)
-  saved.value = false
 }
 
 const handleTagDraftKeydown = (e: KeyboardEvent) => {
@@ -92,7 +87,7 @@ const handleSave = () => {
   } else {
     emit('add', response)
   }
-  saved.value = true
+  emit('close')
 }
 </script>
 
@@ -161,13 +156,8 @@ const handleSave = () => {
         Delete
       </button>
       <button class="btn-secondary-dialog" @click="handleClose">Cancel</button>
-      <button
-        class="btn-primary-dialog"
-        :class="{ 'save-btn-saved': saved }"
-        :disabled="!isReady()"
-        @click="handleSave"
-      >
-        {{ saved ? 'Saved' : item ? 'Save changes' : 'Save response' }}
+      <button class="btn-primary-dialog" :disabled="!isReady()" @click="handleSave">
+        {{ item ? 'Save changes' : 'Save response' }}
       </button>
     </template>
   </FullScreenSheet>
@@ -281,10 +271,6 @@ const handleSave = () => {
 .response-suggested-tag:hover {
   color: #ebebee;
   border-color: #47475a;
-}
-
-.save-btn-saved {
-  background: #2f2350 !important;
 }
 
 .response-delete-link {

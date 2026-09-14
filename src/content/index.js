@@ -53,7 +53,7 @@ async function initialize() {
     setTimeout(async () => {
       const result = await autofillPage('auto_on_detect')
       if (result.success) {
-        showAutofillNotification(result.fieldsCount)
+        showAutofillNotification(result)
       }
     }, 1000)
   } else {
@@ -99,7 +99,7 @@ async function initialize() {
         if (autoDetectEnabled) {
           const result = await autofillPage('auto_on_detect')
           if (result.success) {
-            showAutofillNotification(result.fieldsCount)
+            showAutofillNotification(result)
           }
         } else {
           showAutofillPrompt()
@@ -199,7 +199,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       // Also show an on-page toast — needed for the ⌘⇧F shortcut path, where the popup
       // (and its own success view) isn't open to give feedback.
       if (result.success) {
-        showAutofillNotification(result.fieldsCount)
+        showAutofillNotification(result)
       } else {
         showErrorNotification(result.message)
       }

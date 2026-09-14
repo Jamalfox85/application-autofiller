@@ -16,11 +16,21 @@ import { trackEvent } from '@/services/mixpanelHttp'
 type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 type AutofillTriggerSource = 'auto_on_detect' | 'user_clicked_button' | 'resync'
 
+type FieldSnapshot = { prevValue: string; prevChecked?: boolean }
+type FillRecord = FieldSnapshot & { input: FormField }
+
 let autofillDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let hasShownPopup = false
 
 const REVIEW_HIGHLIGHT_CLASS = 'job-autofill-filled'
+const REVIEW_NEEDS_ANSWER_CLASS = 'job-autofill-needs-answer'
 const REVIEW_HIGHLIGHT_DURATION_MS = 6000
+
+// Populated by the most recent autofillPage() run, consumed by the on-page confirmation
+// widget's "Undo fill" and "Jump to first" actions. A fresh run overwrites both — there's
+// only ever one page's worth of in-flight fill state to act on.
+let lastFillRecords: FillRecord[] = []
+let lastUnfilledInputs: FormField[] = []
 
 // Stable per page-load identifiers/counters for the autofill analytics events below.
 const FORM_INSTANCE_ID = crypto.randomUUID()
@@ -118,6 +128,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
   attemptCountForForm++
 
   try {
+    const startTime = Date.now()
     const personalInfoData = await chrome.storage.local.get('personalInfo')
     const personalInfo = personalInfoData.personalInfo
 
@@ -147,9 +158,13 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
 
     await markAutofillTriggered()
 
+    const fillRecords: FillRecord[] = []
+    const unfilledInputs: FormField[] = []
+
     for (const input of fillableInputs) {
       attemptedCount++
       const fieldText = constructFieldText(input)
+      const snapshot = captureFieldSnapshot(input)
 
       console.log('Processing field:', fieldText, input)
       // Try site-specific handling first
@@ -159,6 +174,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       if (handled) {
         console.log('Filled by site rule:', fieldText, input)
         filledCount++
+        fillRecords.push({ input, ...snapshot })
         if (reviewHighlightEnabled) highlightFilledField(input)
         continue
       }
@@ -171,6 +187,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       )
       const { matchedValue, relativeMatchKey } = matchedResult || {}
       if (!matchedValue) {
+        unfilledInputs.push(input)
         continue
       }
 
@@ -178,10 +195,16 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       if (handled) {
         console.log('Filled by default logic:', fieldText, input)
         filledCount++
+        fillRecords.push({ input, ...snapshot })
         if (reviewHighlightEnabled) highlightFilledField(input)
         continue
       }
+
+      unfilledInputs.push(input)
     }
+
+    lastFillRecords = fillRecords
+    lastUnfilledInputs = unfilledInputs
 
     await captureEvent('application_autofilled', {
       filledCount: filledCount,
@@ -210,6 +233,8 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       success: filledCount > 0,
       fieldsCount: filledCount,
       totalCount: attemptedCount,
+      unfilledCount: unfilledInputs.length,
+      elapsedMs: Date.now() - startTime,
       roleGuess: guessJobTitle(),
       message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
     }
@@ -236,6 +261,69 @@ function guessJobTitle(): string {
 function highlightFilledField(input: FormField) {
   input.classList.add(REVIEW_HIGHLIGHT_CLASS)
   setTimeout(() => input.classList.remove(REVIEW_HIGHLIGHT_CLASS), REVIEW_HIGHLIGHT_DURATION_MS)
+}
+
+function captureFieldSnapshot(input: FormField): FieldSnapshot {
+  if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'radio')) {
+    return { prevValue: input.value, prevChecked: input.checked }
+  }
+  return { prevValue: input.value }
+}
+
+// Restores every field the most recent autofillPage() run changed, back to its pre-fill
+// value. Generic across fill paths (site rules and the default matcher alike) since it
+// snapshots before the fill rather than reasoning about how each path writes values.
+export function undoLastFill(): number {
+  const records = lastFillRecords
+  lastFillRecords = []
+  lastUnfilledInputs = []
+
+  let restoredCount = 0
+  for (const { input, prevValue, prevChecked } of records) {
+    if (!input.isConnected) continue
+
+    if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'radio')) {
+      if (input.checked !== !!prevChecked) {
+        input.checked = !!prevChecked
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      restoredCount++
+      continue
+    }
+
+    if (input instanceof HTMLSelectElement) {
+      input.value = prevValue
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      restoredCount++
+      continue
+    }
+
+    const proto =
+      input instanceof HTMLTextAreaElement
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype
+    const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+    nativeSetter?.call(input, prevValue)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    restoredCount++
+  }
+
+  return restoredCount
+}
+
+// Scrolls to and focuses the first field the last fill left unanswered, for the on-page
+// confirmation widget's "Jump to first" button.
+export function jumpToFirstUnfilled(): boolean {
+  const target = lastUnfilledInputs.find((input) => input.isConnected)
+  if (!target) return false
+
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  target.focus({ preventScroll: true })
+  target.classList.add(REVIEW_NEEDS_ANSWER_CLASS)
+  setTimeout(() => target.classList.remove(REVIEW_NEEDS_ANSWER_CLASS), REVIEW_HIGHLIGHT_DURATION_MS)
+  return true
 }
 
 function deepQuerySelectorAll(root: Document | Element | ShadowRoot, selector: string): Element[] {
@@ -343,7 +431,7 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
     if (autoDetectEnabled) {
       const result = await autofillPage('resync')
       if (result.success) {
-        showAutofillNotification(result.fieldsCount ?? 0)
+        showAutofillNotification(result)
       }
     } else {
       if (!hasShownPopup) {
