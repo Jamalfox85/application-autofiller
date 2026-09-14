@@ -18,6 +18,7 @@ const editableProfile = ref<PersonalInfo>({
 })
 const skillDraft = ref('')
 const saved = ref(false)
+const dragIndex = ref<number | null>(null)
 let savedTimeout: ReturnType<typeof setTimeout> | undefined
 
 const skillDupe = computed(
@@ -50,6 +51,45 @@ const addSkillFromDraft = () => {
 const removeSkill = (skill: string) => {
   editableProfile.value.skills = (editableProfile.value.skills ?? []).filter((s) => s !== skill)
   saved.value = false
+}
+
+// Order is meaningful — it becomes each skill row's display_order on save — so both the
+// arrow buttons and drag-and-drop just reorder the same underlying array.
+const moveSkill = (index: number, direction: -1 | 1) => {
+  const skills = editableProfile.value.skills ?? []
+  const target = index + direction
+  if (target < 0 || target >= skills.length) return
+  const reordered = [...skills]
+  ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+  editableProfile.value.skills = reordered
+  saved.value = false
+}
+
+const onDragStart = (index: number, event: DragEvent) => {
+  dragIndex.value = index
+  event.dataTransfer?.setData('text/plain', String(index))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+
+const onDragOver = (event: DragEvent) => {
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+}
+
+const onDrop = (targetIndex: number) => {
+  const from = dragIndex.value
+  dragIndex.value = null
+  if (from === null || from === targetIndex) return
+
+  const skills = [...(editableProfile.value.skills ?? [])]
+  const [moved] = skills.splice(from, 1)
+  skills.splice(targetIndex, 0, moved)
+  editableProfile.value.skills = skills
+  saved.value = false
+}
+
+const onDragEnd = () => {
+  dragIndex.value = null
 }
 
 const handleSkillDraftKeydown = (e: KeyboardEvent) => {
@@ -117,15 +157,52 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
         <span v-if="skillDupe" class="skills-dupe">Already in your list</span>
       </div>
 
-      <div v-if="(editableProfile.skills ?? []).length > 0" class="skills-chips">
-        <span v-for="skill in editableProfile.skills" :key="skill" class="skill-chip">
-          {{ skill }}
-          <button type="button" title="Remove" @click="removeSkill(skill)">×</button>
-        </span>
+      <div v-if="(editableProfile.skills ?? []).length > 0" class="skills-list">
+        <div
+          v-for="(skill, index) in editableProfile.skills"
+          :key="skill"
+          class="skill-row"
+          :class="{ 'skill-row-dragging': dragIndex === index }"
+          draggable="true"
+          @dragstart="onDragStart(index, $event)"
+          @dragover="onDragOver"
+          @drop="onDrop(index)"
+          @dragend="onDragEnd"
+        >
+          <span class="skill-row-index">{{ index + 1 }}</span>
+          <span class="skill-row-name">{{ skill }}</span>
+          <button
+            type="button"
+            class="skill-row-btn"
+            title="Move up"
+            :disabled="index === 0"
+            @click="moveSkill(index, -1)"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            class="skill-row-btn"
+            title="Move down"
+            :disabled="index === (editableProfile.skills?.length ?? 0) - 1"
+            @click="moveSkill(index, 1)"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            class="skill-row-btn skill-row-remove"
+            title="Remove"
+            @click="removeSkill(skill)"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div class="skills-hint">
-        Order matters — the first skills are used when a form limits how many you can enter.
+        Order matters — the first skills are used when a form limits how many you can enter. Drag
+        a row or use the arrows to reorder.
       </div>
     </div>
 
@@ -202,38 +279,72 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
   flex-shrink: 0;
 }
 
-.skills-chips {
+.skills-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
 }
 
-.skill-chip {
-  display: inline-flex;
+.skill-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto auto auto;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #ebebee;
-  border: 1px solid #33333d;
-  background: #1b1b21;
-  border-radius: 20px;
-  padding: 5px 6px 5px 11px;
-  white-space: nowrap;
+  gap: 10px;
+  border: 1px solid #22222a;
+  background: #17171b;
+  border-radius: 8px;
+  padding: 9px 11px;
+  cursor: grab;
 }
 
-.skill-chip button {
+.skill-row:active {
+  cursor: grabbing;
+}
+
+.skill-row-dragging {
+  opacity: 0.4;
+}
+
+.skill-row-index {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: #6f6f7a;
+}
+
+.skill-row-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #ebebee;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skill-row-btn {
   border: none;
   background: none;
   color: #7c7c86;
   cursor: pointer;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
-  padding: 0 3px;
+  padding: 3px 5px;
+  border-radius: 5px;
 }
 
-.skill-chip button:hover {
+.skill-row-btn:hover:not(:disabled) {
   color: #ebebee;
+  background: #232329;
+}
+
+.skill-row-btn:disabled {
+  color: #3a3a42;
+  cursor: not-allowed;
+}
+
+.skill-row-remove:hover:not(:disabled) {
+  color: #e08a8a;
+  background: #232329;
 }
 
 .skills-hint {
