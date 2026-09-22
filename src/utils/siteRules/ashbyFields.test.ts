@@ -68,6 +68,41 @@ describe('Ashby profile text', () => {
     )
   })
 
+  it('maps Render and LangChain contact, company, and title questions', () => {
+    assert.equal(ashbyTextValue({ path: 'phone', title: 'Phone', type: 'text' }, profile), '+1 5551234567')
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Location ', type: 'text' }, profile),
+      'San Francisco, California',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Current or Most Recent Company', type: 'text' }, profile),
+      'Analytical Engines',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Current or Most Recent Title', type: 'text' }, profile),
+      'Engineer',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Linkedin Profile Link', type: 'text' }, profile),
+      'https://linkedin.com/in/ada',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Preferred Name', type: 'text' }, profile),
+      null,
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'How did you hear about Ambrook?', type: 'text' }, profile),
+      null,
+    )
+    assert.equal(
+      ashbyYesNoDecision(
+        'Will you now, or in the future, require sponsorship (i.e. H-1B visa, etc.) to legally work in the U.S.?',
+        profile,
+      ),
+      'no',
+    )
+  })
+
   it('maps the standard contact fields from path, type, or title', () => {
     assert.equal(
       ashbyTextValue({ path: '_systemfield_email', title: 'Email', type: 'email' }, profile),

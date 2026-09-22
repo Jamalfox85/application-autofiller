@@ -125,6 +125,12 @@ export function ashbyLocationQueries(info: AshbyProfile): string[] {
   return unique(queries)
 }
 
+// Plain text Location questions (Render) take one value. Autocomplete fields
+// still search the full query list.
+export function ashbyLocationText(info: AshbyProfile): string {
+  return ashbyLocationQueries(info)[0] || ''
+}
+
 export function ashbySchoolQueries(schoolName?: string | null): string[] {
   if (!schoolName?.trim()) return []
   const trimmed = schoolName.trim()
@@ -548,8 +554,10 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
     return (info.email || '').trim()
   }
 
+  const normalizedPath = normalizeAshbyLabel(path)
   const phoneTitle =
     type === 'tel' ||
+    normalizedPath === 'phone' ||
     normalizedTitle === 'phone' ||
     normalizedTitle === 'mobile' ||
     normalizedTitle === 'mobilephone' ||
@@ -559,6 +567,10 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
   if (phoneTitle) return ashbyPhoneValue(info)
 
   if (normalizedTitle.includes('linkedin')) return (info.linkedin || '').trim()
+
+  if (isAshbyLocationField(path, title) && type !== 'file') {
+    return ashbyLocationText(info)
+  }
   if (normalizedTitle.includes('github')) return (info.github || '').trim()
   if (
     !normalizedTitle.includes('linkedin') &&
@@ -569,27 +581,30 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
     return (info.website || '').trim()
   }
 
-  // Hosted apply forms do not render a repeatable employment section (the field
-  // type exists in the schema and the application renderer never mounts it).
-  // A single company or title question still maps to the first role. Plaid asks
-  // "Current/Last Company"; 1Password asks "Current Company" and "Current job title?".
+  // Hosted apply forms do not render a repeatable employment section.
+  // A single company or title question maps to the first role. Render asks
+  // "Current or Most Recent Company" and "Current or Most Recent Title".
   const companyQuestion =
-    normalizedTitle.includes('currentemployer') ||
-    normalizedTitle.includes('currentcompany') ||
-    normalizedTitle.includes('currentlastcompany') ||
     normalizedTitle === 'employer' ||
+    normalizedTitle === 'company' ||
     normalizedTitle === 'companyname' ||
-    normalizedTitle === 'lastcompany'
-  if (companyQuestion) {
+    normalizedTitle === 'lastcompany' ||
+    ((normalizedTitle.includes('company') || normalizedTitle.includes('employer')) &&
+      (normalizedTitle.includes('current') ||
+        normalizedTitle.includes('recent') ||
+        normalizedTitle.includes('last')))
+  if (companyQuestion && !normalizedTitle.includes('companysize')) {
     return (info.experience?.[0]?.companyName || '').trim()
   }
 
-  if (
+  const titleQuestion =
     normalizedTitle.includes('jobtitle') ||
     normalizedTitle.includes('currenttitle') ||
     normalizedTitle.includes('currentrole') ||
-    normalizedTitle === 'positiontitle'
-  ) {
+    normalizedTitle.includes('recenttitle') ||
+    normalizedTitle === 'positiontitle' ||
+    normalizedTitle === 'title'
+  if (titleQuestion) {
     return (info.experience?.[0]?.jobTitle || '').trim()
   }
 
