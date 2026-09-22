@@ -15,6 +15,7 @@ import {
   ashbyDateSelectKind,
   ashbyFullName,
   ashbyLocationQueries,
+  pickAshbyLocationOption,
   ashbyPhoneValue,
   ashbySchoolQueries,
   ashbyTextValue,
@@ -166,6 +167,49 @@ describe('Ashby location and school autocomplete', () => {
       'California, United States',
       'United States',
     ])
+  })
+
+  it('prefers US California over San Francisco, Córdoba, Argentina', () => {
+    const options = [
+      'San Francisco, Córdoba, Argentina',
+      'South San Francisco, California, United States',
+      'San Francisco, Baja California Sur, Mexico',
+      'San Francisco, California, United States',
+    ]
+    assert.equal(pickAshbyLocationOption(options, profile), 'San Francisco, California, United States')
+    assert.equal(
+      pickAshbyLocationOption(options, { ...profile, state: 'CA' }),
+      'San Francisco, California, United States',
+    )
+    assert.equal(
+      pickAshbyLocationOption(
+        ['San Francisco, Córdoba, Argentina', 'San Francisco, CA, USA'],
+        profile,
+      ),
+      'San Francisco, CA, USA',
+    )
+    assert.equal(
+      pickAshbyLocationOption(
+        ['United States', 'San Francisco, Córdoba, Argentina', 'San Francisco, CA'],
+        profile,
+      ),
+      'San Francisco, CA',
+    )
+  })
+
+  it('does not pick Córdoba when that is the only San Francisco', () => {
+    assert.equal(pickAshbyLocationOption(['San Francisco, Córdoba, Argentina'], profile), null)
+    assert.equal(pickAshbyLocationOption(['San Francisco, Cordoba, Argentina'], profile), null)
+  })
+
+  it('uses the vault country and state when they are not the United States', () => {
+    assert.equal(
+      pickAshbyLocationOption(
+        ['London, Kentucky, United States', 'London, Ontario, Canada'],
+        { city: 'London', state: 'Ontario', country: 'canada' },
+      ),
+      'London, Ontario, Canada',
+    )
   })
 
   it('recognizes the system location field even when the title asks for a country', () => {
