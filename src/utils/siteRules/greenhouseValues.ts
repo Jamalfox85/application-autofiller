@@ -574,3 +574,66 @@ export function pickSponsorshipOption(
     null
   )
 }
+
+// Native <select> options from a fixture or embed. value is what we assign;
+// label is the visible text the pickers compare.
+export type NativeSelectChoice = {
+  value: string
+  label: string
+}
+
+function visibleOptionLabel(label: string): string {
+  return label.replace(/\s+/g, ' ').trim()
+}
+
+// Returns the option value to assign, or null when no visible label fits.
+// An empty placeholder label is never selected.
+export function nativeSelectValue(
+  options: NativeSelectChoice[],
+  pick: (labels: string[]) => string | null,
+): string | null {
+  const labels = options.map((option) => visibleOptionLabel(option.label))
+  const chosen = pick(labels)
+  if (!chosen) return null
+  const wanted = visibleOptionLabel(chosen)
+  if (!wanted) return null
+  const index = labels.findIndex((label) => label === wanted)
+  if (index < 0) return null
+  return options[index].value
+}
+
+export function nativeMonthSelectValue(
+  options: NativeSelectChoice[],
+  monthName: string,
+): string | null {
+  return nativeSelectValue(options, (labels) => pickMonthOption(labels, monthName))
+}
+
+export function nativeWorkAuthorizationSelectValue(
+  options: NativeSelectChoice[],
+  workAuthorization?: string,
+): string | null {
+  return nativeSelectValue(options, (labels) =>
+    pickWorkAuthorizationOption(labels, workAuthorization),
+  )
+}
+
+export function nativeSponsorshipSelectValue(
+  options: NativeSelectChoice[],
+  requiresSponsorship: boolean,
+): string | null {
+  return nativeSelectValue(options, (labels) => pickSponsorshipOption(labels, requiresSponsorship))
+}
+
+// Visible year text only. A label of the raw "2020-06" date is not a year option.
+export function nativeYearSelectValue(
+  options: NativeSelectChoice[],
+  looseDate?: string | null,
+): string | null {
+  const year = yearFromLooseDate(looseDate || '')
+  if (!year) return null
+  return nativeSelectValue(options, (labels) => {
+    const want = year.toLowerCase()
+    return labels.find((label) => label.toLowerCase() === want) ?? null
+  })
+}

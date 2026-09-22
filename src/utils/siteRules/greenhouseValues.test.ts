@@ -10,6 +10,10 @@ import {
   isStateQuestion,
   locationSearchValues,
   monthNameFromLooseDate,
+  nativeMonthSelectValue,
+  nativeSponsorshipSelectValue,
+  nativeWorkAuthorizationSelectValue,
+  nativeYearSelectValue,
   parseGreenhouseEducationId,
   pickDegreeOption,
   pickDisciplineOption,
@@ -329,4 +333,59 @@ test('sponsorship No does not select an option that only contains "no" inside "n
   assert.equal(pickSponsorshipOption(YES_NO, false), 'No')
   assert.equal(pickSponsorshipOption(YES_NO, true), 'Yes')
   assert.deepEqual(sponsorshipSearchValues(false), ['No', 'not require'])
+})
+
+const MONTH_SELECT = [
+  { value: '', label: 'Month' },
+  { value: '1', label: 'January' },
+  { value: '6', label: 'June' },
+  { value: '12', label: 'December' },
+]
+
+const YES_NO_SELECT = [
+  { value: '', label: 'Select...' },
+  { value: '0', label: 'No' },
+  { value: '1', label: 'Yes' },
+]
+
+test('native employment month select uses the visible month name, not the blank placeholder', () => {
+  assert.equal(nativeMonthSelectValue(MONTH_SELECT, 'June'), '6')
+  assert.equal(nativeMonthSelectValue(MONTH_SELECT, 'December'), '12')
+  assert.equal(nativeMonthSelectValue(MONTH_SELECT, 'May'), null)
+})
+
+test('native work-authorization select uses option labels, including sentence menus', () => {
+  assert.equal(nativeWorkAuthorizationSelectValue(YES_NO_SELECT, 'authorized_no_sponsorship'), '1')
+  assert.equal(nativeWorkAuthorizationSelectValue(YES_NO_SELECT, 'need_sponsorship'), '0')
+  assert.equal(
+    nativeWorkAuthorizationSelectValue(
+      SPACEX_WORK_AUTH.map((label, index) => ({ value: String(index + 1), label })),
+      'authorized_no_sponsorship',
+    ),
+    '1',
+  )
+  assert.equal(nativeWorkAuthorizationSelectValue(YES_NO_SELECT, ''), null)
+})
+
+test('native sponsorship select picks Yes or No from the visible label', () => {
+  assert.equal(nativeSponsorshipSelectValue(YES_NO_SELECT, false), '0')
+  assert.equal(nativeSponsorshipSelectValue(YES_NO_SELECT, true), '1')
+  const sentences = [
+    { value: 'need', label: 'I will require sponsorship now or in the future' },
+    { value: 'ok', label: 'I will not require sponsorship now or in the future' },
+  ]
+  assert.equal(nativeSponsorshipSelectValue(sentences, false), 'ok')
+  assert.equal(nativeSponsorshipSelectValue(sentences, true), 'need')
+})
+
+test('native year select assigns the 4-digit year and ignores a raw year-month label', () => {
+  const years = [
+    { value: '', label: 'Year' },
+    { value: 'raw', label: '2020-06' },
+    { value: '2020', label: '2020' },
+    { value: '2021', label: '2021' },
+  ]
+  assert.equal(nativeYearSelectValue(years, '2020-06'), '2020')
+  assert.equal(nativeYearSelectValue([{ value: 'raw', label: '2020-06' }], '2020-06'), null)
+  assert.equal(yearFromLooseDate('2020-06'), '2020')
 })

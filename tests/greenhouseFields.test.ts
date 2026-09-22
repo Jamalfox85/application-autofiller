@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   dialingCodeSearchValues,
+  employmentCheckboxClick,
   employmentFillPlan,
   isGreenhousePhoneDialingCodeField,
   locationSearchQueries,
@@ -270,5 +271,66 @@ describe('employment fill plan', () => {
       action: 'text',
       value: '2016',
     })
+  })
+
+  it('reads jobTitle for the title control', () => {
+    assert.deepEqual(
+      employmentFillPlan('title', { jobTitle: 'Platform Engineer', companyName: 'Northwind Labs' }),
+      { action: 'text', value: 'Platform Engineer' },
+    )
+    assert.deepEqual(employmentFillPlan('title', { companyName: 'Northwind Labs' }), {
+      action: 'skip',
+    })
+    assert.deepEqual(employmentFillPlan('title', { jobTitle: '  ' }), { action: 'skip' })
+  })
+
+  it('writes a 4-digit year for 2020-06 and never the raw start date', () => {
+    const plan = employmentFillPlan('startYear', { startDate: '2020-06', present: true })
+    assert.deepEqual(plan, { action: 'text', value: '2020' })
+    if (plan.action === 'text') assert.equal(plan.value.includes('-'), false)
+    assert.deepEqual(
+      employmentFillPlan('endYear', {
+        startDate: '2020-06',
+        endDate: '2020-06',
+        present: false,
+      }),
+      { action: 'text', value: '2020' },
+    )
+  })
+})
+
+describe('current-role checkbox', () => {
+  it('clicks current-role-{n}_1 only when that row is current and unchecked', () => {
+    assert.equal(
+      employmentCheckboxClick('current-role-0_1', currentRole, {
+        type: 'checkbox',
+        checked: false,
+      }),
+      true,
+    )
+    assert.equal(
+      employmentCheckboxClick('current-role-1_1', pastRole, { type: 'checkbox', checked: false }),
+      false,
+    )
+    assert.equal(
+      employmentCheckboxClick('current-role-0_1', currentRole, { type: 'checkbox', checked: true }),
+      false,
+    )
+    assert.equal(
+      employmentCheckboxClick('current-role-0', currentRole, { type: 'checkbox', checked: false }),
+      false,
+    )
+    assert.equal(
+      employmentCheckboxClick('current-role-0_1', currentRole, { type: 'text', checked: false }),
+      false,
+    )
+    assert.equal(
+      employmentCheckboxClick(
+        'current-role-2_1',
+        { companyName: 'Fabrikam', startDate: '2019-01' },
+        { type: 'checkbox', checked: false },
+      ),
+      true,
+    )
   })
 })

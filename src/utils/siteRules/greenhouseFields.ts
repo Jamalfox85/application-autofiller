@@ -295,6 +295,20 @@ export function employmentFillPlan(
   return { action: 'text', value }
 }
 
+// current-role-{n}_1 is the checkbox (option value "1"). Click it only when this
+// row is the current role and the box is not already checked. The wrapper id
+// current-role-{n} is not this control.
+export function employmentCheckboxClick(
+  inputId: string,
+  experience: EmploymentProfileEntry | undefined,
+  control: { type?: string | null; checked?: boolean },
+): boolean {
+  const field = parseGreenhouseEmploymentField(inputId)
+  if (!field || field.kind !== 'currentRole' || !experience) return false
+  if (control.type !== 'checkbox' || control.checked) return false
+  return employmentFillPlan(field.kind, experience).action === 'check'
+}
+
 function employmentText(kind: GreenhouseEmploymentKind, experience: EmploymentProfileEntry) {
   if (kind === 'company') return (experience.companyName || '').trim()
   if (kind === 'title') return (experience.jobTitle || '').trim()
