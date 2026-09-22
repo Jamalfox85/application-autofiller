@@ -20,13 +20,18 @@ import {
   stripEmpty,
 } from './mixpanelConfig'
 
-export async function trackEvent(eventName: string, properties?: Record<string, unknown>) {
+export async function trackEvent(
+  eventName: string,
+  properties?: Record<string, unknown>,
+  options?: { keepalive?: boolean },
+) {
   try {
     const distinctId = await getOrCreateDistinctId()
 
     await fetch(MIXPANEL_HTTP_TRACK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/plain' },
+      keepalive: options?.keepalive,
       body: JSON.stringify([
         {
           event: eventName,

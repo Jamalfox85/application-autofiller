@@ -6,13 +6,20 @@
 // (it isn't bundled), so it re-implements the same get-or-create logic inline.
 const STORAGE_KEY = 'mixpanelDistinctId'
 
+let cachedDistinctId: string | null = null
+
 export async function getOrCreateDistinctId(): Promise<string> {
+  if (cachedDistinctId) return cachedDistinctId
+
   const existing = await chrome.storage.local.get(STORAGE_KEY)
-  if (existing[STORAGE_KEY]) {
-    return existing[STORAGE_KEY]
+  const stored = existing[STORAGE_KEY]
+  if (typeof stored === 'string' && stored) {
+    cachedDistinctId = stored
+    return stored
   }
 
   const id = crypto.randomUUID()
+  cachedDistinctId = id
   await chrome.storage.local.set({ [STORAGE_KEY]: id })
   return id
 }

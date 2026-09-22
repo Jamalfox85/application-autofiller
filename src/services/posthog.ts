@@ -2,7 +2,11 @@
 const POSTHOG_API_KEY = import.meta.env.VITE_POSTHOG_API_KEY as string
 const POSTHOG_API_HOST = import.meta.env.VITE_POSTHOG_API_HOST as string
 
-export const captureEvent = async (eventName: string, properties?: Record<string, any>) => {
+export const captureEvent = async (
+  eventName: string,
+  properties?: Record<string, any>,
+  options?: { keepalive?: boolean },
+) => {
   const payload = {
     api_key: POSTHOG_API_KEY,
     event: eventName,
@@ -17,6 +21,7 @@ export const captureEvent = async (eventName: string, properties?: Record<string
     const response = await fetch('https://app.posthog.com/capture/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      keepalive: options?.keepalive,
       body: JSON.stringify(payload),
     })
 

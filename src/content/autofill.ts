@@ -10,6 +10,7 @@ import {
 import { normalizeText } from '@/utils/helpers.ts'
 import { captureEvent } from '@/services/posthog'
 import { trackEvent } from '@/services/mixpanelHttp'
+import { noteApplyAttempt } from './applySession'
 
 // import { api } from '../lib/api'
 
@@ -153,6 +154,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
         failure_stage: 'detection',
         attempt_count_for_form: attemptCountForForm,
       })
+      noteApplyAttempt({ success: false, filledCount: 0, attemptedCount: 0, triggerSource })
       return { success: false, message: 'No fillable fields found' }
     }
 
@@ -229,7 +231,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       filled_percent: filledDenom === 0 ? 0 : Math.round((filledCount / filledDenom) * 100),
     })
 
-    return {
+    const result = {
       success: filledCount > 0,
       fieldsCount: filledCount,
       totalCount: attemptedCount,
@@ -238,6 +240,13 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       roleGuess: guessJobTitle(),
       message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
     }
+    noteApplyAttempt({
+      success: result.success,
+      filledCount,
+      attemptedCount,
+      triggerSource,
+    })
+    return result
   } catch (error) {
     trackEvent('autofill_blocked_or_failed', {
       failure_reason: 'parse_error',
@@ -245,6 +254,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       failure_stage: 'injection',
       attempt_count_for_form: attemptCountForForm,
     })
+    noteApplyAttempt({ success: false, filledCount: 0, attemptedCount, triggerSource })
     return { success: false, message: 'Error during autofill' }
   }
 }

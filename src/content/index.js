@@ -16,6 +16,7 @@ import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
+import { beginApplySession } from './applySession.ts'
 
 // Initialize when page loads
 if (document.readyState === 'loading') {
@@ -36,6 +37,10 @@ async function initialize() {
 
   const personalInfoData = await chrome.storage.local.get('personalInfo')
   const personalInfo = personalInfoData.personalInfo
+
+  if (personalInfo) {
+    beginApplySession(window.location.hostname)
+  }
 
   // job_site_visit_detected only makes sense once the user actually has a profile to fill
   // with — before that there's no meaningful "time since profile completed" to report.
