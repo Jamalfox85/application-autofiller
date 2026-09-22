@@ -110,13 +110,15 @@ const handleFinish = async () => {
 
   const session = await getProfileSetupSession()
   if (session) {
-    trackEvent('profile_setup_completed', {
+    const properties = {
       required_fields_completed_count: CORE_SECTIONS.filter(
         (s) => s.required && s.done(finalProfile),
       ).length,
       time_to_complete_seconds: (Date.now() - session.startedAt) / 1000,
       // experience_level omitted — the profile form does not collect a stated level.
-    })
+    }
+    trackEvent('profile_completed', properties)
+    void captureEvent('profile_completed', properties)
     await completeProfileSetupSession()
   }
 

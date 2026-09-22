@@ -1,7 +1,23 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
-import { fillReactSelect } from '../../utils/inputHandlers'
-import { sleep } from '../helpers.ts'
+import { fillNativeInput, fillReactSelect } from '../../utils/inputHandlers'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
+import {
+  countrySearchValues,
+  degreeSearchValues,
+  disciplineSearchValues,
+  isResidenceCountryField,
+  isStateQuestion,
+  locationSearchValues,
+  monthNameFromLooseDate,
+  schoolSearchValues,
+  stateSearchValues,
+  yearFromLooseDate,
+} from './greenhouseValues.ts'
+
+// Snapshot at load. Greenhouse mounts city/race/education inputs only after an
+// earlier answer, which increases this count. Replacing a react-select node
+// during typing does not, so a refill doesn't loop.
+let seenFillableCount = countGreenhouseFillableFields()
 
 export default function greenhouseConfig(): SiteRule {
   return {
@@ -14,8 +30,22 @@ export default function greenhouseConfig(): SiteRule {
       }
       return false
     },
-    formChanged: () => false,
+    formChanged: () => {
+      const count = countGreenhouseFillableFields()
+      if (count > seenFillableCount) {
+        seenFillableCount = count
+        return true
+      }
+      return false
+    },
   }
+}
+
+function countGreenhouseFillableFields(): number {
+  if (typeof document === 'undefined') return 0
+  const root = document.getElementById('application-form') || document.body
+  if (!root) return 0
+  return root.querySelectorAll('input:not([type="hidden"]), textarea, select').length
 }
 
 const fieldHandlers: Array<{
@@ -23,124 +53,115 @@ const fieldHandlers: Array<{
   handle: FieldHandler
 }> = [
   {
-    match: (input, _) => input.getAttribute('id') === 'country',
+    // Inside the phone fieldset. Options look like "United States +1".
+    match: (input, _) => input.id === 'country',
     handle: async (input, _, personalInfo) => {
-      if (!personalInfo.country) return true
-      const country = personalInfo.country.replace('_', ' ') || ''
-      await fillReactSelect(input, country, '[id^=react-select-country-option-]')
+      const queries = countrySearchValues(personalInfo.country)
+      if (queries.length === 0) return true
+      await fillReactSelect(input, queries, '[id^=react-select-country-option-]')
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'candidate-location',
+    match: (input, _) => input.id === 'candidate-location',
     handle: async (input, _, personalInfo) => {
-      const location = [
-        personalInfo.city,
-        personalInfo.state,
-        personalInfo.country.replace('_', ' '),
-      ]
-        .filter(Boolean)
-        .join(', ')
-      await sleep(500)
-      await fillReactSelect(input, location, '[id^=react-select-candidate-location-option-]')
+      const queries = locationSearchValues({
+        city: personalInfo.city,
+        state: stateSearchValues(personalInfo.state)[0],
+        country: countrySearchValues(personalInfo.country)[0],
+      })
+      if (queries.length === 0) return true
+      await fillReactSelect(input, queries, '[id^=react-select-candidate-location-option-]')
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'school--0',
+    match: (input, _) => input.id === 'school--0',
     handle: async (input, _, personalInfo) => {
-      const schoolName = personalInfo.education?.[0]?.schoolName
-      if (!schoolName) return true
-      await sleep(500)
-      await fillReactSelect(input, schoolName, '[id^=react-select-school--0-option-]')
+      const queries = schoolSearchValues(personalInfo.education?.[0]?.schoolName)
+      if (queries.length === 0) return true
+      await fillReactSelect(input, queries, '[id^=react-select-school--0-option-]')
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'degree--0',
+    match: (input, _) => input.id === 'degree--0',
     handle: async (input, _, personalInfo) => {
-      const degreeType = personalInfo.education?.[0]?.degreeType
-      if (!degreeType) return true
-      await sleep(500)
-      await fillReactSelect(input, degreeType, '[id^=react-select-degree--0-option-]')
+      const queries = degreeSearchValues(personalInfo.education?.[0]?.degreeType)
+      if (queries.length === 0) return true
+      await fillReactSelect(input, queries, '[id^=react-select-degree--0-option-]')
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'discipline--0',
+    match: (input, _) => input.id === 'discipline--0',
     handle: async (input, _, personalInfo) => {
-      const major = personalInfo.education?.[0]?.major
-      if (!major) return true
-      await sleep(500)
-      await fillReactSelect(input, major, '[id^=react-select-discipline--0-option-]')
+      const queries = disciplineSearchValues(personalInfo.education?.[0]?.major)
+      if (queries.length === 0) return true
+      await fillReactSelect(input, queries, '[id^=react-select-discipline--0-option-]')
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'start-month--0',
+    // Education month/year. These ids sit next to school--0. The profile stores
+    // education years (and sometimes a month inside that string), not experience dates.
+    match: (input, _) => input.id === 'start-month--0',
     handle: async (input, _, personalInfo) => {
-      const startDate = personalInfo.experience?.[0]?.startDate
-      if (!startDate) return true
-      const month = new Date(startDate).toLocaleString('default', { month: 'long' })
-      await sleep(500)
+      const month = monthNameFromLooseDate(personalInfo.education?.[0]?.startYear)
+      if (!month) return true
       await fillReactSelect(input, month, '[id^=react-select-start-month--0-option-]')
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'start-year--0',
-    handle: (input, _, personalInfo) => {
-      const startDate = personalInfo.experience?.[0]?.startDate
-      if (!startDate) return true
-      input.value = new Date(startDate).getFullYear().toString()
+    match: (input, _) => input.id === 'start-year--0',
+    handle: async (input, _, personalInfo) => {
+      const year = yearFromLooseDate(personalInfo.education?.[0]?.startYear)
+      if (!year) return true
+      await fillNativeInput(input, year)
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'end-month--0',
+    match: (input, _) => input.id === 'end-month--0',
     handle: async (input, _, personalInfo) => {
-      const currentExp = personalInfo.experience?.[0]
-      if (!currentExp) return true
-      const endDateObj = currentExp.endDate ? new Date(currentExp.endDate) : new Date()
-      const month = !isNaN(endDateObj.getTime())
-        ? endDateObj.toLocaleString('default', { month: 'long' })
-        : new Date().toLocaleString('default', { month: 'long' })
-      await sleep(500)
+      const month = monthNameFromLooseDate(personalInfo.education?.[0]?.graduationYear)
+      if (!month) return true
       await fillReactSelect(input, month, '[id^=react-select-end-month--0-option-]')
       return true
     },
   },
   {
-    match: (input, _) => input.getAttribute('id') === 'end-year--0',
-    handle: (input, _, personalInfo) => {
-      const currentExp = personalInfo.experience?.[0]
-      if (!currentExp) return true
-      const endDateObj = currentExp.endDate ? new Date(currentExp.endDate) : new Date()
-      input.value = !isNaN(endDateObj.getTime())
-        ? endDateObj.getFullYear().toString()
-        : new Date().getFullYear().toString()
+    match: (input, _) => input.id === 'end-year--0',
+    handle: async (input, _, personalInfo) => {
+      const year = yearFromLooseDate(personalInfo.education?.[0]?.graduationYear)
+      if (!year) return true
+      await fillNativeInput(input, year)
       return true
     },
   },
   {
     match: (input, _) => input.getAttribute('aria-label') === 'Home Address',
     handle: async (input, _, personalInfo) => {
-      const stateZip = `${personalInfo.state || ''} ${personalInfo.zip || ''}`.trim()
+      const stateZip = `${stateSearchValues(personalInfo.state)[0] || ''} ${personalInfo.zip || ''}`.trim()
       const fullAddress = [personalInfo.address, personalInfo.city, stateZip]
         .filter(Boolean)
         .join(', ')
-      await sleep(500)
+      if (!fullAddress) return true
       await fillReactSelect(input, fullAddress, '[id^=react-select-home-address]')
       return true
     },
   },
   {
-    match: (_, fieldText) => fieldText.includes('selectyourstate'),
+    match: (_, fieldText) => isStateQuestion(fieldText),
     handle: async (input, _, personalInfo) => {
-      const state = personalInfo.state || ''
-      const questionId = input.getAttribute('id')?.match(/question_(\d+)/)?.[1] || ''
-      await sleep(500)
-      await fillReactSelect(input, state, `[id^=react-select-question_${questionId}-option-]`)
+      const queries = stateSearchValues(personalInfo.state)
+      if (queries.length === 0) return true
+      const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
+      const optionSelector = questionId
+        ? `[id^=react-select-question_${questionId}-option-]`
+        : undefined
+      await fillReactSelect(input, queries, optionSelector)
       return true
     },
   },
@@ -149,17 +170,17 @@ const fieldHandlers: Array<{
       fieldText.includes('legallyauthorized') || fieldText.includes('authorizedtowork'),
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization) return false
-      const isAuthorized = ['us_citizen', 'green_card', 'work_visa', 'authorized_no_sponsorship'].includes(
-        personalInfo.workAuthorization,
-      )
-      const questionId = input.getAttribute('id')?.match(/question_(\d+)/)?.[1] || ''
-      await sleep(500)
-      console.log('Filling legal authorization question with:', isAuthorized ? 'Yes' : 'No')
-      await fillReactSelect(
-        input,
-        isAuthorized ? 'Yes' : 'No',
-        `[id^=react-select-question_${questionId}-option-]`,
-      )
+      const isAuthorized = [
+        'us_citizen',
+        'green_card',
+        'work_visa',
+        'authorized_no_sponsorship',
+      ].includes(personalInfo.workAuthorization)
+      const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
+      const optionSelector = questionId
+        ? `[id^=react-select-question_${questionId}-option-]`
+        : undefined
+      await fillReactSelect(input, isAuthorized ? 'Yes' : 'No', optionSelector)
       return true
     },
   },
@@ -172,13 +193,26 @@ const fieldHandlers: Array<{
         : !['us_citizen', 'green_card', 'authorized_no_sponsorship'].includes(
             personalInfo.workAuthorization ?? '',
           )
-      const questionId = input.getAttribute('id')?.match(/question_(\d+)/)?.[1] || ''
-      await sleep(500)
-      await fillReactSelect(
-        input,
-        requiresSponsorship ? 'Yes' : 'No',
-        `[id^=react-select-question_${questionId}-option-]`,
-      )
+      const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
+      const optionSelector = questionId
+        ? `[id^=react-select-question_${questionId}-option-]`
+        : undefined
+      await fillReactSelect(input, requiresSponsorship ? 'Yes' : 'No', optionSelector)
+      return true
+    },
+  },
+  {
+    // Custom "country of residence" / "country in which you are located" selects.
+    // These are required on many boards and are not the phone #country widget.
+    match: (input, fieldText) => isResidenceCountryField(input.id, fieldText),
+    handle: async (input, _, personalInfo) => {
+      const queries = countrySearchValues(personalInfo.country)
+      if (queries.length === 0) return true
+      const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
+      const optionSelector = questionId
+        ? `[id^=react-select-question_${questionId}-option-]`
+        : undefined
+      await fillReactSelect(input, queries, optionSelector)
       return true
     },
   },

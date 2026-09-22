@@ -7,7 +7,7 @@ import { useNotification } from './composables/useNotification'
 import { useFillHistory } from './composables/useFillHistory'
 import { useAuth } from './composables/useAuth'
 import { getSiteLabel } from '@/utils/jobSitePatterns.ts'
-import { trackEvent } from '@/services/mixpanel'
+import { trackFillContract } from '@/services/fillTelemetry'
 import DataVault from './components/DataVault.vue'
 import Welcome from './components/Welcome.vue'
 import HistoryView from './components/HistoryView.vue'
@@ -146,12 +146,9 @@ const autofillCurrentPage = async () => {
     } catch {
       // Tab URL can be unavailable on chrome:// and similar pages.
     }
-    trackEvent('autofill_blocked_or_failed', {
-      failure_reason: 'unsupported_site',
-      job_site: jobSite,
-      failure_stage: 'detection',
-      attempt_count_for_form: 1,
-    })
+    const host = jobSite || ''
+    await trackFillContract('autofill_attempted', host)
+    await trackFillContract('autofill_failed', host)
   }
 }
 

@@ -45,12 +45,14 @@ const handleFileChange = (event: Event) => {
 
 const trackProfileSetupStarted = async (profileType: 'default' | 'custom') => {
   const session = await startProfileSetupSession()
-  trackEvent('profile_setup_started', {
+  const properties = {
     entry_point: 'onboarding_page',
     session_id: session.id,
     profile_type: profileType,
     language: navigator.language,
-  })
+  }
+  trackEvent('onboarding_started', properties)
+  void captureEvent('onboarding_started', properties)
 }
 
 const handleManual = () => {

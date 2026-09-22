@@ -15,7 +15,9 @@ import {
 import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
+import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
+import { atsFromHostname } from '../utils/ats.ts'
 
 // Initialize when page loads
 if (document.readyState === 'loading') {
@@ -158,12 +160,16 @@ async function trackApplicationSubmitted(submitMethod) {
   const trigger = await consumeAutofillTriggerForSubmission()
   if (!trigger) return
 
-  trackEvent('application_submitted', {
-    job_site: trigger.jobSite || window.location.hostname,
+  const host = trigger.jobSite || window.location.hostname
+  const properties = {
+    ats: atsFromHostname(host) ?? 'other',
+    job_site: host,
     submit_method: submitMethod,
     time_since_autofill_triggered_seconds: (Date.now() - trigger.triggeredAt) / 1000,
     submission_success: true,
-  })
+  }
+  trackEvent('application_submitted', properties)
+  captureEvent('application_submitted', properties)
 }
 
 function detectJobApplicationPage() {
