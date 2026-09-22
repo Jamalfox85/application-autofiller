@@ -34,6 +34,8 @@ Required:
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_EXTENSIONPAY_EXTENSION_ID` — ExtensionPay extension id. The committed default is `gofillr`. Plan nicknames to create in the dashboard: `pro_monthly` ($5.99/mo) and `pro_annual` ($49/yr). Do not commit the per-install ExtensionPay API key; the library stores it in `chrome.storage.sync`.
 
+A purchase keeps Pro in the local entitlement cache and in `pendingProfilePlan`. The extension still attempts a client `UPDATE` of `profiles.plan`, and that write is expected to fail the live row lock. It does not grant API Pro and it is not a client bypass. The durable `profiles.plan` write waits on the backend billing endpoint (path not published yet). `POST /api/v1/resumes/generate` and `POST /api/v1/ats/analyze` send `Authorization: Bearer <supabase access token>`. A 403 whose `error.code` is `plan_required` opens the Pro upgrade UI, whether or not the body also has `success: false`.
+
 If either one is missing, or still set to the `.env.example` placeholder, the popup shows a setup message instead of a blank panel. Sign-in and profile sync need the real values. A store build has to be produced from a `.env` that contains them.
 
 ### 4. Build the Extension

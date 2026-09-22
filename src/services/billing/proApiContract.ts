@@ -1,14 +1,14 @@
 import { isPlanRequiredResponse } from './planRequired.ts'
 
-// Backend draft (resume-api#48). Product name for generate is "tailor" — there is
-// no separate tailor route. Upload/parse is not in this map and stays ungated.
+// Backend contract (resume-api#48). Product name for generate is "tailor" — there
+// is no separate tailor route. Upload/parse is not in this map and stays ungated.
 // Fill quota never calls these routes.
 //
-// The API's ENFORCE_PLAN_GATE flag defaults to false. While it is off these POSTs
-// still succeed without a pro row. When it is on, both routes require
-// Authorization: Bearer <supabase access token> and profiles.plan = pro, and
-// otherwise return 403 plan_required. This client always sends the Bearer token
-// and turns that 403 into the resume Pro gate.
+// ENFORCE_PLAN_GATE defaults on. Both POSTs require
+// Authorization: Bearer <supabase access token> and profiles.plan = pro.
+// Otherwise they return 403 with error.code plan_required, with or without
+// success: false. This client always sends the Bearer token and turns that
+// 403 into the resume Pro upgrade UI. The client does not write profiles.plan.
 export const PRO_RESUME_PATHS = {
   generate: '/resumes/generate',
   analyze: '/ats/analyze',

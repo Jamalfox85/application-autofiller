@@ -162,12 +162,15 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(priceForPlan('monthly'), 5.99)
 })
 
-test('plan_required 403 is the only body that opens the resume gate', () => {
-  const body = { success: false, error: { code: 'plan_required', message: 'Pro plan required' } }
-  assert.equal(isPlanRequiredResponse(403, body), true)
-  assert.equal(isPlanRequiredResponse(401, body), false)
+test('plan_required 403 opens the resume gate for both body shapes', () => {
+  const enveloped = { success: false, error: { code: 'plan_required', message: 'Pro plan required' } }
+  const codeOnly = { error: { code: 'plan_required', message: 'Pro plan required' } }
+  assert.equal(isPlanRequiredResponse(403, enveloped), true)
+  assert.equal(isPlanRequiredResponse(403, codeOnly), true)
+  assert.equal(isPlanRequiredResponse(401, enveloped), false)
   assert.equal(isPlanRequiredResponse(403, { success: false, error: { code: 'other', message: 'no' } }), false)
   assert.equal(isPlanRequiredResponse(403, { success: false, error: 'Pro plan required' }), false)
+  assert.equal(isPlanRequiredResponse(403, { success: true, error: { code: 'plan_required' } }), false)
 })
 
 test('generate and ats analyze send the supabase bearer token', async () => {
@@ -205,6 +208,25 @@ test('generate and ats analyze send the supabase bearer token', async () => {
   assert.equal((calls[0].init.headers as Record<string, string>).Authorization, 'Bearer jwt-1')
   assert.equal(calls[0].init.method, 'POST')
 
+  const fetchCodeOnly: typeof fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init ?? {} })
+    return new Response(JSON.stringify({ error: { code: 'plan_required', message: 'Pro plan required' } }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  const blockedCodeOnly = await postProResume({
+    action: 'analyze',
+    body: { job_description: 'Role' },
+    fetchImpl: fetchCodeOnly,
+    token: 'jwt-1b',
+    baseUrl: 'https://api.example.com/api/v1',
+    apiKey: '',
+  })
+  assert.deepEqual(blockedCodeOnly, { ok: false, gate: 'resume_ai' })
+  assert.equal(calls[1].url, 'https://api.example.com/api/v1/ats/analyze')
+  assert.equal((calls[1].init.headers as Record<string, string>).Authorization, 'Bearer jwt-1b')
+
   const fetchOk: typeof fetch = async (url, init) => {
     calls.push({ url: String(url), init: init ?? {} })
     return new Response(JSON.stringify({ success: true, data: { score: 81 } }), { status: 200 })
@@ -218,8 +240,13 @@ test('generate and ats analyze send the supabase bearer token', async () => {
     apiKey: '',
   })
   assert.deepEqual(scored, { ok: true, data: { score: 81 } })
-  assert.equal(calls[1].url, 'https://api.example.com/api/v1/ats/analyze')
-  assert.equal((calls[1].init.headers as Record<string, string>).Authorization, 'Bearer jwt-2')
+  assert.equal(calls[2].url, 'https://api.example.com/api/v1/ats/analyze')
+  assert.equal((calls[2].init.headers as Record<string, string>).Authorization, 'Bearer jwt-2')
+
+  const app = readFileSync('src/App.vue', 'utf8')
+  assert.match(app, /@plan-required="resumeOpen = false; openPaywall\('resume_ai'\)"/)
+  const proApi = readFileSync('src/services/billing/proApi.ts', 'utf8')
+  assert.match(proApi, /getValidAccessToken/)
 })
 
 test('extension pay skus and profile plan stay out of ordinary profile saves', () => {
@@ -231,6 +258,14 @@ test('extension pay skus and profile plan stay out of ordinary profile saves', (
   const profileSync = readFileSync('src/lib/sync/profile.ts', 'utf8')
   const fn = profileSync.slice(profileSync.indexOf('export function profileToDbRows'), profileSync.indexOf('export function dbRowsToProfile'))
   assert.doesNotMatch(fn, /\bplan:/)
+
+  const planWrite = readFileSync('src/services/billing/profilePlan.ts', 'utf8')
+  assert.match(planWrite, /PENDING_PLAN_KEY/)
+  assert.match(planWrite, /TODO\(backend\)/)
+  assert.match(planWrite, /RLS write-lock expected/)
+  assert.doesNotMatch(planWrite, /storage\.local\.remove/)
+  assert.doesNotMatch(planWrite, /ok: true/)
+  assert.doesNotMatch(planWrite, /write-lock on this column is not live/)
 
   const upload = readFileSync('background.js', 'utf8')
   const uploadFn = upload.slice(upload.indexOf('async function handleResumeUpload'), upload.indexOf('chrome.runtime.onMessage.addListener'))
