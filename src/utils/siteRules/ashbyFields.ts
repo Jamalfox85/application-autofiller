@@ -422,7 +422,10 @@ export function ashbyEeoOptionMatches(
           ? info.veteranStatus || ''
           : info.disabilityStatus || ''
 
-  if (!value || value === 'decline') return isDeclineOption(optionLabel)
+  // Empty values are a skip: do not pick a decline option just because the
+  // profile left the answer blank. An explicit stored decline still may.
+  if (!value) return false
+  if (value === 'decline') return isDeclineOption(optionLabel)
 
   const table =
     kind === 'gender'
@@ -464,7 +467,9 @@ export function ashbyEeoSearchLabels(kind: AshbyEeoKind, info: AshbyProfile): st
           ? info.veteranStatus || ''
           : info.disabilityStatus || ''
 
-  if (!value || value === 'decline') {
+  // Blank answers stay blank. Explicit decline still searches decline labels.
+  if (!value) return []
+  if (value === 'decline') {
     return ['Decline to self identify', 'Prefer not to say', "I don't wish to answer"]
   }
 

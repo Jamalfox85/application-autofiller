@@ -355,6 +355,10 @@ describe('Ashby yes/no and EEO questions', () => {
     )
     assert.equal(
       ashbyEeoOptionMatches('race', 'I prefer not to answer', { ...profile, raceEthnicity: '' }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'I prefer not to answer', { ...profile, raceEthnicity: 'decline' }),
       true,
     )
     assert.equal(ashbyEeoOptionMatches('gender', 'I prefer not to answer', profile), false)
@@ -368,15 +372,76 @@ describe('Ashby yes/no and EEO questions', () => {
     assert.deepEqual(ashbyEeoSearchLabels('gender', profile), ['Man', 'Male'])
   })
 
-  it('skips EEO when answers are turned off and selects decline when unset', () => {
+  it('maps the smoke fixture EEO values onto standard survey labels', () => {
+    const fixture = {
+      eeoAnswersEnabled: true,
+      gender: 'female',
+      raceEthnicity: 'white',
+      veteranStatus: 'not_a_veteran',
+      disabilityStatus: 'no',
+    }
+    assert.equal(ashbyEeoOptionMatches('gender', 'Female', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('gender', 'Woman', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('gender', 'Male', fixture), false)
+    assert.equal(ashbyEeoOptionMatches('gender', 'Decline to self-identify', fixture), false)
+    assert.equal(ashbyEeoOptionMatches('race', 'White', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('race', 'White (Not Hispanic or Latino)', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('race', 'Hispanic or Latino', fixture), false)
+    assert.equal(ashbyEeoOptionMatches('race', 'Decline to self-identify', fixture), false)
+    assert.equal(
+      ashbyEeoOptionMatches('veteran', 'I am not a protected veteran', fixture),
+      true,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'veteran',
+        'I decline to self-identify for protected veteran status',
+        fixture,
+      ),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'veteran',
+        'I identify as one or more of the classifications of protected veteran listed above',
+        fixture,
+      ),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'disability',
+        'No, I do not have a disability and have not had one in the past',
+        fixture,
+      ),
+      true,
+    )
+    assert.deepEqual(ashbyEeoSearchLabels('gender', fixture), ['Woman', 'Female'])
+    assert.equal(ashbyEeoYesNo('disability', fixture), 'no')
+    assert.equal(ashbyEeoYesNo('veteran', fixture), 'no')
+    assert.equal(ashbyEeoYesNo('veteran', { veteranStatus: '' }), null)
+    assert.deepEqual(ashbyEeoSearchLabels('gender', { gender: '' }), [])
+  })
+
+  it('skips EEO when answers are turned off or the stored value is empty', () => {
     assert.equal(
       ashbyEeoOptionMatches('gender', 'Man', { ...profile, eeoAnswersEnabled: false }),
       false,
     )
     assert.equal(
       ashbyEeoOptionMatches('gender', 'Prefer not to say', { ...profile, gender: '' }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('gender', 'Prefer not to say', { ...profile, gender: 'decline' }),
       true,
     )
+    assert.deepEqual(ashbyEeoSearchLabels('gender', { ...profile, gender: '' }), [])
     assert.deepEqual(ashbyEeoSearchLabels('race', { ...profile, eeoAnswersEnabled: false }), [])
+    assert.deepEqual(ashbyEeoSearchLabels('race', { ...profile, raceEthnicity: 'decline' }), [
+      'Decline to self identify',
+      'Prefer not to say',
+      "I don't wish to answer",
+    ])
   })
 })
