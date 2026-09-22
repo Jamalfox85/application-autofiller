@@ -134,10 +134,27 @@ export const fillReactSelect = async (
       }
       if (openMode === 'greenhouse') await delay(150)
 
-      const found = await waitForOptionMatch(input, currentValue, selectId, pickOption)
+      // School search is async (Greenhouse debounceTimeout is 300ms) and the menu
+      // reads "No options" until that request returns. Aborting on the first empty
+      // paint types the next query — including the raw profile string — and a late
+      // catalog row then counts as success while that typed string is still visible.
+      const found = await waitForOptionMatch(
+        input,
+        currentValue,
+        selectId,
+        pickOption,
+        40,
+        0,
+        -1,
+        0,
+        openMode === 'greenhouse' ? 8 : 0,
+      )
       if (found) {
         await delay(200)
-        return true
+        // commitReactOption only dispatches events. If nothing applies the row,
+        // the input still shows the query that was just typed. That query may be
+        // the raw profile string, so a no-op click must not count as success.
+        if (comboboxShowsOption(input, found)) return true
       }
 
       setReactInputValue(input, '')
@@ -148,6 +165,9 @@ export const fillReactSelect = async (
     }
   }
 
+  // Every query failed to settle. Drop a trailing typed query so the field cannot
+  // keep "The University of Texas at Austin" after the catalog attempt missed.
+  if (input.value.trim() && input.value.trim() !== values[0]) setReactInputValue(input, '')
   input.blur()
   return false
 }
@@ -191,6 +211,33 @@ function commitReactOption(option: HTMLElement) {
   option.click()
 }
 
+// The visible school value is the search text while it is non-empty (that is what
+// #school--0 shows). A closed selection lives in .select__single-value only after
+// the input has been cleared. Neither is settled until it equals the chosen option.
+function comboboxShowsOption(input: HTMLInputElement, chosen: string): boolean {
+  const wanted = chosen.replace(/\s+/g, ' ').trim()
+  if (!wanted) return false
+  const typed = input.value.replace(/\s+/g, ' ').trim()
+  if (typed) return typed === wanted
+  const single = input.closest('.select')?.querySelector('.select__single-value')
+  const label = (single?.textContent || '').replace(/\s+/g, ' ').trim()
+  return label === wanted
+}
+
+// Search text sitting in a react-select input is not a committed answer. Greenhouse
+// shows the selection in .select__single-value and clears the input. A prior pass that
+// only typed the profile school name must be filled again.
+export function comboboxSearchIsUncommitted(input: HTMLElement): boolean {
+  if (!(input instanceof HTMLInputElement)) return false
+  if (input.getAttribute('role') !== 'combobox') return false
+  const typed = input.value.trim()
+  if (!typed) return false
+  const label =
+    input.closest('.select')?.querySelector('.select__single-value')?.textContent?.replace(/\s+/g, ' ').trim() ||
+    ''
+  return typed !== label
+}
+
 function optionLabel(el: Element) {
   return (el.textContent || '').replace(/\s+/g, ' ').trim()
 }
@@ -204,7 +251,11 @@ const waitForOptionMatch = (
   retryCount = 0,
   optionsSeenAt = -1,
   noOptionsStreak = 0,
-): Promise<boolean> => {
+  // Greenhouse education search paints "No options" during the debounce. Ignore
+  // that until this many polls have elapsed (~100ms each, after the initial wait)
+  // so the catalog row can land before the next query is typed.
+  noOptionsMinRetry = 0,
+): Promise<string | false> => {
   return new Promise((resolve) => {
     const options = collectReactOptions(input, selectId).filter(
       (option) => !isPlaceholderOption(option.textContent || ''),
@@ -214,15 +265,17 @@ const waitForOptionMatch = (
       : matchBestOption(options, searchValue)
 
     if (match instanceof HTMLElement) {
+      const label = optionLabel(match)
       commitReactOption(match)
-      resolve(true)
+      resolve(label)
       return
     }
 
     // "No options" means this query filtered the menu empty. Move on to the next
     // search string. A still-empty menu (school/city typeahead) keeps polling.
+    // A menu that has not had time to replace the initial empty paint is not empty.
     const nextNoOptionsStreak = ownedMenuHasNoOptions(input) ? noOptionsStreak + 1 : 0
-    if (nextNoOptionsStreak >= 3) {
+    if (nextNoOptionsStreak >= 3 && retryCount >= noOptionsMinRetry) {
       resolve(false)
       return
     }
@@ -244,6 +297,7 @@ const waitForOptionMatch = (
             retryCount + 1,
             seenAt,
             nextNoOptionsStreak,
+            noOptionsMinRetry,
           ),
         )
       }, 100)

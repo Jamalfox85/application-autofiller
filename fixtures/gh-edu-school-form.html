@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Greenhouse education school fixture</title>
+  </head>
+  <body>
+    <form id="application-form">
+      <div class="education--container">
+        <div class="education--form">
+          <div class="select">
+            <label id="school--0-label" for="school--0">School</label>
+            <div class="select__control">
+              <div class="select__value-container">
+                <div class="select__placeholder">Select...</div>
+                <input
+                  id="school--0"
+                  class="select__input"
+                  role="combobox"
+                  aria-expanded="false"
+                  aria-autocomplete="list"
+                  value=""
+                />
+              </div>
+              <button type="button" aria-label="Toggle flyout" tabindex="-1"></button>
+            </div>
+            <div class="select__menu" hidden>
+              <div id="react-select-school--0-listbox" role="listbox">
+                <div role="option" id="react-select-school--0-option-0">Austin College</div>
+                <div role="option" id="react-select-school--0-option-1">University of Texas - Austin</div>
+                <div role="option" id="react-select-school--0-option-2">University of Texas - Dallas</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Plain inputs. They are not the react-select school path, so a filled
+               degree or discipline does not mean school--0 committed a catalog row. -->
+          <label for="degree--0">Degree</label>
+          <input id="degree--0" type="text" value="" />
+          <label for="discipline--0">Discipline</label>
+          <input id="discipline--0" type="text" value="" />
+        </div>
+      </div>
+    </form>
+    <script>
+      // mouseup on the flyout opens the menu. Option mousedown/click does not choose:
+      // the typed search string stays in #school--0 unless the filler checks it.
+      // Typing filters after a short delay and shows "No options" until then, matching
+      // the async school catalog (debounce before "University of Texas - Austin").
+      const catalog = [
+        'Austin College',
+        'Stephen F. Austin State University',
+        'University of Texas - Austin',
+        'University of Texas - Dallas',
+      ]
+      const school = document.getElementById('school--0')
+      const root = school.closest('.select')
+      const listbox = document.getElementById('react-select-school--0-listbox')
+
+      function show(items) {
+        listbox.innerHTML = ''
+        if (!items.length) {
+          listbox.textContent = 'No options'
+          return
+        }
+        items.forEach((label, index) => {
+          const option = document.createElement('div')
+          option.setAttribute('role', 'option')
+          option.id = 'react-select-school--0-option-' + index
+          option.textContent = label
+          listbox.append(option)
+        })
+      }
+
+      root.addEventListener('mouseup', () => {
+        if (school.getAttribute('aria-expanded') === 'true') return
+        school.setAttribute('aria-expanded', 'true')
+        root.querySelector('.select__menu').hidden = false
+      })
+
+      school.addEventListener('input', () => {
+        const term = school.value.trim().toLowerCase()
+        show([])
+        window.setTimeout(() => {
+          if (!term) {
+            show([])
+            return
+          }
+          show(catalog.filter((label) => label.toLowerCase().includes(term)))
+        }, 500)
+      })
+    </script>
+  </body>
+</html>

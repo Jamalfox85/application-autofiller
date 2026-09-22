@@ -12,6 +12,7 @@ import {
   showErrorNotification,
 } from './notifications.ts'
 import {
+  comboboxSearchIsUncommitted,
   fillNativeInput,
   setSelectValue,
   setCheckboxValue,
@@ -109,7 +110,8 @@ function isSkippableField(input: FormField) {
     input.value &&
     input.value.trim() !== '' &&
     input.type != 'checkbox' &&
-    input.type != 'radio'
+    input.type != 'radio' &&
+    !comboboxSearchIsUncommitted(input)
   ) {
     return true
   }
