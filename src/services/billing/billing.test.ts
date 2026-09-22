@@ -18,6 +18,13 @@ import {
   proPurchasedProps,
   softPaywallShownProps,
 } from './paidEvents.ts'
+import { postBillingPlan } from './billingPlan.ts'
+import {
+  clearPendingProfilePlan,
+  flushPendingProfilePlan,
+  syncProPlanAfterPurchase,
+  type PendingPlanStore,
+} from './profilePlan.ts'
 import { PRO_RESUME_PATHS, postProResume, proResumeHeaders } from './proApiContract.ts'
 import {
   EXTENSION_PAY_EXTENSION_ID,
@@ -162,11 +169,13 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(priceForPlan('monthly'), 5.99)
 })
 
-test('plan_required 403 opens the resume gate for both body shapes', () => {
+test('plan_required 403 opens the resume gate, including a nested error code', () => {
   const enveloped = { success: false, error: { code: 'plan_required', message: 'Pro plan required' } }
   const codeOnly = { error: { code: 'plan_required', message: 'Pro plan required' } }
+  const nested = { success: false, error: { error: { code: 'plan_required', message: 'Pro plan required' } } }
   assert.equal(isPlanRequiredResponse(403, enveloped), true)
   assert.equal(isPlanRequiredResponse(403, codeOnly), true)
+  assert.equal(isPlanRequiredResponse(403, nested), true)
   assert.equal(isPlanRequiredResponse(401, enveloped), false)
   assert.equal(isPlanRequiredResponse(403, { success: false, error: { code: 'other', message: 'no' } }), false)
   assert.equal(isPlanRequiredResponse(403, { success: false, error: 'Pro plan required' }), false)
@@ -208,22 +217,22 @@ test('generate and ats analyze send the supabase bearer token', async () => {
   assert.equal((calls[0].init.headers as Record<string, string>).Authorization, 'Bearer jwt-1')
   assert.equal(calls[0].init.method, 'POST')
 
-  const fetchCodeOnly: typeof fetch = async (url, init) => {
+  const fetchNested: typeof fetch = async (url, init) => {
     calls.push({ url: String(url), init: init ?? {} })
-    return new Response(JSON.stringify({ error: { code: 'plan_required', message: 'Pro plan required' } }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: { error: { code: 'plan_required', message: 'Pro plan required' } } }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } },
+    )
   }
-  const blockedCodeOnly = await postProResume({
+  const blockedNested = await postProResume({
     action: 'analyze',
     body: { job_description: 'Role' },
-    fetchImpl: fetchCodeOnly,
+    fetchImpl: fetchNested,
     token: 'jwt-1b',
     baseUrl: 'https://api.example.com/api/v1',
     apiKey: '',
   })
-  assert.deepEqual(blockedCodeOnly, { ok: false, gate: 'resume_ai' })
+  assert.deepEqual(blockedNested, { ok: false, gate: 'resume_ai' })
   assert.equal(calls[1].url, 'https://api.example.com/api/v1/ats/analyze')
   assert.equal((calls[1].init.headers as Record<string, string>).Authorization, 'Bearer jwt-1b')
 
@@ -249,6 +258,114 @@ test('generate and ats analyze send the supabase bearer token', async () => {
   assert.match(proApi, /getValidAccessToken/)
 })
 
+function memoryPlanStore(initial?: unknown): { store: PendingPlanStore; read: () => unknown } {
+  let value = initial
+  return {
+    store: {
+      async get() {
+        return value
+      },
+      async setPro() {
+        value = 'pro'
+      },
+      async clear() {
+        value = undefined
+      },
+    },
+    read: () => value,
+  }
+}
+
+test('purchase posts billing/plan and does not update profiles.plan', async () => {
+  const calls: Array<{ url: string; init: RequestInit }> = []
+  const pending = memoryPlanStore()
+  const synced = await syncProPlanAfterPurchase({
+    store: pending.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    baseUrl: 'https://api.example.com/api/v1/',
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init: init ?? {} })
+      return new Response(JSON.stringify({ success: true, data: { plan: 'pro' } }), { status: 200 })
+    },
+  })
+  assert.deepEqual(synced, { ok: true })
+  assert.equal(pending.read(), undefined)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://api.example.com/api/v1/billing/plan')
+  assert.equal(calls[0].init.method, 'POST')
+  const headers = calls[0].init.headers as Record<string, string>
+  assert.equal(headers.Authorization, 'Bearer user-jwt')
+  assert.equal(headers['X-API-Key'], 'live-key')
+  assert.equal(calls[0].init.body, JSON.stringify({ plan: 'pro' }))
+
+  const kept = memoryPlanStore()
+  const failed = await syncProPlanAfterPurchase({
+    store: kept.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    baseUrl: 'https://api.example.com/api/v1',
+    fetchImpl: async () => new Response(JSON.stringify({ success: false }), { status: 503 }),
+  })
+  assert.equal(failed.ok, false)
+  assert.equal(kept.read(), 'pro')
+
+  let fetched = false
+  const offline = memoryPlanStore()
+  const missingKey = await syncProPlanAfterPurchase({
+    store: offline.store,
+    token: 'user-jwt',
+    apiKey: '',
+    baseUrl: 'https://api.example.com/api/v1',
+    fetchImpl: async () => {
+      fetched = true
+      return new Response('no')
+    },
+  })
+  assert.deepEqual(missingKey, { ok: false, reason: 'missing_api_key' })
+  assert.equal(fetched, false)
+  assert.equal(offline.read(), 'pro')
+
+  const direct = await postBillingPlan({
+    token: 'user-jwt',
+    apiKey: 'your-resume-api-key',
+    baseUrl: 'https://api.example.com/api/v1',
+    fetchImpl: async () => {
+      throw new Error('placeholder key must not be sent')
+    },
+  })
+  assert.deepEqual(direct, { ok: false, reason: 'missing_api_key' })
+
+  const legacyFree = memoryPlanStore('free')
+  let flushed = false
+  await flushPendingProfilePlan({
+    store: legacyFree.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    fetchImpl: async () => {
+      flushed = true
+      return new Response('no')
+    },
+  })
+  assert.equal(flushed, false)
+  assert.equal(legacyFree.read(), undefined)
+
+  const queued = memoryPlanStore('pro')
+  await clearPendingProfilePlan(queued.store)
+  assert.equal(queued.read(), undefined)
+
+  const planWrite = readFileSync('src/services/billing/profilePlan.ts', 'utf8')
+  assert.match(planWrite, /getValidAccessToken/)
+  assert.doesNotMatch(planWrite, /supabase/)
+  assert.doesNotMatch(planWrite, /\.update\(/)
+  assert.doesNotMatch(planWrite, /from\('profiles'\)/)
+  const worker = readFileSync('src/services/extensionPayWorker.ts', 'utf8')
+  assert.match(worker, /syncProPlanAfterPurchase/)
+  assert.match(worker, /writeEntitlement/)
+  assert.doesNotMatch(worker, /writeProfilePlan/)
+  assert.doesNotMatch(worker, /from\('profiles'\)/)
+})
+
 test('extension pay skus and profile plan stay out of ordinary profile saves', () => {
   assert.equal(EXTENSION_PAY_EXTENSION_ID, 'gofillr')
   assert.equal(isExtensionPayConfigured(''), false)
@@ -258,14 +375,13 @@ test('extension pay skus and profile plan stay out of ordinary profile saves', (
   const profileSync = readFileSync('src/lib/sync/profile.ts', 'utf8')
   const fn = profileSync.slice(profileSync.indexOf('export function profileToDbRows'), profileSync.indexOf('export function dbRowsToProfile'))
   assert.doesNotMatch(fn, /\bplan:/)
+  assert.doesNotMatch(fn, /writeProfilePlan/)
 
   const planWrite = readFileSync('src/services/billing/profilePlan.ts', 'utf8')
   assert.match(planWrite, /PENDING_PLAN_KEY/)
-  assert.match(planWrite, /TODO\(backend\)/)
-  assert.match(planWrite, /RLS write-lock expected/)
-  assert.doesNotMatch(planWrite, /storage\.local\.remove/)
-  assert.doesNotMatch(planWrite, /ok: true/)
-  assert.doesNotMatch(planWrite, /write-lock on this column is not live/)
+  assert.match(planWrite, /postBillingPlan/)
+  assert.doesNotMatch(planWrite, /from\('profiles'\)/)
+  assert.doesNotMatch(planWrite, /\.update\(/)
 
   const upload = readFileSync('background.js', 'utf8')
   const uploadFn = upload.slice(upload.indexOf('async function handleResumeUpload'), upload.indexOf('chrome.runtime.onMessage.addListener'))
