@@ -19,6 +19,7 @@ test('an attempt before any success is still the first fill', () => {
   assert.equal(props.minutes_since_install, 1.5)
   assert.equal(firstFillAtToStore, null)
   assert.equal(props.failure_reason, undefined)
+  assert.equal(props.eeo_attempted, undefined)
 })
 
 test('the first success freezes time_to_first_fill_ms from install', () => {
@@ -165,7 +166,44 @@ test('jobs.ashbyhq.com success stamps ats=ashby and the first-fill fields', () =
   assert.equal(props.time_to_first_fill_ms, 90_000)
   assert.equal(props.minutes_since_install, 1.5)
   assert.equal(props.failure_reason, undefined)
+  assert.equal(props.eeo_attempted, undefined)
+  assert.equal(props.eeo_filled, undefined)
+  assert.equal(props.eeo_skipped, undefined)
   assert.equal(firstFillAtToStore, now)
+})
+
+test('Ashby EEO counts ride on success and do not set failure_reason', () => {
+  const { props } = buildAutofillContractProps({
+    hostname: 'jobs.ashbyhq.com',
+    href: 'https://jobs.ashbyhq.com/render/62ea10c7-ad69-444f-9632-dd4b50b8c805/application',
+    now,
+    installedAt,
+    firstFillAt: null,
+    recordSuccess: true,
+    telemetry: { eeo_attempted: 3, eeo_filled: 3, eeo_skipped: 1 },
+  })
+  assert.equal(props.ats, 'ashby')
+  assert.equal(props.eeo_attempted, 3)
+  assert.equal(props.eeo_filled, 3)
+  assert.equal(props.eeo_skipped, 1)
+  assert.equal(props.failure_reason, undefined)
+})
+
+test('an Ashby fill with every EEO question skipped still succeeds', () => {
+  const { props } = buildAutofillContractProps({
+    hostname: 'jobs.ashbyhq.com',
+    href: 'https://jobs.ashbyhq.com/LangChain/74e5f9f4-e44a-4594-ba26-abdf71bf287d/application',
+    now,
+    installedAt,
+    firstFillAt: null,
+    recordSuccess: true,
+    telemetry: { eeo_attempted: 0, eeo_filled: 0, eeo_skipped: 4 },
+  })
+  assert.equal(props.ats, 'ashby')
+  assert.equal(props.eeo_attempted, 0)
+  assert.equal(props.eeo_filled, 0)
+  assert.equal(props.eeo_skipped, 4)
+  assert.equal(props.failure_reason, undefined)
 })
 
 test('jobs.ashbyhq.com empty_profile stamps ats=ashby and failure_reason', () => {
@@ -184,6 +222,7 @@ test('jobs.ashbyhq.com empty_profile stamps ats=ashby and failure_reason', () =>
   assert.equal(props.minutes_since_install, 1.5)
   assert.equal(props.http, undefined)
   assert.equal(props.status, undefined)
+  assert.equal(props.eeo_attempted, undefined)
   assert.equal(firstFillAtToStore, null)
 })
 

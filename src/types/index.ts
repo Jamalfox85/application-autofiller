@@ -136,6 +136,10 @@ export type SiteRule = {
     personalInfo: PersonalInfo,
   ) => boolean | Promise<boolean>
   formChanged?: (mutations: MutationRecord[]) => boolean
+  // Optional per-fill bookkeeping. prepareFill runs once before apply().
+  // fillTelemetry is read after the pass and must not decide success or failure.
+  prepareFill?: () => void
+  fillTelemetry?: () => Record<string, number | boolean | string> | null
 }
 
 export type FieldMatch = (

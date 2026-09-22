@@ -8,6 +8,10 @@ import {
   ashbyEeoOptionMatches,
   ashbyEeoSearchLabels,
   ashbyEeoYesNo,
+  freshAshbyEeoTally,
+  markAshbyEeoFilled,
+  observeAshbyEeoField,
+  type AshbyEeoKind,
   ashbyDateSelectKind,
   ashbyLocationQueries,
   ashbySchoolQueries,
@@ -18,11 +22,15 @@ import {
   isAshbyResumeField,
   isAshbySchoolField,
   shouldRevealAshbyEducationEntry,
+  ashbyEeoTelemetry,
   type AshbyYesNo,
 } from './ashbyFields.ts'
 
 // One click per page. formChanged sees the new inputs and runs autofill again.
 let revealedSecondEducation = false
+
+// Reset at the start of each fill. Counts gender, race, veteran, and disability.
+let eeoTally = freshAshbyEeoTally()
 
 // Snapshot at load. The application tab and survey mount inputs after the job
 // posting shell, which increases this count. Typing into a field does not.
@@ -39,9 +47,16 @@ export default function ashbyConfig(): SiteRule {
         href: window.location.href,
         document,
       }) === 'ashby',
+    prepareFill: () => {
+      eeoTally = freshAshbyEeoTally()
+    },
+    fillTelemetry: () => ashbyEeoTelemetry(eeoTally),
     apply: async (input, _fieldText, personalInfo) => {
       const context = readAshbyField(input)
       if (!context) return false
+
+      const eeoKind: AshbyEeoKind | null = ashbyEeoKind(context.title)
+      if (eeoKind) observeAshbyEeoField(eeoTally, eeoKind, personalInfo)
 
       if (input instanceof HTMLSelectElement) {
         return fillEducationDate(input, context, personalInfo)
@@ -86,36 +101,47 @@ export default function ashbyConfig(): SiteRule {
         return fillAshbyAutocomplete(input, queries)
       }
 
-      const eeoKind = ashbyEeoKind(context.title)
       if (eeoKind && personalInfo.eeoAnswersEnabled !== false) {
         if (isAutocomplete(input)) {
           const labels = ashbyEeoSearchLabels(eeoKind, personalInfo)
           if (labels.length === 0) return false
-          return fillAshbyAutocomplete(input, labels)
+          const filled = await fillAshbyAutocomplete(input, labels)
+          if (filled) markAshbyEeoFilled(eeoTally, eeoKind)
+          return filled
         }
 
         if (
           input instanceof HTMLInputElement &&
           (input.type === 'radio' || (input.type === 'checkbox' && context.optionLabel))
         ) {
-          if (!ashbyEeoOptionMatches(eeoKind, context.optionLabel, personalInfo)) return false
-          clickChoice(input)
-          return true
+          if (ashbyEeoOptionMatches(eeoKind, context.optionLabel, personalInfo)) {
+            clickChoice(input)
+            markAshbyEeoFilled(eeoTally, eeoKind)
+            return true
+          }
+          // A short Yes/No label does not match the long survey phrases. Fall
+          // through so ashbyEeoYesNo can still press that button.
         }
       }
 
-      const yesNo =
-        ashbyYesNoDecision(context.title, personalInfo) ||
-        (eeoKind ? ashbyEeoYesNo(eeoKind, personalInfo) : null)
+      const workDecision = ashbyYesNoDecision(context.title, personalInfo)
+      const eeoDecision =
+        eeoKind && personalInfo.eeoAnswersEnabled !== false
+          ? ashbyEeoYesNo(eeoKind, personalInfo)
+          : null
+      const yesNo = workDecision || eeoDecision
       if (yesNo) {
         const option = ashbyYesNoOption(context.optionLabel)
         if (option) {
           if (option !== yesNo || !(input instanceof HTMLInputElement)) return false
           clickChoice(input)
+          if (eeoKind && eeoDecision && !workDecision) markAshbyEeoFilled(eeoTally, eeoKind)
           return true
         }
         if (input.type === 'checkbox' && context.entry) {
-          return clickYesNo(context.entry, yesNo)
+          const clicked = clickYesNo(context.entry, yesNo)
+          if (clicked && eeoKind && eeoDecision && !workDecision) markAshbyEeoFilled(eeoTally, eeoKind)
+          return clicked
         }
       }
 

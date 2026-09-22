@@ -22,6 +22,7 @@ export type TrackFillContractContext = {
   http?: number | null
   status?: number | null
   eeo?: { attempted: boolean; filled: boolean; skipped: boolean } | null
+  telemetry?: Record<string, number | boolean | string> | null
 }
 
 async function getInstalledAtMs(): Promise<number> {
@@ -69,6 +70,7 @@ export async function fillContractProps(
     http: event === 'autofill_failed' ? context.http : null,
     status: event === 'autofill_failed' ? context.status : null,
     eeo: event === 'autofill_succeeded' ? context.eeo : null,
+    telemetry: context.telemetry,
   })
 
   if (built.firstFillAtToStore != null) {

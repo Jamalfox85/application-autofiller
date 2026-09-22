@@ -323,6 +323,82 @@ export function ashbyYesNoOption(label: string | null | undefined): AshbyYesNo |
 
 export type AshbyEeoKind = 'gender' | 'race' | 'veteran' | 'disability'
 
+const ASHBY_EEO_KINDS: AshbyEeoKind[] = ['gender', 'race', 'veteran', 'disability']
+
+export type AshbyEeoKindState = {
+  seen: boolean
+  valued: boolean
+  filled: boolean
+}
+
+export function freshAshbyEeoTally(): Record<AshbyEeoKind, AshbyEeoKindState> {
+  return {
+    gender: { seen: false, valued: false, filled: false },
+    race: { seen: false, valued: false, filled: false },
+    veteran: { seen: false, valued: false, filled: false },
+    disability: { seen: false, valued: false, filled: false },
+  }
+}
+
+export function ashbyEeoStoredValue(kind: AshbyEeoKind, info: AshbyProfile): string {
+  if (info.eeoAnswersEnabled === false) return ''
+  const value =
+    kind === 'gender'
+      ? info.gender
+      : kind === 'race'
+        ? info.raceEthnicity
+        : kind === 'veteran'
+          ? info.veteranStatus
+          : info.disabilityStatus
+  const text = (value || '').trim()
+  return text
+}
+
+export function observeAshbyEeoField(
+  tally: Record<AshbyEeoKind, AshbyEeoKindState>,
+  kind: AshbyEeoKind,
+  info: AshbyProfile,
+) {
+  const slot = tally[kind]
+  slot.seen = true
+  if (ashbyEeoStoredValue(kind, info)) slot.valued = true
+}
+
+export function markAshbyEeoFilled(
+  tally: Record<AshbyEeoKind, AshbyEeoKindState>,
+  kind: AshbyEeoKind,
+) {
+  const slot = tally[kind]
+  slot.seen = true
+  slot.valued = true
+  slot.filled = true
+}
+
+// Four questions. A filled question is also attempted. Everything else is skipped
+// (missing field, empty vault value, answers turned off, or an unmapped control).
+export function ashbyEeoTelemetry(tally: Record<AshbyEeoKind, AshbyEeoKindState>): {
+  eeo_attempted: number
+  eeo_filled: number
+  eeo_skipped: number
+} {
+  let attempted = 0
+  let filled = 0
+  let skipped = 0
+  for (const kind of ASHBY_EEO_KINDS) {
+    const slot = tally[kind]
+    if (slot.filled) {
+      attempted += 1
+      filled += 1
+    } else if (slot.seen && slot.valued) {
+      attempted += 1
+      skipped += 1
+    } else {
+      skipped += 1
+    }
+  }
+  return { eeo_attempted: attempted, eeo_filled: filled, eeo_skipped: skipped }
+}
+
 export function ashbyEeoKind(title: string | null | undefined): AshbyEeoKind | null {
   const normalized = normalizeAshbyLabel(title)
   if (!normalized) return null

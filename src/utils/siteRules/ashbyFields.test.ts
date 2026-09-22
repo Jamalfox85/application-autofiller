@@ -7,7 +7,11 @@ import {
   ashbyEeoKind,
   ashbyEeoOptionMatches,
   ashbyEeoSearchLabels,
+  ashbyEeoTelemetry,
   ashbyEeoYesNo,
+  freshAshbyEeoTally,
+  markAshbyEeoFilled,
+  observeAshbyEeoField,
   ashbyDateSelectKind,
   ashbyFullName,
   ashbyLocationQueries,
@@ -443,5 +447,51 @@ describe('Ashby yes/no and EEO questions', () => {
       'Prefer not to say',
       "I don't wish to answer",
     ])
+  })
+
+  it('counts attempted, filled, and skipped EEO questions without a failure', () => {
+    const tally = freshAshbyEeoTally()
+    assert.deepEqual(ashbyEeoTelemetry(tally), {
+      eeo_attempted: 0,
+      eeo_filled: 0,
+      eeo_skipped: 4,
+    })
+
+    const fixture = {
+      eeoAnswersEnabled: true,
+      gender: 'female',
+      raceEthnicity: 'white',
+      veteranStatus: 'not_a_veteran',
+      disabilityStatus: 'no',
+    }
+    observeAshbyEeoField(tally, 'gender', fixture)
+    observeAshbyEeoField(tally, 'race', fixture)
+    observeAshbyEeoField(tally, 'veteran', fixture)
+    markAshbyEeoFilled(tally, 'gender')
+    markAshbyEeoFilled(tally, 'race')
+    markAshbyEeoFilled(tally, 'veteran')
+    assert.deepEqual(ashbyEeoTelemetry(tally), {
+      eeo_attempted: 3,
+      eeo_filled: 3,
+      eeo_skipped: 1,
+    })
+
+    const empty = freshAshbyEeoTally()
+    observeAshbyEeoField(empty, 'gender', { gender: '' })
+    observeAshbyEeoField(empty, 'race', { raceEthnicity: '' })
+    observeAshbyEeoField(empty, 'veteran', { eeoAnswersEnabled: false, veteranStatus: 'veteran' })
+    assert.deepEqual(ashbyEeoTelemetry(empty), {
+      eeo_attempted: 0,
+      eeo_filled: 0,
+      eeo_skipped: 4,
+    })
+
+    const unmapped = freshAshbyEeoTally()
+    observeAshbyEeoField(unmapped, 'disability', { disabilityStatus: 'no' })
+    assert.deepEqual(ashbyEeoTelemetry(unmapped), {
+      eeo_attempted: 1,
+      eeo_filled: 0,
+      eeo_skipped: 4,
+    })
   })
 })
