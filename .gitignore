@@ -36,3 +36,7 @@ coverage
 __screenshots__/
 
 .env
+
+# Extension signing material. The manifest "key" is a public key only.
+*.pem
+secrets/
