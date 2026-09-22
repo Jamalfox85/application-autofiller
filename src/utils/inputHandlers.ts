@@ -75,11 +75,16 @@ export async function fillWorkdayInput(
 // substring hit (for example "San Francisco, Cebu, Philippines").
 export type ReactSelectOptionPicker = (optionTexts: string[]) => string | null
 
+// 'greenhouse' opens the job-board menu (mouseup / ArrowDown). The default path is
+// unchanged for employment, location, EEO, Ashby, and Lever.
+export type ReactSelectOpenMode = 'default' | 'greenhouse'
+
 export const fillReactSelect = async (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   value: string | string[],
   selectId?: string,
   pickOption?: ReactSelectOptionPicker,
+  openMode: ReactSelectOpenMode = 'default',
 ): Promise<boolean> => {
   const values = (Array.isArray(value) ? value : [value]).map((entry) => entry.trim()).filter(Boolean)
   if (values.length === 0) return false
@@ -95,10 +100,19 @@ export const fillReactSelect = async (
 
   for (const currentValue of values) {
     try {
-      openReactSelect(input)
-      await delay(150)
-      setReactInputValue(input, '')
-      setReactInputValue(input, currentValue)
+      if (openMode === 'greenhouse') {
+        // Set the catalog query before the menu opens so the first school/degree fetch
+        // is not the alphabetical A-page (Alverno College is on that page).
+        input.focus()
+        setReactInputValue(input, currentValue)
+        openGreenhouseMenu(input)
+      } else {
+        openReactSelect(input)
+        await delay(150)
+        setReactInputValue(input, '')
+        setReactInputValue(input, currentValue)
+      }
+      if (openMode === 'greenhouse') await delay(150)
 
       const found = await waitForOptionMatch(input, currentValue, selectId, pickOption)
       if (found) {
@@ -134,6 +148,19 @@ function openReactSelect(input: HTMLInputElement) {
   }
   input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
   input.click()
+}
+
+// Job-board selects keep menuIsOpen in React state. The flyout button preventDefault's
+// click; the menu toggles on mouseup of the control and on ArrowDown keyup.
+function openGreenhouseMenu(input: HTMLInputElement) {
+  if (input.getAttribute('aria-expanded') === 'true') return
+  const root = input.closest('.select') || input.parentElement
+  const toggle = root?.querySelector<HTMLElement>('button[aria-label="Toggle flyout"]')
+  toggle?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }))
+  if (input.getAttribute('aria-expanded') === 'true') return
+  input.dispatchEvent(
+    new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }),
+  )
 }
 
 // react-select commits an option on mousedown (click alone runs after blur and is dropped).
