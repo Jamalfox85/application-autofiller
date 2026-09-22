@@ -18,6 +18,7 @@ import {
   countrySearchValues,
   degreeSearchValues,
   disciplineSearchValues,
+  educationComboboxLabelSettled,
   greenhouseEducationRowsToAdd,
   isResidenceCountryField,
   isStateQuestion,
@@ -172,7 +173,9 @@ const fieldHandlers: Array<{
         const plan = educationSelectPlan(field, education)
         if (!plan) return
         const current = selectedComboboxLabel(live)
-        if (current && plan.pick([current]) === current) return
+        // queries[0] is the catalog label. The raw profile string can score as a
+        // match against those queries, but it is not the option in the menu.
+        if (educationComboboxLabelSettled(current, plan.queries)) return
         await fillReactSelect(
           live,
           plan.queries,

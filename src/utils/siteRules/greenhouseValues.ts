@@ -139,8 +139,11 @@ export function disciplineSearchValues(major?: string): string[] {
 }
 
 // Resume text rarely matches Greenhouse's school catalog string. "University of Texas at Austin"
-// is stored as "University of Texas - Austin"; "MIT" is not a substring of the official name.
-// Queries are ordered so the catalog shape is tried before the raw profile string.
+// and "The University of Texas at Austin" are stored as "University of Texas - Austin";
+// the typeahead returns nothing for the raw profile string (the leading "The" and the word
+// "at"). "MIT" is not a substring of the official name. Queries are ordered so the catalog
+// shape is tried before the raw profile string. A leading "The" is dropped for the alias
+// lookup and added back as its own query so "The New School" still searches "New School".
 const SCHOOL_ALIASES: Record<string, string[]> = {
   mit: ['Massachusetts Institute of Technology'],
   ucla: ['University of California - Los Angeles'],
@@ -166,7 +169,11 @@ export function schoolSearchValues(schoolName?: string): string[] {
   const simplified = trimmed.replace(/[.]/g, '').replace(/\s+/g, ' ').trim()
   const expandedUniv = simplified.replace(/\buniv\b/i, 'University')
   const alias = SCHOOL_ALIASES[schoolAliasKey(trimmed)] || SCHOOL_ALIASES[schoolAliasKey(simplified)]
+  const withoutArticle = simplified.replace(/^the\s+/i, '').trim()
   const seeds = [...(alias || []), trimmed, simplified, expandedUniv]
+  if (withoutArticle && withoutArticle.toLowerCase() !== simplified.toLowerCase()) {
+    seeds.push(withoutArticle)
+  }
   const queries: string[] = []
   for (const seed of seeds) {
     queries.push(...campusRewrites(seed), seed)
@@ -177,7 +184,12 @@ export function schoolSearchValues(schoolName?: string): string[] {
 }
 
 function schoolAliasKey(value: string): string {
-  return value.toLowerCase().replace(/[.]/g, '').replace(/\s+/g, ' ').trim()
+  return value
+    .toLowerCase()
+    .replace(/[.]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^the\s+/, '')
 }
 
 function campusRewrites(value: string): string[] {
@@ -225,6 +237,22 @@ export function pickSchoolOption(optionTexts: string[], targets: string[]): stri
     if (!best || score > best.score) best = { text, score }
   }
   return best?.text ?? null
+}
+
+// Education comboboxes (school, degree, discipline, month) skip another menu open
+// only when the visible label is already the preferred catalog value (queries[0]).
+// pick([currentLabel]) is not that check. The closed field is not a menu, and
+// pickSchoolOption scores the raw profile string ("The University of Texas at Austin")
+// as a token match for the alias queries, then returns that same string. Treating
+// pick([raw]) === raw as "already selected" leaves school--N on the profile text
+// instead of "University of Texas - Austin".
+export function educationComboboxLabelSettled(
+  currentLabel: string,
+  queries: readonly string[],
+): boolean {
+  const current = currentLabel.replace(/\s+/g, ' ').trim()
+  const preferred = (queries[0] ?? '').replace(/\s+/g, ' ').trim()
+  return current.length > 0 && preferred.length > 0 && current === preferred
 }
 
 function scoreSchool(option: string, target: string): number {
