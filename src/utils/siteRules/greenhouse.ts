@@ -4,7 +4,9 @@ import { fillNativeInput, fillReactSelect, setReactInputValue } from '../../util
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
   dialingCodeSearchValues,
+  employmentCheckboxClick,
   employmentFillPlan,
+  employmentMonthReactFill,
   isGreenhousePhoneDialingCodeField,
   locationSearchQueries,
   parseGreenhouseEmploymentField,
@@ -20,6 +22,10 @@ import {
   isResidenceCountryField,
   isStateQuestion,
   monthNameFromLooseDate,
+  nativeMonthSelectValue,
+  nativeSponsorshipSelectValue,
+  nativeWorkAuthorizationSelectValue,
+  nativeYearSelectValue,
   parseGreenhouseEducationId,
   pickDegreeOption,
   pickDisciplineOption,
@@ -34,6 +40,7 @@ import {
   workAuthorizationSearchValues,
   yearFromLooseDate,
   type GreenhouseEducationField,
+  type NativeSelectChoice,
 } from './greenhouseValues.ts'
 
 // Snapshot at load. Greenhouse mounts city/race/education inputs only after an
@@ -82,6 +89,32 @@ function countGreenhouseFillableFields(): number {
 function greenhouseQuestionOptionSelector(inputId: string): string | undefined {
   const questionId = inputId.match(/question_(\d+)/)?.[1] || ''
   return questionId ? `[id^=react-select-question_${questionId}-option-]` : undefined
+}
+
+function isNativeSelect(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): input is HTMLSelectElement {
+  return typeof HTMLSelectElement !== 'undefined' && input instanceof HTMLSelectElement
+}
+
+function nativeSelectChoices(select: HTMLSelectElement): NativeSelectChoice[] {
+  return Array.from(select.options).map((option) => ({
+    value: option.value,
+    label: (option.text || option.label || '').replace(/\s+/g, ' ').trim(),
+  }))
+}
+
+function commitNativeSelect(select: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set
+  const previous = select.value
+  if (setter) setter.call(select, value)
+  else select.value = value
+  const tracker = (
+    select as HTMLSelectElement & { _valueTracker?: { setValue: (value: string) => void } }
+  )._valueTracker
+  if (tracker) tracker.setValue(previous)
+  select.dispatchEvent(new Event('input', { bubbles: true }))
+  select.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
 const fieldHandlers: Array<{
@@ -202,13 +235,40 @@ const fieldHandlers: Array<{
       const plan = employmentFillPlan(field.kind, experience)
       if (plan.action === 'skip') return true
       if (plan.action === 'check') {
-        if (input instanceof HTMLInputElement && input.type === 'checkbox' && !input.checked) {
+        if (
+          input instanceof HTMLInputElement &&
+          employmentCheckboxClick(input.id, experience, input)
+        ) {
           input.click()
         }
         return true
       }
       if (plan.action === 'month') {
-        await fillReactSelect(input, plan.value, `[id^=react-select-${input.id}-option-]`)
+        if (isNativeSelect(input)) {
+          const value = nativeMonthSelectValue(nativeSelectChoices(input), plan.value)
+          if (value != null) commitNativeSelect(input, value)
+          return true
+        }
+        const month = employmentMonthReactFill(plan.value)
+        await fillReactSelect(
+          input,
+          month.query,
+          `[id^=react-select-${input.id}-option-]`,
+          month.pick,
+          month.openMode,
+        )
+        return true
+      }
+      if (field.kind === 'startYear' || field.kind === 'endYear') {
+        const source = field.kind === 'startYear' ? experience.startDate : experience.endDate
+        const year = yearFromLooseDate(source || '')
+        if (!year) return true
+        if (isNativeSelect(input)) {
+          const value = nativeYearSelectValue(nativeSelectChoices(input), source)
+          if (value != null) commitNativeSelect(input, value)
+          return true
+        }
+        await fillNativeInput(input, year)
         return true
       }
       await fillNativeInput(input, plan.value)
@@ -247,6 +307,14 @@ const fieldHandlers: Array<{
       fieldText.includes('legallyauthorized') || fieldText.includes('authorizedtowork'),
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization) return false
+      if (isNativeSelect(input)) {
+        const value = nativeWorkAuthorizationSelectValue(
+          nativeSelectChoices(input),
+          personalInfo.workAuthorization,
+        )
+        if (value != null) commitNativeSelect(input, value)
+        return true
+      }
       await fillReactSelect(
         input,
         workAuthorizationSearchValues(personalInfo.workAuthorization),
@@ -262,6 +330,11 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization && !personalInfo.sponsorshipRequired) return false
       const needsSponsorship = profileRequiresSponsorship(personalInfo)
+      if (isNativeSelect(input)) {
+        const value = nativeSponsorshipSelectValue(nativeSelectChoices(input), needsSponsorship)
+        if (value != null) commitNativeSelect(input, value)
+        return true
+      }
       await fillReactSelect(
         input,
         sponsorshipSearchValues(needsSponsorship),
