@@ -1,6 +1,6 @@
-// Pure Ashby application-form mapping. The hosted form (jobs.ashbyhq.com and the
-// same markup embedded elsewhere) keys questions by data-field-path, not by
-// Greenhouse-style ids. These helpers stay DOM-free so they can be unit tested.
+// Pure Ashby application-form mapping for hosted boards (*.ashbyhq.com).
+// Questions are keyed by data-field-path, not Greenhouse-style ids. These
+// helpers stay DOM-free so they can be unit tested.
 
 export type AshbyProfile = {
   firstName?: string | null
@@ -240,7 +240,12 @@ export function ashbyYesNoDecision(title: string | null | undefined, info: Ashby
   const normalized = normalizeAshbyLabel(title)
   if (!normalized) return null
 
-  if (normalized.includes('sponsorship')) {
+  // "sponsorship" (Ashby) and "sponsor an immigration case" (Notion).
+  const sponsorshipQuestion =
+    normalized.includes('sponsorship') ||
+    (normalized.includes('sponsor') &&
+      (normalized.includes('visa') || normalized.includes('immigration') || normalized.includes('employ')))
+  if (sponsorshipQuestion) {
     if (info.sponsorshipRequired === 'Yes') return 'yes'
     if (info.sponsorshipRequired === 'No') return 'no'
     const auth = info.workAuthorization || ''
@@ -350,10 +355,18 @@ function phrasesMatch(label: string, phrases: string[] | undefined): boolean {
     return labelHas(label, phrases) && !labelHas(label, ['female', 'woman'])
   }
   if (phrases === VETERAN_PHRASES.veteran) {
+    // "I am not a protected veteran" contains "protected veteran".
+    if (labelHas(label, ['not a protected', 'not a veteran', 'i am not'])) return false
     // "Yes" alone is too broad on a multi-question page; require a veteran cue
     // unless the option is exactly Yes (common on a dedicated veteran question).
     if (normalizeAshbyLabel(label) === 'yes') return true
     return labelHas(label, phrases.filter((phrase) => phrase !== 'yes'))
+  }
+  if (phrases === RACE_PHRASES.hispanic_or_latino) {
+    // "White (Not Hispanic or Latino)" is the white option, not Hispanic.
+    const normalized = normalizeAshbyLabel(label)
+    if (normalized.includes('nothispanic') || normalized.includes('nonhispanic')) return false
+    return labelHas(label, phrases)
   }
   return labelHas(label, phrases)
 }
@@ -471,6 +484,17 @@ function isNameTitle(title: string): boolean {
     normalized.includes('yourname') ||
     normalized.includes('candidatename')
   )
+}
+
+// Hosted apply forms put the resume on `_systemfield_resume` (a hidden file input
+// inside the dropzone). Cover letters and other uploads are separate file fields.
+// The profile mirror stores resumeFileName only, so callers must not invent a file.
+export function isAshbyResumeField(target: AshbyTextTarget): boolean {
+  if ((target.path || '') === '_systemfield_resume') return true
+  const type = (target.type || '').toLowerCase()
+  if (type !== 'file') return false
+  const title = normalizeAshbyLabel(target.title)
+  return title === 'resume' || title === 'cv' || title === 'curriculumvitae'
 }
 
 // Standard text/tel/email/url inputs. Empty string means the field is ours but

@@ -151,6 +151,42 @@ test('HTTP failure path may set http/status when provided', () => {
   assert.equal(props.status, 503)
 })
 
+test('jobs.ashbyhq.com success stamps ats=ashby and the first-fill fields', () => {
+  const { props, firstFillAtToStore } = buildAutofillContractProps({
+    hostname: 'jobs.ashbyhq.com',
+    href: 'https://jobs.ashbyhq.com/notion/1fc309c8-da20-4ff2-84c7-8b863ece2b0a/application',
+    now,
+    installedAt,
+    firstFillAt: null,
+    recordSuccess: true,
+  })
+  assert.equal(props.ats, 'ashby')
+  assert.equal(props.is_first_fill, true)
+  assert.equal(props.time_to_first_fill_ms, 90_000)
+  assert.equal(props.minutes_since_install, 1.5)
+  assert.equal(props.failure_reason, undefined)
+  assert.equal(firstFillAtToStore, now)
+})
+
+test('jobs.ashbyhq.com empty_profile stamps ats=ashby and failure_reason', () => {
+  const { props, firstFillAtToStore } = buildAutofillContractProps({
+    hostname: 'jobs.ashbyhq.com',
+    href: 'https://jobs.ashbyhq.com/notion/1fc309c8-da20-4ff2-84c7-8b863ece2b0a/application',
+    now,
+    installedAt,
+    firstFillAt: null,
+    recordSuccess: false,
+    failureReason: 'empty_profile',
+  })
+  assert.equal(props.ats, 'ashby')
+  assert.equal(props.failure_reason, 'empty_profile')
+  assert.equal(props.is_first_fill, true)
+  assert.equal(props.minutes_since_install, 1.5)
+  assert.equal(props.http, undefined)
+  assert.equal(props.status, undefined)
+  assert.equal(firstFillAtToStore, null)
+})
+
 test('unrelated host without signals stays other', () => {
   const { props } = buildAutofillContractProps({
     hostname: 'careers.example.com',

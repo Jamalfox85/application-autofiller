@@ -56,16 +56,6 @@ export function hrefHasGreenhouseJobId(href: string): boolean {
   }
 }
 
-export function documentHasAshbyMarkers(doc: Pick<Document, 'querySelector'>): boolean {
-  // Classes and system-field paths from Ashby's hosted application form. An iframe
-  // pointed at jobs.ashbyhq.com is a separate document; the content script runs
-  // there with all_frames and matches the hostname rule.
-  if (doc.querySelector('.ashby-application-form-container')) return true
-  if (doc.querySelector('.ashby-application-form-field-entry')) return true
-  if (doc.querySelector('[data-field-path^="_systemfield_"]')) return true
-  return false
-}
-
 export function documentHasGreenhouseMarkers(
   doc: Pick<Document, 'getElementById' | 'querySelector'>,
 ): boolean {
@@ -80,8 +70,9 @@ export function documentHasGreenhouseMarkers(
 
 /**
  * Shared ATS detection for fillContract / trackFillContract and ATS site rules.
- * Prefer hostname rules; fall back to Greenhouse embed signals, then Ashby form markup
- * when the top-level host is not the ATS itself.
+ * Prefer hostname rules, then Greenhouse embed signals (gh_jid / application form).
+ * Ashby v1 is hostname-only (*.ashbyhq.com). Embedded Ashby forms on other hosts
+ * are deferred, including when the same classes show up on a careers site.
  */
 export function detectAts(input: AtsPageContext): string | null {
   const byHost = atsFromHostname(input.hostname)
@@ -89,7 +80,6 @@ export function detectAts(input: AtsPageContext): string | null {
 
   if (input.href && hrefHasGreenhouseJobId(input.href)) return 'greenhouse'
   if (input.document && documentHasGreenhouseMarkers(input.document)) return 'greenhouse'
-  if (input.document && documentHasAshbyMarkers(input.document)) return 'ashby'
 
   return null
 }

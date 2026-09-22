@@ -14,6 +14,7 @@ import {
   ashbyYesNoDecision,
   ashbyYesNoOption,
   isAshbyLocationField,
+  isAshbyResumeField,
   isAshbySchoolField,
   type AshbyYesNo,
 } from './ashbyFields.ts'
@@ -26,7 +27,7 @@ const FORM_ROOTS = ['.ashby-application-form-container', '.ashby-survey-form-con
 
 export default function ashbyConfig(): SiteRule {
   return {
-    // jobs.ashbyhq.com plus the same form markup when a careers site embeds it.
+    // Hosted boards only (*.ashbyhq.com). Embedded forms on other hosts are deferred.
     detect: () =>
       detectAts({
         hostname: window.location.hostname,
@@ -45,10 +46,15 @@ export default function ashbyConfig(): SiteRule {
         return false
       }
 
-      if (input.type === 'file' || context.path === '_systemfield_resume') {
-        // The profile stores a file name, not bytes. Leave the dropzone for the user.
+      if (
+        isAshbyResumeField({ path: context.path, title: context.title, type: input.type, id: input.id })
+      ) {
+        // Resume hook: the dropzone is `_systemfield_resume`. personalInfo only
+        // has resumeFileName, so there is no file to attach. Leave it for the user.
         return false
       }
+
+      if (input.type === 'file') return false
 
       if (input instanceof HTMLInputElement && input.id.endsWith('-isCurrent')) {
         return fillStillStudent(input, personalInfo)

@@ -14,6 +14,7 @@ import {
   ashbyTextValue,
   ashbyYesNoDecision,
   isAshbyLocationField,
+  isAshbyResumeField,
   isAshbySchoolField,
 } from './ashbyFields.ts'
 
@@ -89,7 +90,9 @@ describe('Ashby profile text', () => {
     )
   })
 
-  it('leaves the resume file input alone', () => {
+  it('recognizes the resume dropzone and ignores other file uploads', () => {
+    assert.equal(isAshbyResumeField({ path: '_systemfield_resume', title: 'Resume', type: 'file' }), true)
+    assert.equal(isAshbyResumeField({ path: 'cover_letter', title: 'Cover Letter', type: 'file' }), false)
     assert.equal(
       ashbyTextValue({ path: '_systemfield_resume', title: 'Resume', type: 'file' }, profile),
       null,
@@ -199,6 +202,19 @@ describe('Ashby yes/no and EEO questions', () => {
       ashbyYesNoDecision('Which country do you intend to work from?', profile),
       null,
     )
+    assert.equal(
+      ashbyYesNoDecision(
+        'Will you now or in the future require Notion to sponsor an immigration case in order to employ you?',
+        profile,
+      ),
+      'no',
+    )
+    assert.equal(
+      ashbyYesNoDecision('Are you living in the country where this role is based and eligible to work there?', {
+        workAuthorization: 'green_card',
+      }),
+      'yes',
+    )
   })
 
   it('maps diversity survey options onto profile EEO values', () => {
@@ -208,6 +224,39 @@ describe('Ashby yes/no and EEO questions', () => {
     assert.equal(ashbyEeoOptionMatches('gender', 'Woman', profile), false)
     assert.equal(ashbyEeoOptionMatches('race', 'Asian or Asian American', profile), true)
     assert.equal(ashbyEeoOptionMatches('race', 'White', profile), false)
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'White (Not Hispanic or Latino)', {
+        ...profile,
+        raceEthnicity: 'hispanic_or_latino',
+      }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'Hispanic or Latino', {
+        ...profile,
+        raceEthnicity: 'hispanic_or_latino',
+      }),
+      true,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'Asian (Not Hispanic or Latino)', profile),
+      true,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('veteran', 'I am not a protected veteran', {
+        ...profile,
+        veteranStatus: 'veteran',
+      }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'veteran',
+        'I identify as one or more of the classifications of protected veteran listed above',
+        { ...profile, veteranStatus: 'veteran' },
+      ),
+      true,
+    )
     assert.equal(
       ashbyEeoOptionMatches('race', 'Hispanic or Latine', { ...profile, raceEthnicity: 'hispanic_or_latino' }),
       true,

@@ -3,7 +3,6 @@ import test from 'node:test'
 import {
   atsFromHostname,
   detectAts,
-  documentHasAshbyMarkers,
   documentHasGreenhouseMarkers,
   hrefHasGreenhouseJobId,
 } from './ats.ts'
@@ -79,29 +78,31 @@ test('unrelated host without Greenhouse signals stays null', () => {
   assert.equal(atsFromHostname('www.carvana.com'), null)
 })
 
-test('Ashby form markup on a custom domain is ashby', () => {
+test('hosted Ashby job boards tag ats=ashby', () => {
+  assert.equal(
+    detectAts({
+      hostname: 'jobs.ashbyhq.com',
+      href: 'https://jobs.ashbyhq.com/notion/1fc309c8-da20-4ff2-84c7-8b863ece2b0a/application',
+    }),
+    'ashby',
+  )
+  assert.equal(atsFromHostname('acme.ashbyhq.com'), 'ashby')
+})
+
+test('Ashby form markup on a custom domain stays untagged', () => {
   const doc = {
     getElementById: () => null,
     querySelector: (selector: string) =>
       selector === '.ashby-application-form-container' ? ({} as Element) : null,
   }
-  assert.equal(documentHasAshbyMarkers(doc), true)
   assert.equal(
     detectAts({
       hostname: 'careers.example.com',
       href: 'https://careers.example.com/jobs/designer',
       document: doc,
     }),
-    'ashby',
+    null,
   )
-})
-
-test('Ashby system-field path detects an embedded application form', () => {
-  const doc = {
-    querySelector: (selector: string) =>
-      selector === '[data-field-path^="_systemfield_"]' ? ({} as Element) : null,
-  }
-  assert.equal(documentHasAshbyMarkers(doc), true)
 })
 
 test('Greenhouse DOM markers still win over an unrelated host', () => {
@@ -109,7 +110,6 @@ test('Greenhouse DOM markers still win over an unrelated host', () => {
     getElementById: (id: string) => (id === 'application-form' ? ({} as HTMLElement) : null),
     querySelector: () => null,
   }
-  assert.equal(documentHasAshbyMarkers(doc), false)
   assert.equal(
     detectAts({
       hostname: 'www.carvana.com',
