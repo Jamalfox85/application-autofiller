@@ -18,7 +18,7 @@ The earlier mirror seed (`education: []`, `experience: []`, no `workAuthorizatio
 | --- | --- | --- |
 | Contact: name, email, phone, location, LinkedIn | `firstName`, `lastName`, `email`, `phone`, `phoneCountryCode`, `address`, `city`, `state`, `zip`, `country`, `linkedin` | **Proven:** name, email, phone, location-style (`country` dialing-code combobox, `candidate-location`). **Not yet proven:** `linkedin` (prior seed was empty; `greenhouse.ts` has no LinkedIn id). |
 | Experience: 2 roles | `experience[0]`, `experience[1]` | **Not yet proven on a live form.** Site rules fill `company-name-N`, `title-N`, `start-date-month-N`, `start-date-year-N`, `end-date-month-N`, `end-date-year-N`, and `current-role-N_1` from `experience[N]`. The board renders row 0 until "Add another" adds row 1. Description and city/state are not inputs on this employment block. |
-| Education: 2 entries | `education[0]`, `education[1]` | **Not yet proven.** Handlers read `education[0]` only. |
+| Education: 2 entries | `education[0]`, `education[1]` | **Not yet proven on a live form.** Handlers read `education[N]` for `school--N` and the other `--N` ids. The board shows row 0 until the education **Add another** button reveals row 1. Re-smoke this seed before marking it proven. |
 | Work authorization and sponsorship | `workAuthorization`, `sponsorshipRequired` | **Not yet proven.** Handlers exist; the prior seed omitted both keys. |
 | Resume filename | `resumeFileName` | **Filename is set. Binary attach may still be skipped.** `greenhouse.ts` does not upload a file. |
 | EEO (optional) | `eeoAnswersEnabled`, `gender`, `raceEthnicity`, `veteranStatus`, `disabilityStatus` | **Attempted, not a must-have.** Fill when the vault has values and the question text matches. Missing or unmapped questions are skipped and non-blocking. This does not gate the experience gap. |
@@ -52,21 +52,21 @@ The form renders one employment row (key 0) until **Add another**. Key 1 is `exp
 
 Still not proven until a live form shows the values. EEO is an optional attempt on the same run. A skipped gender, race, veteran, or disability control does not block these two roles.
 
-### Education — 2 entries, not yet proven
+### Education — 2 entries, handlers wired, not yet proven on a live form
 
-`education[0]` is what `src/utils/siteRules/greenhouse.ts` reads:
+`src/utils/siteRules/greenhouse.ts` reads `education[N]` for the `--N` ids. Row 0 is on the form. Row 1 appears after the handler clicks **Add another** inside `.education--container` (the employment section has a separate button and is not clicked here). `formChanged` refills when the new inputs appear.
 
 | `PersonalInfo` field | Greenhouse id | How the handler reads it |
 | --- | --- | --- |
-| `schoolName` | `school--0` | `schoolSearchValues` |
-| `degreeType` | `degree--0` | `degreeSearchValues` (`Bachelor of Science` searches `Bachelor's Degree`) |
-| `major` | `discipline--0` | `disciplineSearchValues` |
-| `startYear` | `start-month--0`, `start-year--0` | Month needs a month in the string (`2016-09` → September). Year needs `YYYY`. |
-| `graduationYear` | `end-month--0`, `end-year--0` | Same parsing (`2020-05` → May / 2020). |
+| `schoolName` | `school--0`, `school--1` | Catalog query, then a whole-token pick. `University of Texas at Austin` searches `University of Texas - Austin`. An A-page hit such as Alverno College is not selected. |
+| `degreeType` | `degree--0`, `degree--1` | `degreeSearchValues` (`Bachelor of Science` → `Bachelor's Degree`, `Master of Science` → `Master's Degree`) |
+| `major` | `discipline--0`, `discipline--1` | `disciplineSearchValues` (`Computer Science`). The pick is the catalog label, not a substring. |
+| `startYear` | `start-month--N`, `start-year--N` | `2016-09` → September and `2016`. `2020-09` → September and `2020`. A bare year fills the year and skips the month. |
+| `graduationYear` | `end-month--N`, `end-year--N` | `2020-05` → May / 2020. `2022-05` → May / 2022. |
 
-`current` is on `Education`. These handlers do not read it. A bare year such as `2016` fills the year input and skips the month combobox.
+`current` is on `Education`. These handlers do not read it.
 
-`education[1]` is in the seed (Master's). Site rules have no `school--1` / `degree--1` ids, so the second entry is not wired.
+Re-smoke with the full-profile seed in this doc (`SMOKE_DUAL_CONFIRM`) before calling education proven. Expect both rows: UT Austin, Computer Science, bachelor dates September 2016–May 2020, then the master's row September 2020–May 2022.
 
 ### Work authorization and sponsorship — not yet proven
 
@@ -209,7 +209,7 @@ console.log(
 3. In the **same service worker** DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
 4. On the form, mark each item filled or skipped separately from that event:
    - **Contact (must-have):** name, email, phone, location-style are the proven fill. LinkedIn is not yet proven.
-   - **Education (must-have):** `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0` for `education[0]`. `education[1]` has no site-rule ids, so that entry stays skipped.
+   - **Education (must-have):** `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0` for `education[0]` (University of Texas - Austin, Bachelor's Degree, Computer Science, September 2016–May 2020). The education **Add another** control reveals `school--1` and the other `--1` ids for `education[1]` (same school, Master's Degree, September 2020–May 2022). A wrong alphabetical school (Alverno or Austin College) is a fail.
    - **Experience (must-have):** `company-name-0`, `title-0`, `start-date-month-0`, `start-date-year-0`, and `current-role-0_1` for `experience[0]` (current role: June 2022, end dates left empty). After **Add another**, the `-1` ids for `experience[1]` (Contoso, June 2018–May 2022, current role unchecked). Description and city/state are not on this block. A board with `employment: hidden` has nothing to fill. It outranks EEO.
    - **Work authorization and sponsorship (must-have):** `question_*` text for legally authorized and sponsorship.
    - **Resume (must-have):** `resumeFileName` is set. Binary file attach may still be skipped.
@@ -280,4 +280,4 @@ If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replac
 2. Trigger autofill.
 3. In the service worker DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
 
-Same split as section 1: that event confirms the contact success path. Education ids (`school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`), both experience roles (`company-name-N`, `title-N`, `start-date-month-N`, `start-date-year-N`, `end-date-month-N`, `end-date-year-N`, `current-role-N_1`), work authorization, sponsorship, and resume file attach stay unproven until the form shows them. `resumeFileName` on the remote profile is still a filename; Greenhouse site rules do not upload the file. EEO is optional and attempted when the vault has values; a missing or unmapped EEO question is skipped and does not block the experience gap.
+Same split as section 1: that event confirms the contact success path. Education ids for both rows (`school--N`, `degree--N`, `discipline--N`, `start-month--N`, `start-year--N`, `end-month--N`, `end-year--N`, including `--1` after the education Add another click), both experience roles (`company-name-N`, `title-N`, `start-date-month-N`, `start-date-year-N`, `end-date-month-N`, `end-date-year-N`, `current-role-N_1`), work authorization, sponsorship, and resume file attach stay unproven until the form shows them. `resumeFileName` on the remote profile is still a filename; Greenhouse site rules do not upload the file. EEO is optional and attempted when the vault has values; a missing or unmapped EEO question is skipped and does not block the experience gap.

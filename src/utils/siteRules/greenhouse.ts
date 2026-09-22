@@ -1,6 +1,6 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { detectAts } from '../ats.ts'
-import { fillNativeInput, fillReactSelect } from '../../utils/inputHandlers'
+import { fillNativeInput, fillReactSelect, setReactInputValue } from '../../utils/inputHandlers'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
   dialingCodeSearchValues,
@@ -16,12 +16,19 @@ import {
   countrySearchValues,
   degreeSearchValues,
   disciplineSearchValues,
+  greenhouseEducationRowsToAdd,
   isResidenceCountryField,
   isStateQuestion,
   monthNameFromLooseDate,
+  parseGreenhouseEducationId,
+  pickDegreeOption,
+  pickDisciplineOption,
+  pickMonthOption,
+  pickSchoolOption,
   schoolSearchValues,
   stateSearchValues,
   yearFromLooseDate,
+  type GreenhouseEducationField,
 } from './greenhouseValues.ts'
 
 // Snapshot at load. Greenhouse mounts city/race/education inputs only after an
@@ -38,6 +45,9 @@ export default function greenhouseConfig(): SiteRule {
         href: window.location.href,
         document,
       }) === 'greenhouse',
+    onMount: (personalInfo) => {
+      void ensureGreenhouseEducationRows(personalInfo?.education?.length ?? 0)
+    },
     apply: (input, fieldText, personalInfo) => {
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {
@@ -99,69 +109,73 @@ const fieldHandlers: Array<{
     },
   },
   {
-    match: (input, _) => input.id === 'school--0',
-    handle: async (input, _, personalInfo) => {
-      const queries = schoolSearchValues(personalInfo.education?.[0]?.schoolName)
-      if (queries.length === 0) return true
-      await fillReactSelect(input, queries, '[id^=react-select-school--0-option-]')
-      return true
+    // Education comboboxes: school--N, degree--N, discipline--N, start-month--N, end-month--N.
+    // N follows the row key. The board renders key 0 only; further keys appear after the
+    // education "Add another" button (not the employment one). Claiming every --N id keeps
+    // the generic matcher from copying education[0] into a later row.
+    match: (input, _) => {
+      const field = parseGreenhouseEducationId(input.id)
+      return field !== null && field.kind !== 'start-year' && field.kind !== 'end-year'
     },
+    handle: (input, _, personalInfo) =>
+      enqueueEducationFill(async () => {
+        await ensureGreenhouseEducationRows(personalInfo.education?.length ?? 0)
+        const field = parseGreenhouseEducationId(input.id)
+        if (!field) return
+        const education = personalInfo.education?.[field.index]
+        if (!education) return
+        const live = liveEducationInput(input)
+        if (!live) return
+        const plan = educationSelectPlan(field, education)
+        if (!plan) return
+        const current = selectedComboboxLabel(live)
+        if (current && plan.pick([current]) === current) return
+        await fillReactSelect(
+          live,
+          plan.queries,
+          `[id^=react-select-${live.id}-option-]`,
+          (options) => plan.pick(options),
+          'greenhouse',
+        )
+      }),
   },
   {
-    match: (input, _) => input.id === 'degree--0',
-    handle: async (input, _, personalInfo) => {
-      const queries = degreeSearchValues(personalInfo.education?.[0]?.degreeType)
-      if (queries.length === 0) return true
-      await fillReactSelect(input, queries, '[id^=react-select-degree--0-option-]')
-      return true
+    // Year inputs are type=number next to the month combobox. The profile string is
+    // education.startYear / graduationYear ("2016-09", "May 2016", or a bare year).
+    // A bare year fills the year and leaves the month empty.
+    match: (input, _) => {
+      const field = parseGreenhouseEducationId(input.id)
+      return field?.kind === 'start-year' || field?.kind === 'end-year'
     },
-  },
-  {
-    match: (input, _) => input.id === 'discipline--0',
-    handle: async (input, _, personalInfo) => {
-      const queries = disciplineSearchValues(personalInfo.education?.[0]?.major)
-      if (queries.length === 0) return true
-      await fillReactSelect(input, queries, '[id^=react-select-discipline--0-option-]')
-      return true
-    },
-  },
-  {
-    // Education month/year. These ids sit next to school--0. The profile stores
-    // education years (and sometimes a month inside that string), not experience dates.
-    match: (input, _) => input.id === 'start-month--0',
-    handle: async (input, _, personalInfo) => {
-      const month = monthNameFromLooseDate(personalInfo.education?.[0]?.startYear)
-      if (!month) return true
-      await fillReactSelect(input, month, '[id^=react-select-start-month--0-option-]')
-      return true
-    },
-  },
-  {
-    match: (input, _) => input.id === 'start-year--0',
-    handle: async (input, _, personalInfo) => {
-      const year = yearFromLooseDate(personalInfo.education?.[0]?.startYear)
-      if (!year) return true
-      await fillNativeInput(input, year)
-      return true
-    },
-  },
-  {
-    match: (input, _) => input.id === 'end-month--0',
-    handle: async (input, _, personalInfo) => {
-      const month = monthNameFromLooseDate(personalInfo.education?.[0]?.graduationYear)
-      if (!month) return true
-      await fillReactSelect(input, month, '[id^=react-select-end-month--0-option-]')
-      return true
-    },
-  },
-  {
-    match: (input, _) => input.id === 'end-year--0',
-    handle: async (input, _, personalInfo) => {
-      const year = yearFromLooseDate(personalInfo.education?.[0]?.graduationYear)
-      if (!year) return true
-      await fillNativeInput(input, year)
-      return true
-    },
+    handle: (input, _, personalInfo) =>
+      enqueueEducationFill(async () => {
+        await ensureGreenhouseEducationRows(personalInfo.education?.length ?? 0)
+        const field = parseGreenhouseEducationId(input.id)
+        if (!field) return
+        const education = personalInfo.education?.[field.index]
+        if (!education) return
+        const source = field.kind === 'start-year' ? education.startYear : education.graduationYear
+        const year = yearFromLooseDate(source)
+        if (!year) return
+        const live = liveEducationInput(input)
+        if (!live) return
+        if (live.getAttribute('role') === 'combobox' || live.closest('.select')) {
+          const current = selectedComboboxLabel(live)
+          if (current === year) return
+          await fillReactSelect(
+            live,
+            year,
+            `[id^=react-select-${live.id}-option-]`,
+            (options) => pickMonthOption(options, year),
+            'greenhouse',
+          )
+          return
+        }
+        if (live.value.trim() === year) return
+        live.focus()
+        setReactInputValue(live, year)
+        live.dispatchEvent(new Event('change', { bubbles: true }))
+      }),
   },
   {
     // Job-boards employment (boards.greenhouse.io and job-boards embeds).
@@ -269,3 +283,142 @@ const fieldHandlers: Array<{
   },
   ...reactSelectEeoFieldHandlers,
 ]
+
+type EducationEntry = {
+  schoolName?: string
+  degreeType?: string
+  major?: string
+  startYear?: string
+  graduationYear?: string
+}
+
+// Serializes education fills so a formChanged refill (the new --1 row) does not
+// type into a combobox the first pass still has open.
+let educationFillTail: Promise<void> = Promise.resolve()
+
+function enqueueEducationFill(task: () => Promise<void>): Promise<boolean> {
+  const run = educationFillTail.then(task, task).then(
+    () => true as const,
+    (error) => {
+      console.error('[greenhouse education]', error)
+      return true as const
+    },
+  )
+  educationFillTail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+function educationSelectPlan(field: GreenhouseEducationField, education: EducationEntry) {
+  if (field.kind === 'school') {
+    const queries = schoolSearchValues(education.schoolName)
+    if (queries.length === 0) return null
+    return { queries, pick: (options: string[]) => pickSchoolOption(options, queries) }
+  }
+  if (field.kind === 'degree') {
+    const queries = degreeSearchValues(education.degreeType)
+    if (queries.length === 0) return null
+    return { queries, pick: (options: string[]) => pickDegreeOption(options, queries) }
+  }
+  if (field.kind === 'discipline') {
+    const queries = disciplineSearchValues(education.major)
+    if (queries.length === 0) return null
+    return { queries, pick: (options: string[]) => pickDisciplineOption(options, queries) }
+  }
+  if (field.kind === 'start-month' || field.kind === 'end-month') {
+    const source = field.kind === 'start-month' ? education.startYear : education.graduationYear
+    const month = monthNameFromLooseDate(source)
+    if (!month) return null
+    return { queries: [month], pick: (options: string[]) => pickMonthOption(options, month) }
+  }
+  return null
+}
+
+function liveEducationInput(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): HTMLInputElement | null {
+  const candidate = input.isConnected ? input : input.id ? document.getElementById(input.id) : null
+  return candidate instanceof HTMLInputElement ? candidate : null
+}
+
+function selectedComboboxLabel(input: HTMLElement): string {
+  const root = input.closest('.select')
+  return root?.querySelector('.select__single-value')?.textContent?.replace(/\s+/g, ' ').trim() || ''
+}
+
+// The education section renders one .education--form (key 0). The button inside
+// .education--container (class add-another-button, label education.add_another)
+// appends key 1, 2, … as school--N / degree--N / discipline--N / start-month--N /
+// end-month--N / start-year--N / end-year--N. Employment has its own
+// .employment--container button with the same class; this only clicks the education one.
+// formChanged sees the new inputs and refills them.
+let educationRevealTail: Promise<void> = Promise.resolve()
+
+function ensureGreenhouseEducationRows(profileCount: number): Promise<void> {
+  const run = educationRevealTail.then(() => revealGreenhouseEducationRows(profileCount))
+  educationRevealTail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+async function revealGreenhouseEducationRows(profileCount: number) {
+  let guard = 0
+  while (guard < 8) {
+    const existing = countGreenhouseEducationRows()
+    if (greenhouseEducationRowsToAdd(existing, profileCount) <= 0) return
+    const button = greenhouseEducationAddButton()
+    if (!button) return
+    const before = existing
+    button.click()
+    const appeared = await waitForEducationRow(before)
+    if (!appeared) return
+    guard++
+  }
+}
+
+function countGreenhouseEducationRows(): number {
+  const byClass = document.querySelectorAll('.education--container .education--form').length
+  if (byClass > 0) return byClass
+  let count = 0
+  while (count < 8 && greenhouseEducationRowPresent(count)) count++
+  return count
+}
+
+function greenhouseEducationRowPresent(index: number): boolean {
+  return ['school', 'degree', 'discipline', 'start-month', 'start-year', 'end-month', 'end-year'].some(
+    (kind) => !!document.getElementById(`${kind}--${index}`),
+  )
+}
+
+function greenhouseEducationAddButton(): HTMLButtonElement | null {
+  const container = document.querySelector('.education--container')
+  if (!container) return null
+  const byClass = container.querySelector('button.add-another-button')
+  if (byClass instanceof HTMLButtonElement) return byClass
+  const byLabel = Array.from(container.querySelectorAll('button')).find((button) =>
+    /add another/i.test(button.textContent || ''),
+  )
+  return byLabel instanceof HTMLButtonElement ? byLabel : null
+}
+
+function waitForEducationRow(previousCount: number): Promise<boolean> {
+  const start = Date.now()
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (countGreenhouseEducationRows() > previousCount) {
+        resolve(true)
+        return
+      }
+      if (Date.now() - start > 1500) {
+        resolve(false)
+        return
+      }
+      setTimeout(tick, 50)
+    }
+    tick()
+  })
+}
