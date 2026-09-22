@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { usStates } from '../../utils/locationLists.ts'
 import type { Education, PersonalInfo } from '../../types/index.ts'
 import SectionSheet from './SectionSheet.vue'
