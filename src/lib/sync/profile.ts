@@ -48,6 +48,8 @@ interface ProfileDbRows {
 
 export function profileToDbRows(info: PersonalInfo, userId: string): ProfileDbRows {
   return {
+    // `plan` is intentionally absent. A profile edit must not reset pro → free.
+    // ExtensionPay purchase writes profiles.plan through writeProfilePlan.
     profile: {
       id: userId,
       first_name: nullIfEmpty(info.firstName),

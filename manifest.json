@@ -10,7 +10,7 @@
     "scopes": ["openid", "email", "profile"]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://app.posthog.com https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co http://localhost:8080"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://extensionpay.com https://app.posthog.com https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co http://localhost:8080"
   },
   "action": {
     "default_popup": "popup.html"
@@ -31,6 +31,11 @@
     "128": "icons/icon128.png"
   },
   "content_scripts": [
+    {
+      "matches": ["https://extensionpay.com/*"],
+      "js": ["extensionPayContent.js"],
+      "run_at": "document_start"
+    },
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],

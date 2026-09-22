@@ -27,19 +27,24 @@ export async function trackEvent(
   options?: { keepalive?: boolean },
 ) {
   const clean = stripEmpty(properties)
-  try {
-    // Page connect-src (Greenhouse does not allow api.mixpanel.com) can block a
-    // fetch made from the content script, and an embedded apply iframe's request
-    // does not show on the parent page's network log. The service worker is
-    // outside the page CSP, so the contract events still leave the browser.
-    const response = await chrome.runtime.sendMessage({
-      action: 'trackMixpanel',
-      eventName,
-      properties: clean,
-    })
-    if (response?.ok) return
-  } catch (error) {
-    console.error('Mixpanel relay failed:', error)
+  // The service worker must not relay to itself: Chrome does not deliver
+  // runtime.sendMessage back to the sender, so the promise would never settle.
+  const inServiceWorker = typeof document === 'undefined'
+  if (!inServiceWorker) {
+    try {
+      // Page connect-src (Greenhouse does not allow api.mixpanel.com) can block a
+      // fetch made from the content script, and an embedded apply iframe's request
+      // does not show on the parent page's network log. The service worker is
+      // outside the page CSP, so the contract events still leave the browser.
+      const response = await chrome.runtime.sendMessage({
+        action: 'trackMixpanel',
+        eventName,
+        properties: clean,
+      })
+      if (response?.ok) return
+    } catch (error) {
+      console.error('Mixpanel relay failed:', error)
+    }
   }
 
   try {
