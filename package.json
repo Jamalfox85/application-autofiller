@@ -1,6 +1,6 @@
 {
   "name": "job-application-autofill",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "Chrome extension to autofill job applications",
   "type": "module",
   "scripts": {
