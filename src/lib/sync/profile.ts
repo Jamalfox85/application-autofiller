@@ -49,9 +49,8 @@ interface ProfileDbRows {
 export function profileToDbRows(info: PersonalInfo, userId: string): ProfileDbRows {
   return {
     // `plan` is intentionally absent. A profile edit must not reset pro → free.
-    // A purchase stores the plan in PENDING_PLAN_KEY and the entitlement cache.
-    // writeProfilePlan may attempt a client UPDATE, but the profiles.plan
-    // write-lock rejects it. The durable write is the backend billing endpoint.
+    // Server plan is set only by POST /api/v1/billing/plan after purchase.
+    // A client UPDATE of profiles.plan is not a successful write.
     profile: {
       id: userId,
       first_name: nullIfEmpty(info.firstName),
