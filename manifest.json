@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GoFillr - Job Application Autofill",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzipEauDPLkyYLCJM84YJwTGDUpmILVemL4qGxQ3tR2fx1zXWLQGHzpLZptOgrgD9K66dD6b3UmkAsx1Hh3qTNjvTd3T17WfzhWLCCl6JF1tsACTNBXmWSPBoML4jta0IRbsMEAkMyn1XndFTiHCww3Eph1qtdbuPIg+C7zrjPzziq/9MIepEpwJeQPvoL2MIHLcLkjgdHzl1BCHhxgq7ZEA1Qh/PbkUPaIVAW1pujm5m6Jr3Doe9UO6pLsjQ+8YAi04f2A1N0yriV1ROSh+eM8I75nL17YbRos7kHpBwuc44avGh4psisRtINfcv1XsDz+rDFnZiI9dPnEUo+gQ+QIDAQAB",
   "version": "1.0.5",
   "description": "Autofill job applications instantly. Save your info once, apply to hundreds of jobs in seconds.",
   "permissions": ["storage", "activeTab", "scripting", "identity"],
