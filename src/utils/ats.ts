@@ -19,10 +19,64 @@ const ATS_HOST_RULES: Array<{ fragment: string; ats: string }> = [
   { fragment: 'taleo', ats: 'taleo' },
 ]
 
+export type AtsPageContext = {
+  hostname: string
+  /** Full page URL when available — used for Greenhouse embed query params (gh_jid). */
+  href?: string | null
+  /**
+   * Optional document for Greenhouse DOM / iframe markers on non-greenhouse.io hosts
+   * (e.g. carvana.com careers apply that embeds boards.greenhouse.io).
+   */
+  document?: Pick<Document, 'getElementById' | 'querySelector'> | null
+}
+
 export function atsFromHostname(hostname: string): string | null {
   const host = hostname.toLowerCase()
   for (const rule of ATS_HOST_RULES) {
     if (host.includes(rule.fragment)) return rule.ats
   }
+  return null
+}
+
+/** Greenhouse job id on embedded apply pages (e.g. carvana.com/careers/apply?gh_jid=…). */
+export function hrefHasGreenhouseJobId(href: string): boolean {
+  try {
+    const url = new URL(href)
+    if (url.searchParams.has('gh_jid')) return true
+    // Some SPA hosts put query params in the hash.
+    if (url.hash.includes('?')) {
+      const hashQuery = url.hash.slice(url.hash.indexOf('?') + 1)
+      if (new URLSearchParams(hashQuery).has('gh_jid')) return true
+    }
+    return false
+  } catch {
+    return /(?:[?&#]|^)gh_jid=/i.test(href)
+  }
+}
+
+export function documentHasGreenhouseMarkers(
+  doc: Pick<Document, 'getElementById' | 'querySelector'>,
+): boolean {
+  // Classic and modern Greenhouse apply roots used by siteRules/greenhouse.ts.
+  if (doc.getElementById('application-form') || doc.getElementById('application_form')) {
+    return true
+  }
+  // Embedded boards iframe on a careers host.
+  if (doc.querySelector('iframe[src*="greenhouse.io"]')) return true
+  return false
+}
+
+/**
+ * Shared ATS detection for fillContract / trackFillContract (and Greenhouse siteRules).
+ * Prefer hostname rules; fall back to durable Greenhouse embed signals when the top-level
+ * host is not greenhouse.io.
+ */
+export function detectAts(input: AtsPageContext): string | null {
+  const byHost = atsFromHostname(input.hostname)
+  if (byHost) return byHost
+
+  if (input.href && hrefHasGreenhouseJobId(input.href)) return 'greenhouse'
+  if (input.document && documentHasGreenhouseMarkers(input.document)) return 'greenhouse'
+
   return null
 }

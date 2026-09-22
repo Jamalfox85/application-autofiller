@@ -1,4 +1,5 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
+import { detectAts } from '../ats.ts'
 import { fillNativeInput, fillReactSelect } from '../../utils/inputHandlers'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
@@ -28,7 +29,13 @@ let seenFillableCount = countGreenhouseFillableFields()
 
 export default function greenhouseConfig(): SiteRule {
   return {
-    detect: () => window.location.hostname.includes('greenhouse.io'),
+    // Hostname greenhouse.io plus embed signals (gh_jid, #application-form, boards iframe).
+    detect: () =>
+      detectAts({
+        hostname: window.location.hostname,
+        href: window.location.href,
+        document,
+      }) === 'greenhouse',
     apply: (input, fieldText, personalInfo) => {
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {

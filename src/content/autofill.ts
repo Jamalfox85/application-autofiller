@@ -9,7 +9,8 @@ import {
   setRadioValue,
 } from '@/utils/inputHandlers.ts'
 import { normalizeText } from '@/utils/helpers.ts'
-import { trackFillContract } from '@/services/fillTelemetry'
+import { trackFillContract, type TrackFillContractContext } from '@/services/fillTelemetry'
+import type { AutofillFailureReason } from '@/utils/fillContract'
 
 // import { api } from '../lib/api'
 
@@ -109,11 +110,18 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
   let attemptedCount = 0
   let reportedAttempt = false
 
-  const hostname = window.location.hostname
+  const fillContext: TrackFillContractContext = {
+    hostname: window.location.hostname,
+    href: window.location.href,
+    document,
+  }
   const reportAttempt = async () => {
     if (reportedAttempt) return
     reportedAttempt = true
-    await trackFillContract('autofill_attempted', hostname)
+    await trackFillContract('autofill_attempted', fillContext)
+  }
+  const reportFailed = async (failureReason: AutofillFailureReason) => {
+    await trackFillContract('autofill_failed', { ...fillContext, failureReason })
   }
 
   try {
@@ -134,7 +142,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     // still record the attempt — an empty profile is a failed fill, not a skip.
     if (!profileHasAutofillData(personalInfo)) {
       await reportAttempt()
-      await trackFillContract('autofill_failed', hostname)
+      await reportFailed('empty_profile')
       return {
         success: false,
         code: 'empty_profile',
@@ -149,7 +157,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     await reportAttempt()
 
     if (fillableInputs.length === 0) {
-      await trackFillContract('autofill_failed', hostname)
+      await reportFailed('no_fillable_fields')
       return { success: false, message: 'No fillable fields found' }
     }
 
@@ -203,7 +211,11 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     lastFillRecords = fillRecords
     lastUnfilledInputs = unfilledInputs
 
-    await trackFillContract(filledCount > 0 ? 'autofill_succeeded' : 'autofill_failed', hostname)
+    if (filledCount > 0) {
+      await trackFillContract('autofill_succeeded', fillContext)
+    } else {
+      await reportFailed('no_matching_fields')
+    }
 
     return {
       success: filledCount > 0,
@@ -216,7 +228,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     }
   } catch {
     await reportAttempt()
-    await trackFillContract('autofill_failed', hostname)
+    await reportFailed('error')
     return { success: false, message: 'Error during autofill' }
   }
 }

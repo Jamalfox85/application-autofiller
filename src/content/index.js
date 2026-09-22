@@ -18,7 +18,7 @@ import { trackEvent } from '../services/mixpanelHttp'
 import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
-import { atsFromHostname } from '../utils/ats.ts'
+import { detectAts } from '../utils/ats.ts'
 
 function isTopFrame() {
   try {
@@ -181,7 +181,12 @@ async function trackApplicationSubmitted(submitMethod) {
 
   const host = trigger.jobSite || window.location.hostname
   const properties = {
-    ats: atsFromHostname(host) ?? 'other',
+    ats:
+      detectAts({
+        hostname: host,
+        href: window.location.href,
+        document,
+      }) ?? 'other',
     job_site: host,
     submit_method: submitMethod,
     time_since_autofill_triggered_seconds: (Date.now() - trigger.triggeredAt) / 1000,

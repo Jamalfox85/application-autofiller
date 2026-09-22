@@ -196,7 +196,7 @@ test('locked mixpanel event names stay on the contract', () => {
   assert.doesNotMatch(pick, /profile_setup_started/)
   assert.doesNotMatch(welcome, /profile_setup_completed/)
   assert.match(greenhouse, /function greenhouseConfig/)
-  assert.match(greenhouse, /greenhouse\.io/)
+  assert.match(greenhouse, /detectAts/)
   assert.match(mixpanelHttp, /action: 'trackMixpanel'/)
   assert.match(background, /request\.action === 'trackMixpanel'/)
 })
