@@ -32,11 +32,15 @@ let revealedSecondEducation = false
 // Reset at the start of each fill. Counts gender, race, veteran, and disability.
 let eeoTally = freshAshbyEeoTally()
 
+const FORM_ROOTS = ['.ashby-application-form-container', '.ashby-survey-form-container']
+
 // Snapshot at load. The application tab and survey mount inputs after the job
 // posting shell, which increases this count. Typing into a field does not.
+// FORM_ROOTS must already be initialized: this module is imported by the content
+// script, and countAshbyFillableFields is hoisted. Reading a const before its
+// initializer throws, which aborts the whole content script before the autofill
+// listener is registered.
 let seenFillableCount = countAshbyFillableFields()
-
-const FORM_ROOTS = ['.ashby-application-form-container', '.ashby-survey-form-container']
 
 export default function ashbyConfig(): SiteRule {
   return {
@@ -176,13 +180,18 @@ export default function ashbyConfig(): SiteRule {
 
 function countAshbyFillableFields(): number {
   if (typeof document === 'undefined') return 0
-  return FORM_ROOTS.reduce((total, root) => {
-    return (
-      total +
-      document.querySelectorAll(`${root} input:not([type="hidden"]), ${root} textarea, ${root} select`)
-        .length
-    )
-  }, 0)
+  try {
+    return FORM_ROOTS.reduce((total, root) => {
+      return (
+        total +
+        document.querySelectorAll(`${root} input:not([type="hidden"]), ${root} textarea, ${root} select`)
+          .length
+      )
+    }, 0)
+  } catch (error) {
+    console.error('Ashby fillable-field count failed', error)
+    return 0
+  }
 }
 
 type AshbyFieldContext = {

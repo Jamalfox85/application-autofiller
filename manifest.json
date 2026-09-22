@@ -3,7 +3,7 @@
   "name": "GoFillr - Job Application Autofill",
   "version": "1.0.5",
   "description": "Autofill job applications instantly. Save your info once, apply to hundreds of jobs in seconds.",
-  "permissions": ["storage", "activeTab", "identity"],
+  "permissions": ["storage", "activeTab", "scripting", "identity"],
   "host_permissions": ["<all_urls>"],
   "oauth2": {
     "client_id": "628494525589-8i2v9kg3hdgil3tqoo1oesmooa8ofi37.apps.googleusercontent.com",

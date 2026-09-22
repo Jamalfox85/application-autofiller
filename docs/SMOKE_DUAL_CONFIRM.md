@@ -206,10 +206,24 @@ console.log(
 )
 ```
 
+### Signed-out trigger (keyboard)
+
+Popup **Auto-fill** is on the Google sign-in screen until a session exists. This mirror seed has no session. The keyboard command reads `chrome.storage.local.personalInfo` and fills from that mirror.
+
+1. `npm run build`, then `chrome://extensions` → Developer mode → **Load unpacked** → `dist/`.
+2. Seed `personalInfo` from the service worker console (snippet above) and run the verify snippet.
+3. Open a hosted apply page: `https://jobs.ashbyhq.com/<org>/<job>/application` or `https://jobs.lever.co/<org>/<job>/apply`.
+4. Hard-refresh that tab so the content script attaches to the loaded page.
+5. Press **Ctrl+Shift+F** (**Command+Shift+F** on macOS).
+
+The command sends `{ action: 'autofill' }`. When the tab has no listener (`Receiving end does not exist` — the page was open before Load unpacked, or the script had not attached yet), the service worker injects `content.js` into every frame and sends the message again. Seeding storage is enough for the profile; the hard refresh is what attaches the content script after Load unpacked.
+
+This is the unpack check that autofill runs while signed out on a hosted Ashby or Lever apply page. Ashby and Lever section-fill stay queued. Greenhouse field checks stay in the success-path list below.
+
 ### Success-path apply
 
 1. Open a Carvana Greenhouse apply URL that includes `gh_jid` (`job-boards.greenhouse.io` or `boards.greenhouse.io`).
-2. Trigger autofill.
+2. Trigger autofill with **Ctrl+Shift+F** (**Command+Shift+F** on macOS), after a hard refresh if this tab was open before Load unpacked. The popup button is on the signed-in screen; this mirror seed uses the command.
 3. In the **same service worker** DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
 4. On the form, mark each item filled or skipped separately from that event:
    - **Contact (must-have):** name, email, phone, location-style are the proven fill. LinkedIn is not yet proven.
