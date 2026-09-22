@@ -38,7 +38,7 @@ Both rows use `Experience` keys from `src/types/index.ts`: `companyName`, `jobTi
 
 Greenhouse site rules have no employment ids. A fill of the first role through generic field matching would still leave the second role unproven.
 
-That employment gap outranks EEO for the under-10 pass. EEO is an optional attempt on the same run. A skipped gender, race, veteran, or disability control does not block work on these two roles.
+That employment gap outranks EEO. EEO is an optional attempt on the same run. A skipped gender, race, veteran, or disability control does not block work on these two roles.
 
 ### Education — 2 entries, not yet proven
 
