@@ -17,7 +17,7 @@ The earlier mirror seed (`education: []`, `experience: []`, no `workAuthorizatio
 | Must-have | Seed | Status |
 | --- | --- | --- |
 | Contact: name, email, phone, location, LinkedIn | `firstName`, `lastName`, `email`, `phone`, `phoneCountryCode`, `address`, `city`, `state`, `zip`, `country`, `linkedin` | **Proven:** name, email, phone, location-style (`country` dialing-code combobox, `candidate-location`). **Not yet proven:** `linkedin` (prior seed was empty; `greenhouse.ts` has no LinkedIn id). |
-| Experience: 2 roles | `experience[0]`, `experience[1]` | **Not yet proven.** No Greenhouse employment ids in `src/utils/siteRules/greenhouse.ts`. Generic `matchExperienceField` reads `experience[0]` only. |
+| Experience: 2 roles | `experience[0]`, `experience[1]` | **Not yet proven on a live form.** Site rules fill `company-name-N`, `title-N`, `start-date-month-N`, `start-date-year-N`, `end-date-month-N`, `end-date-year-N`, and `current-role-N_1` from `experience[N]`. The board renders row 0 until "Add another" adds row 1. Description and city/state are not inputs on this employment block. |
 | Education: 2 entries | `education[0]`, `education[1]` | **Not yet proven.** Handlers read `education[0]` only. |
 | Work authorization and sponsorship | `workAuthorization`, `sponsorshipRequired` | **Not yet proven.** Handlers exist; the prior seed omitted both keys. |
 | Resume filename | `resumeFileName` | **Filename is set. Binary attach may still be skipped.** `greenhouse.ts` does not upload a file. |
@@ -29,16 +29,28 @@ The earlier mirror seed (`education: []`, `experience: []`, no `workAuthorizatio
 - Location-style: `address`, `city`, `state`, `zip`, `country`, and the Greenhouse city typeahead `candidate-location`
 - `linkedin` is in this seed. Record it proven only after a run shows the field filled.
 
-### Experience — 2 roles, not yet proven
+### Experience — 2 roles, handlers wired, not yet proven on a live form
 
 Both rows use `Experience` keys from `src/types/index.ts`: `companyName`, `jobTitle`, `startDate`, `endDate` or `present`, `description`, `locationCity`, `locationState`.
 
 - `experience[0]` is the current role (`present: true`, no `endDate`).
 - `experience[1]` is a past role (`present: false`, `endDate` set).
 
-Greenhouse site rules have no employment ids. A fill of the first role through generic field matching would still leave the second role unproven.
+Job-boards employment ids (the same form on `boards.greenhouse.io` and `job-boards.greenhouse.io`) use a single dash and a zero-based key. That is not the education `--0` pattern. `src/utils/siteRules/greenhouse.ts` reads `experience[N]` for these ids:
 
-That employment gap outranks EEO. EEO is an optional attempt on the same run. A skipped gender, race, veteran, or disability control does not block work on these two roles.
+| `PersonalInfo` field | Greenhouse id | How the handler reads it |
+| --- | --- | --- |
+| `companyName` | `company-name-0`, `company-name-1` | Text input. |
+| `jobTitle` | `title-0`, `title-1` | Text. |
+| `startDate` | `start-date-month-N`, `start-date-year-N` | `2022-06` → June and `2022`. A bare year fills the year and skips the month. |
+| `endDate` | `end-date-month-N`, `end-date-year-N` | Filled when `present` is not true. `2022-05` → May and `2022`. |
+| `present` | `current-role-N_1` | Checkbox. `present: true` checks it and leaves the end-date inputs empty. |
+
+The form renders one employment row (key 0) until **Add another**. Key 1 is `experience[1]`. `formChanged` refills when that row's inputs appear.
+
+`description`, `locationCity`, and `locationState` are on the seed. The current employment block does not render inputs for them, so those values stay unfilled.
+
+Still not proven until a live form shows the values. EEO is an optional attempt on the same run. A skipped gender, race, veteran, or disability control does not block these two roles.
 
 ### Education — 2 entries, not yet proven
 
@@ -198,7 +210,7 @@ console.log(
 4. On the form, mark each item filled or skipped separately from that event:
    - **Contact (must-have):** name, email, phone, location-style are the proven fill. LinkedIn is not yet proven.
    - **Education (must-have):** `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0` for `education[0]`. `education[1]` has no site-rule ids, so that entry stays skipped.
-   - **Experience (must-have, priority gap):** both roles (company, title, dates, description, city/state) if the board shows them. No Greenhouse employment ids, so a skip here is the open site-rules gap. It outranks EEO.
+   - **Experience (must-have):** `company-name-0`, `title-0`, `start-date-month-0`, `start-date-year-0`, and `current-role-0_1` for `experience[0]` (current role: June 2022, end dates left empty). After **Add another**, the `-1` ids for `experience[1]` (Contoso, June 2018–May 2022, current role unchecked). Description and city/state are not on this block. A board with `employment: hidden` has nothing to fill. It outranks EEO.
    - **Work authorization and sponsorship (must-have):** `question_*` text for legally authorized and sponsorship.
    - **Resume (must-have):** `resumeFileName` is set. Binary file attach may still be skipped.
    - **EEO (optional, attempted):** gender, race, veteran, and disability when those questions are on the form. Filled when the label matches the handlers. Skipped and non-blocking when the question is missing or unmapped. An EEO skip does not block the experience check above.
@@ -268,4 +280,4 @@ If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replac
 2. Trigger autofill.
 3. In the service worker DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
 
-Same split as section 1: that event confirms the contact success path. Education ids (`school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`), both experience roles, work authorization, sponsorship, and resume file attach stay unproven until the form shows them. `resumeFileName` on the remote profile is still a filename; Greenhouse site rules do not upload the file. EEO is optional and attempted when the vault has values; a missing or unmapped EEO question is skipped and does not block the experience gap.
+Same split as section 1: that event confirms the contact success path. Education ids (`school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`), both experience roles (`company-name-N`, `title-N`, `start-date-month-N`, `start-date-year-N`, `end-date-month-N`, `end-date-year-N`, `current-role-N_1`), work authorization, sponsorship, and resume file attach stay unproven until the form shows them. `resumeFileName` on the remote profile is still a filename; Greenhouse site rules do not upload the file. EEO is optional and attempted when the vault has values; a missing or unmapped EEO question is skipped and does not block the experience gap.

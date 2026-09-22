@@ -1,4 +1,5 @@
 import { canadaProvinces, ukRegions, usStates } from '../locationLists.ts'
+import { monthNameFromLooseDate, yearFromLooseDate } from './greenhouseValues.ts'
 
 // Greenhouse's #country control is the phone dialing-code react-select. Option labels look
 // like "United States +1" (country name, space, plus, calling code). It is not the
@@ -212,4 +213,94 @@ function normalizePlace(value: string) {
     .replace(/\./g, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// Job-boards employment ids, from the Greenhouse application bundle:
+// id={`${name}-${key}`} with key starting at 0. The current-role control is a
+// checkbox whose id is `current-role-${key}_1` (option value "1"). Education
+// uses a double dash (`school--0`, `start-month--0`) and must not match here.
+
+export type GreenhouseEmploymentKind =
+  | 'company'
+  | 'title'
+  | 'startMonth'
+  | 'startYear'
+  | 'endMonth'
+  | 'endYear'
+  | 'currentRole'
+
+export type GreenhouseEmploymentField = {
+  index: number
+  kind: GreenhouseEmploymentKind
+}
+
+const EMPLOYMENT_KIND_BY_ID: Record<string, GreenhouseEmploymentKind> = {
+  'company-name': 'company',
+  title: 'title',
+  'start-date-month': 'startMonth',
+  'start-date-year': 'startYear',
+  'end-date-month': 'endMonth',
+  'end-date-year': 'endYear',
+}
+
+export type EmploymentProfileEntry = {
+  companyName?: string | null
+  jobTitle?: string | null
+  startDate?: string | null
+  endDate?: string | null
+  present?: boolean | null
+}
+
+export type EmploymentFillPlan =
+  | { action: 'text' | 'month'; value: string }
+  | { action: 'check' }
+  | { action: 'skip' }
+
+export function parseGreenhouseEmploymentField(
+  inputId: string | null | undefined,
+): GreenhouseEmploymentField | null {
+  if (!inputId) return null
+  const currentRole = inputId.match(/^current-role-(\d+)_\d+$/)
+  if (currentRole) return { index: Number(currentRole[1]), kind: 'currentRole' }
+
+  const match = inputId.match(
+    /^(company-name|title|start-date-month|start-date-year|end-date-month|end-date-year)-(\d+)$/,
+  )
+  if (!match) return null
+  const kind = EMPLOYMENT_KIND_BY_ID[match[1]]
+  if (!kind) return null
+  return { index: Number(match[2]), kind }
+}
+
+// present true is the current role (end dates stay empty; the checkbox is checked).
+// present false is a past role even when endDate is blank. An omitted present flag
+// follows the dates: no end date means current.
+export function employmentIsCurrent(experience: EmploymentProfileEntry): boolean {
+  if (experience.present === true) return true
+  if (experience.present === false) return false
+  return !(experience.endDate || '').trim()
+}
+
+export function employmentFillPlan(
+  kind: GreenhouseEmploymentKind,
+  experience: EmploymentProfileEntry,
+): EmploymentFillPlan {
+  const current = employmentIsCurrent(experience)
+  if (kind === 'currentRole') return current ? { action: 'check' } : { action: 'skip' }
+  if ((kind === 'endMonth' || kind === 'endYear') && current) return { action: 'skip' }
+
+  const value = employmentText(kind, experience)
+  if (!value) return { action: 'skip' }
+  if (kind === 'startMonth' || kind === 'endMonth') return { action: 'month', value }
+  return { action: 'text', value }
+}
+
+function employmentText(kind: GreenhouseEmploymentKind, experience: EmploymentProfileEntry) {
+  if (kind === 'company') return (experience.companyName || '').trim()
+  if (kind === 'title') return (experience.jobTitle || '').trim()
+  if (kind === 'startMonth') return monthNameFromLooseDate(experience.startDate || '') || ''
+  if (kind === 'startYear') return yearFromLooseDate(experience.startDate || '') || ''
+  if (kind === 'endMonth') return monthNameFromLooseDate(experience.endDate || '') || ''
+  if (kind === 'endYear') return yearFromLooseDate(experience.endDate || '') || ''
+  return ''
 }

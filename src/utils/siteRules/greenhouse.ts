@@ -4,8 +4,10 @@ import { fillNativeInput, fillReactSelect } from '../../utils/inputHandlers'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
   dialingCodeSearchValues,
+  employmentFillPlan,
   isGreenhousePhoneDialingCodeField,
   locationSearchQueries,
+  parseGreenhouseEmploymentField,
   phoneDialingCodeTarget,
   pickDialingCodeOption,
   pickLocationOption,
@@ -158,6 +160,34 @@ const fieldHandlers: Array<{
       const year = yearFromLooseDate(personalInfo.education?.[0]?.graduationYear)
       if (!year) return true
       await fillNativeInput(input, year)
+      return true
+    },
+  },
+  {
+    // Job-boards employment (boards.greenhouse.io and job-boards embeds).
+    // Ids are `${name}-${key}` with key 0, then 1 after "Add another".
+    // That is not the education `--0` pattern (start-month--0 stays education).
+    // The block renders company, title, start/end month and year, and
+    // current-role-{key}_1. It does not render description or location.
+    match: (input, _) => parseGreenhouseEmploymentField(input.id) !== null,
+    handle: async (input, _, personalInfo) => {
+      const field = parseGreenhouseEmploymentField(input.id)
+      if (!field) return false
+      const experience = personalInfo.experience?.[field.index]
+      if (!experience) return true
+      const plan = employmentFillPlan(field.kind, experience)
+      if (plan.action === 'skip') return true
+      if (plan.action === 'check') {
+        if (input instanceof HTMLInputElement && input.type === 'checkbox' && !input.checked) {
+          input.click()
+        }
+        return true
+      }
+      if (plan.action === 'month') {
+        await fillReactSelect(input, plan.value, `[id^=react-select-${input.id}-option-]`)
+        return true
+      }
+      await fillNativeInput(input, plan.value)
       return true
     },
   },
