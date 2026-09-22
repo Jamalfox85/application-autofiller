@@ -3,6 +3,7 @@ import { detectAts } from '../ats.ts'
 import { fillNativeInput, fillReactSelect, setSelectValue } from '../inputHandlers.ts'
 import {
   ashbyEducationDateValue,
+  ashbyEducationTextValue,
   ashbyEeoKind,
   ashbyEeoOptionMatches,
   ashbyEeoSearchLabels,
@@ -16,8 +17,12 @@ import {
   isAshbyLocationField,
   isAshbyResumeField,
   isAshbySchoolField,
+  shouldRevealAshbyEducationEntry,
   type AshbyYesNo,
 } from './ashbyFields.ts'
+
+// One click per page. formChanged sees the new inputs and runs autofill again.
+let revealedSecondEducation = false
 
 // Snapshot at load. The application tab and survey mount inputs after the job
 // posting shell, which increases this count. Typing into a field does not.
@@ -39,7 +44,7 @@ export default function ashbyConfig(): SiteRule {
       if (!context) return false
 
       if (input instanceof HTMLSelectElement) {
-        return fillEducationDate(input, context.dateContainerId, personalInfo)
+        return fillEducationDate(input, context, personalInfo)
       }
 
       if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
@@ -56,15 +61,21 @@ export default function ashbyConfig(): SiteRule {
 
       if (input.type === 'file') return false
 
+      const educationIndex = educationEntryIndex(input, context.path)
+
       if (input instanceof HTMLInputElement && input.id.endsWith('-isCurrent')) {
-        return fillStillStudent(input, personalInfo)
+        return fillStillStudent(input, educationIndex, personalInfo)
       }
 
-      if (isPrimaryEducationInput(input) && isAshbySchoolField(context, {
-        placeholder: input.getAttribute('placeholder'),
-        autocomplete: isAutocomplete(input),
-      })) {
-        const queries = ashbySchoolQueries(personalInfo.education?.[0]?.schoolName)
+      if (
+        educationIndex != null &&
+        isAshbySchoolField(context, {
+          placeholder: input.getAttribute('placeholder'),
+          autocomplete: isAutocomplete(input),
+        })
+      ) {
+        revealSecondEducation(personalInfo)
+        const queries = ashbySchoolQueries(personalInfo.education?.[educationIndex]?.schoolName)
         if (queries.length === 0) return false
         return fillAshbyAutocomplete(input, queries)
       }
@@ -106,6 +117,16 @@ export default function ashbyConfig(): SiteRule {
         if (input.type === 'checkbox' && context.entry) {
           return clickYesNo(context.entry, yesNo)
         }
+      }
+
+      if (input.id.endsWith('-degree') || input.id.endsWith('-major')) {
+        // Both education rows reuse the same id suffix. Index picks the profile row.
+        // A third row is left alone so it is not overwritten with the first school.
+        if (educationIndex == null) return false
+        revealSecondEducation(personalInfo)
+        const value = ashbyEducationTextValue(input.id, personalInfo, educationIndex)
+        if (!value || !(input instanceof HTMLTextAreaElement || isWritableText(input))) return false
+        return fillNativeInput(input, value)
       }
 
       if (input instanceof HTMLTextAreaElement || isWritableText(input)) {
@@ -205,32 +226,63 @@ function isWritableText(input: HTMLInputElement): boolean {
   return type === 'text' || type === 'email' || type === 'tel' || type === 'url' || type === 'search' || type === ''
 }
 
-function isPrimaryEducationInput(input: HTMLElement): boolean {
+// Repeatable entries are siblings under one parent. A form that is not
+// repeatable has no entry wrapper; those controls are the first row.
+// Hosted apply forms do not render an employment-history section, so there
+// is no matching index for a second company/title/date/description block.
+function educationEntryIndex(input: HTMLElement, path: string): number | null {
   const block = input.closest('.ashby-application-form-input-education-entry')
-  if (!block?.parentElement) return true
-  return block.parentElement.querySelector('.ashby-application-form-input-education-entry') === block
+  if (block?.parentElement) {
+    const entries = Array.from(block.parentElement.children).filter((el) =>
+      el.classList.contains('ashby-application-form-input-education-entry'),
+    )
+    const index = entries.indexOf(block)
+    return index === 0 || index === 1 ? index : null
+  }
+  if (path === '_systemfield_education_history' || (input.id || '').includes('education_history')) {
+    return 0
+  }
+  return null
+}
+
+function revealSecondEducation(personalInfo: Parameters<SiteRule['apply']>[2]) {
+  if (revealedSecondEducation || typeof document === 'undefined') return
+  const rendered = document.querySelectorAll('.ashby-application-form-input-education-entry').length
+  if (!shouldRevealAshbyEducationEntry(rendered, personalInfo)) return
+  // Plaid puts the class on the button. The bundle also wraps that button.
+  // A disabled control means this posting caps the section (often at one row).
+  const button = document.querySelector<HTMLButtonElement>(
+    'button.ashby-application-form-input-education-add, .ashby-application-form-input-education-add button',
+  )
+  if (!button || button.disabled) return
+  revealedSecondEducation = true
+  button.click()
 }
 
 function fillEducationDate(
   input: HTMLSelectElement,
-  containerId: string | null,
+  context: { path: string; dateContainerId: string | null },
   personalInfo: Parameters<SiteRule['apply']>[2],
 ): boolean {
-  if (!containerId || !isPrimaryEducationInput(input)) return false
+  const index = educationEntryIndex(input, context.path)
+  if (index == null || !context.dateContainerId) return false
+  revealSecondEducation(personalInfo)
   const labels = Array.from(input.options).map((option) => option.textContent || option.label || '')
   const kind = ashbyDateSelectKind(labels)
   if (!kind) return false
-  const value = ashbyEducationDateValue(containerId, kind, personalInfo)
+  const value = ashbyEducationDateValue(context.dateContainerId, kind, personalInfo, index)
   if (!value) return false
   return setSelectValue(input, value, '')
 }
 
 function fillStillStudent(
   input: HTMLInputElement,
+  index: number | null,
   personalInfo: Parameters<SiteRule['apply']>[2],
 ): boolean {
-  if (!isPrimaryEducationInput(input)) return false
-  if (!personalInfo.education?.[0]?.current) return false
+  if (index == null) return false
+  revealSecondEducation(personalInfo)
+  if (!personalInfo.education?.[index]?.current) return false
   clickChoice(input)
   return true
 }

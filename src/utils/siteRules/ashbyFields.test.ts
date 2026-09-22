@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   ashbyEducationDateValue,
+  ashbyEducationTextValue,
+  shouldRevealAshbyEducationEntry,
   ashbyEeoKind,
   ashbyEeoOptionMatches,
   ashbyEeoSearchLabels,
@@ -181,6 +183,43 @@ describe('Ashby education dates', () => {
       '',
     )
   })
+
+  it('fills the second education row and asks for it only when that row has data', () => {
+    const two = {
+      ...profile,
+      education: [
+        profile.education[0],
+        {
+          schoolName: 'Massachusetts Institute of Technology',
+          degreeType: 'Master of Science',
+          major: 'Mathematics',
+          startYear: '2021-01',
+          graduationYear: '2023-06',
+          current: false,
+        },
+      ],
+    }
+    assert.equal(
+      ashbyEducationTextValue('_systemfield_education_history-degree', two, 1),
+      'Master of Science',
+    )
+    assert.equal(
+      ashbyEducationTextValue('_systemfield_education_history-major', two, 1),
+      'Mathematics',
+    )
+    assert.equal(
+      ashbyEducationDateValue('_systemfield_education_history-startDate', 'month', two, 1),
+      'January',
+    )
+    assert.equal(
+      ashbyEducationDateValue('_systemfield_education_history-endDate', 'year', two, 1),
+      '2023',
+    )
+    assert.equal(shouldRevealAshbyEducationEntry(1, two), true)
+    assert.equal(shouldRevealAshbyEducationEntry(2, two), false)
+    assert.equal(shouldRevealAshbyEducationEntry(1, profile), false)
+    assert.equal(ashbyEducationTextValue('_systemfield_education_history-degree', two, 2), '')
+  })
 })
 
 describe('Ashby yes/no and EEO questions', () => {
@@ -201,6 +240,17 @@ describe('Ashby yes/no and EEO questions', () => {
     assert.equal(
       ashbyYesNoDecision('Which country do you intend to work from?', profile),
       null,
+    )
+    assert.equal(
+      ashbyYesNoDecision(
+        'This role requires you to already be legally authorized to work in the countries listed in the job posting and 1Password will not be offering work authorization, relocation assistance, or sponsorship/transferring of a visa. Do you live in, and are you legally authorized to work in the countries listed in the job posting?',
+        { workAuthorization: 'us_citizen', sponsorshipRequired: 'No' },
+      ),
+      'yes',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'uuid', title: 'Current/Last Company', type: 'text' }, profile),
+      'Analytical Engines',
     )
     assert.equal(
       ashbyYesNoDecision(

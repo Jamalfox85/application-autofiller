@@ -195,8 +195,33 @@ export function isAshbySchoolField(
   )
 }
 
-export function ashbyEducationTextValue(id: string | null | undefined, info: AshbyProfile): string {
-  const education = info.education?.[0]
+// Hosted forms repeat education with "+ Add Education". Entries share one field
+// path, so the caller passes the entry index (0 or 1). A third row is ignored.
+export const ASHBY_EDUCATION_ENTRY_LIMIT = 2
+
+export function ashbyEducationEntryHasData(
+  row: NonNullable<AshbyProfile['education']>[number] | null | undefined,
+): boolean {
+  if (!row) return false
+  return [row.schoolName, row.degreeType, row.major, row.startYear, row.graduationYear].some(
+    (value) => !!(value || '').trim(),
+  )
+}
+
+// Click "+ Add Education" only when the form is showing fewer rows than the
+// profile has, and never past the second entry.
+export function shouldRevealAshbyEducationEntry(renderedCount: number, info: AshbyProfile): boolean {
+  if (renderedCount < 1 || renderedCount >= ASHBY_EDUCATION_ENTRY_LIMIT) return false
+  return ashbyEducationEntryHasData(info.education?.[renderedCount])
+}
+
+export function ashbyEducationTextValue(
+  id: string | null | undefined,
+  info: AshbyProfile,
+  index = 0,
+): string {
+  if (index < 0 || index >= ASHBY_EDUCATION_ENTRY_LIMIT) return ''
+  const education = info.education?.[index]
   if (!education || !id) return ''
   if (id.endsWith('-degree')) return (education.degreeType || '').trim()
   if (id.endsWith('-major')) return (education.major || '').trim()
@@ -218,8 +243,10 @@ export function ashbyEducationDateValue(
   containerId: string | null | undefined,
   kind: AshbyDateKind,
   info: AshbyProfile,
+  index = 0,
 ): string {
-  const education = info.education?.[0]
+  if (index < 0 || index >= ASHBY_EDUCATION_ENTRY_LIMIT) return ''
+  const education = info.education?.[index]
   if (!education || !containerId) return ''
   const source = containerId.endsWith('-startDate')
     ? education.startYear
@@ -240,7 +267,22 @@ export function ashbyYesNoDecision(title: string | null | undefined, info: Ashby
   const normalized = normalizeAshbyLabel(title)
   if (!normalized) return null
 
-  // "sponsorship" (Ashby) and "sponsor an immigration case" (Notion).
+  const workAuthQuestion =
+    normalized.includes('authorizedtowork') ||
+    normalized.includes('legallyauthorized') ||
+    normalized.includes('workauthorization') ||
+    normalized.includes('eligibletowork')
+  // Authorization wins when a question also mentions sponsorship. 1Password asks
+  // one Yes/No: already authorized, and they will not sponsor. Yes means authorized.
+  if (workAuthQuestion) {
+    const auth = info.workAuthorization || ''
+    if (AUTHORIZED_TO_WORK.has(auth)) return 'yes'
+    if (NOT_AUTHORIZED.has(auth)) return 'no'
+    return null
+  }
+
+  // "sponsorship" (Ashby), "sponsor an immigration case" (Notion), and
+  // "immigration-related support or sponsorship" (Plaid).
   const sponsorshipQuestion =
     normalized.includes('sponsorship') ||
     (normalized.includes('sponsor') &&
@@ -251,18 +293,6 @@ export function ashbyYesNoDecision(title: string | null | undefined, info: Ashby
     const auth = info.workAuthorization || ''
     if (NEEDS_SPONSORSHIP.has(auth)) return 'yes'
     if (NO_SPONSORSHIP.has(auth)) return 'no'
-    return null
-  }
-
-  const workAuthQuestion =
-    normalized.includes('authorizedtowork') ||
-    normalized.includes('legallyauthorized') ||
-    normalized.includes('workauthorization') ||
-    normalized.includes('eligibletowork')
-  if (workAuthQuestion) {
-    const auth = info.workAuthorization || ''
-    if (AUTHORIZED_TO_WORK.has(auth)) return 'yes'
-    if (NOT_AUTHORIZED.has(auth)) return 'no'
     return null
   }
 
@@ -539,12 +569,18 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
     return (info.website || '').trim()
   }
 
-  if (
+  // Hosted apply forms do not render a repeatable employment section (the field
+  // type exists in the schema and the application renderer never mounts it).
+  // A single company or title question still maps to the first role. Plaid asks
+  // "Current/Last Company"; 1Password asks "Current Company" and "Current job title?".
+  const companyQuestion =
     normalizedTitle.includes('currentemployer') ||
     normalizedTitle.includes('currentcompany') ||
+    normalizedTitle.includes('currentlastcompany') ||
     normalizedTitle === 'employer' ||
-    normalizedTitle === 'companyname'
-  ) {
+    normalizedTitle === 'companyname' ||
+    normalizedTitle === 'lastcompany'
+  if (companyQuestion) {
     return (info.experience?.[0]?.companyName || '').trim()
   }
 
