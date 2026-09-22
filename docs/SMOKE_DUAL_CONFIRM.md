@@ -21,6 +21,7 @@ The earlier mirror seed (`education: []`, `experience: []`, no `workAuthorizatio
 | Education: 2 entries | `education[0]`, `education[1]` | **Not yet proven.** Handlers read `education[0]` only. |
 | Work authorization and sponsorship | `workAuthorization`, `sponsorshipRequired` | **Not yet proven.** Handlers exist; the prior seed omitted both keys. |
 | Resume filename | `resumeFileName` | **Filename is set. Binary attach may still be skipped.** `greenhouse.ts` does not upload a file. |
+| EEO (optional) | `eeoAnswersEnabled`, `gender`, `raceEthnicity`, `veteranStatus`, `disabilityStatus` | **Attempted, not a must-have.** Fill when the vault has values and the question text matches. Missing or unmapped questions are skipped and non-blocking. This does not gate the experience gap. |
 
 ### Contact — proven (except LinkedIn)
 
@@ -36,6 +37,8 @@ Both rows use `Experience` keys from `src/types/index.ts`: `companyName`, `jobTi
 - `experience[1]` is a past role (`present: false`, `endDate` set).
 
 Greenhouse site rules have no employment ids. A fill of the first role through generic field matching would still leave the second role unproven.
+
+That employment gap outranks EEO for the under-10 pass. EEO is an optional attempt on the same run. A skipped gender, race, veteran, or disability control does not block work on these two roles.
 
 ### Education — 2 entries, not yet proven
 
@@ -63,10 +66,23 @@ Greenhouse matches question text (`legallyauthorized` / `authorizedtowork`, and 
 
 `resumeFileName` is `ada-lovelace-resume.pdf`. That key is the filename shown in the UI. The mirror seed has no file bytes, and `greenhouse.ts` has no resume or cover-letter upload handler. On the form, expect the filename field only if some other matcher writes the string. The binary file control can stay empty. Do not record an attachment as part of this smoke until a run shows the file attached.
 
-### Optional, and out of v1
+### EEO — optional, attempted
 
-- **EEO (optional, non-blocking):** `eeoAnswersEnabled: false`. Greenhouse EEO handlers skip when that flag is false. Gender, race, disability, and veteran answers are omitted.
-- **Out of v1:** essays, referrals, and portfolio beyond LinkedIn (`website`, `github`, `otherLinks`). Those keys are omitted from this seed.
+Not a must-have. When the mirror has values and `eeoAnswersEnabled` is true, `reactSelectEeoFieldHandlers` in `src/utils/siteRules/eeoHandlers.ts` attempts Greenhouse EEO dropdowns. This seed sets the stored keys:
+
+| Key | Seed | Labels the handler searches |
+| --- | --- | --- |
+| `eeoAnswersEnabled` | `true` | Handlers run. `false` skips every EEO handler. |
+| `gender` | `female` | Female, Woman |
+| `raceEthnicity` | `white` | White, on `hispanicethnicityareyouhispanic` (then `#race`) or `identifymyraceas` |
+| `veteranStatus` | `not_a_veteran` | "No, I am not a veteran", "I am not a protected veteran" |
+| `disabilityStatus` | `no` | "No", "No, I do not have a disability and have not had one in the past" |
+
+Attempt EEO when the vault has these values. If the board omits the question, or the label does not match `gender`, `hispanicethnicityareyouhispanic`, `identifymyraceas`, `veteranstatus`, or `disability`, leave that control skipped. The skip is non-blocking. Unmapped react-selects are also left alone by the `select__input` catch-all in the same file.
+
+### Out of v1
+
+Essays, referrals, and portfolio beyond LinkedIn (`website`, `github`, `otherLinks`) are omitted from this seed.
 
 ---
 
@@ -103,7 +119,11 @@ await chrome.storage.local.set({
     resumeFileName: 'ada-lovelace-resume.pdf',
     workAuthorization: 'authorized_no_sponsorship',
     sponsorshipRequired: 'No',
-    eeoAnswersEnabled: false,
+    eeoAnswersEnabled: true,
+    gender: 'female',
+    raceEthnicity: 'white',
+    veteranStatus: 'not_a_veteran',
+    disabilityStatus: 'no',
     education: [
       {
         id: 1,
@@ -161,6 +181,13 @@ console.log(
   personalInfo.sponsorshipRequired,
   personalInfo.resumeFileName,
 )
+console.log(
+  personalInfo.eeoAnswersEnabled,
+  personalInfo.gender,
+  personalInfo.raceEthnicity,
+  personalInfo.veteranStatus,
+  personalInfo.disabilityStatus,
+)
 ```
 
 ### Success-path apply
@@ -168,14 +195,15 @@ console.log(
 1. Open a Carvana Greenhouse apply URL that includes `gh_jid` (`job-boards.greenhouse.io` or `boards.greenhouse.io`).
 2. Trigger autofill.
 3. In the **same service worker** DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
-4. On the form, check each must-have separately from that event:
-   - Contact: name, email, phone, location-style (proven). LinkedIn (not yet proven).
-   - Education: `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0` for `education[0]`. `education[1]` has no site-rule ids.
-   - Experience: both roles (company, title, dates, description, city/state) if the board shows them.
-   - Work authorization and sponsorship questions (`question_*`).
-   - Resume: `resumeFileName` is set. Binary file attach may still be skipped.
+4. On the form, mark each item filled or skipped separately from that event:
+   - **Contact (must-have):** name, email, phone, location-style are the proven fill. LinkedIn is not yet proven.
+   - **Education (must-have):** `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0` for `education[0]`. `education[1]` has no site-rule ids, so that entry stays skipped.
+   - **Experience (must-have, priority gap):** both roles (company, title, dates, description, city/state) if the board shows them. No Greenhouse employment ids, so a skip here is the open site-rules gap. It outranks EEO.
+   - **Work authorization and sponsorship (must-have):** `question_*` text for legally authorized and sponsorship.
+   - **Resume (must-have):** `resumeFileName` is set. Binary file attach may still be skipped.
+   - **EEO (optional, attempted):** gender, race, veteran, and disability when those questions are on the form. Filled when the label matches the handlers. Skipped and non-blocking when the question is missing or unmapped. An EEO skip does not block the experience check above.
 
-Contact name, email, phone, and location-style fields are the proven path. Education, both experience roles, work authorization, sponsorship, LinkedIn, and file attach stay **not yet proven** until this form check passes.
+Contact name, email, phone, and location-style fields are the proven path. Education, both experience roles, work authorization, sponsorship, LinkedIn, and file attach stay **not yet proven** until this form check passes. EEO stays optional either way.
 
 ### Empty-profile reset
 
@@ -223,9 +251,16 @@ console.log(
   personalInfo.sponsorshipRequired,
   personalInfo.resumeFileName,
 )
+console.log(
+  personalInfo.eeoAnswersEnabled,
+  personalInfo.gender,
+  personalInfo.raceEthnicity,
+  personalInfo.veteranStatus,
+  personalInfo.disabilityStatus,
+)
 ```
 
-If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replace the section 1 seed. Section-fill on the form follows whatever rows Supabase returned, which may differ from the fixture above.
+If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replace the section 1 seed. Section-fill on the form follows whatever rows Supabase returned, which may differ from the fixture above. EEO is attempted only when that remote profile has the values and `eeoAnswersEnabled` is not false. Empty EEO on the remote row is non-blocking.
 
 ### Success-path apply
 
@@ -233,4 +268,4 @@ If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replac
 2. Trigger autofill.
 3. In the service worker DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
 
-Same split as section 1: that event confirms the contact success path. Education ids (`school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`), both experience roles, work authorization, sponsorship, and resume file attach stay unproven until the form shows them. `resumeFileName` on the remote profile is still a filename; Greenhouse site rules do not upload the file.
+Same split as section 1: that event confirms the contact success path. Education ids (`school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`), both experience roles, work authorization, sponsorship, and resume file attach stay unproven until the form shows them. `resumeFileName` on the remote profile is still a filename; Greenhouse site rules do not upload the file. EEO is optional and attempted when the vault has values; a missing or unmapped EEO question is skipped and does not block the experience gap.
