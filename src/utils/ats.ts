@@ -2,6 +2,8 @@
 // a known ATS host, so we don't open an apply session for it.
 const ATS_HOST_RULES: Array<{ fragment: string; ats: string }> = [
   { fragment: 'greenhouse.io', ats: 'greenhouse' },
+  // Hosted Lever apply (jobs.lever.co and any other *.lever.co host). Checked
+  // before Greenhouse embed markers so a Lever form id="application-form" stays lever.
   { fragment: 'lever.co', ats: 'lever' },
   { fragment: 'myworkday', ats: 'workday' },
   { fragment: 'workday.com', ats: 'workday' },

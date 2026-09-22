@@ -15,9 +15,33 @@ test('maps Greenhouse job-board hosts', () => {
 
 test('maps other known ATS hosts and ignores everyone else', () => {
   assert.equal(atsFromHostname('jobs.lever.co'), 'lever')
+  assert.equal(atsFromHostname('jobs.eu.lever.co'), 'lever')
   assert.equal(atsFromHostname('company.wd5.myworkdayjobs.com'), 'workday')
   assert.equal(atsFromHostname('jobs.ashbyhq.com'), 'ashby')
   assert.equal(atsFromHostname('careers.example.com'), null)
+})
+
+test('hosted Lever stays lever even when the form id matches Greenhouse and gh_jid is present', () => {
+  const doc = {
+    getElementById: (id: string) => (id === 'application-form' ? ({} as HTMLElement) : null),
+    querySelector: () => null,
+  }
+  assert.equal(
+    detectAts({
+      hostname: 'jobs.lever.co',
+      href: 'https://jobs.lever.co/wealthfront/78d6f6d5-1f08-4d5d-87be-c4250567bfb5/apply?gh_jid=1',
+      document: doc,
+    }),
+    'lever',
+  )
+  assert.equal(
+    detectAts({
+      hostname: 'jobs.ashbyhq.com',
+      href: 'https://jobs.ashbyhq.com/ashby/example/application',
+      document: doc,
+    }),
+    'ashby',
+  )
 })
 
 test('Carvana-style careers host with gh_jid is greenhouse', () => {
@@ -36,7 +60,10 @@ test('Carvana-style careers host with gh_jid is greenhouse', () => {
 
 test('boards.greenhouse.io hostname is still greenhouse without gh_jid', () => {
   assert.equal(
-    detectAts({ hostname: 'boards.greenhouse.io', href: 'https://boards.greenhouse.io/acme/jobs/1' }),
+    detectAts({
+      hostname: 'boards.greenhouse.io',
+      href: 'https://boards.greenhouse.io/acme/jobs/1',
+    }),
     'greenhouse',
   )
 })
@@ -100,7 +127,11 @@ test('Greenhouse DOM markers detect embeds without gh_jid', () => {
   }
   assert.equal(documentHasGreenhouseMarkers(doc), true)
   assert.equal(
-    detectAts({ hostname: 'www.carvana.com', href: 'https://www.carvana.com/careers/apply', document: doc }),
+    detectAts({
+      hostname: 'www.carvana.com',
+      href: 'https://www.carvana.com/careers/apply',
+      document: doc,
+    }),
     'greenhouse',
   )
 })
