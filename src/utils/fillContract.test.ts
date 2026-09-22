@@ -64,6 +64,58 @@ test('Carvana-style hostname + gh_jid tags ats=greenhouse', () => {
   assert.equal(props.minutes_since_install, 1.5)
 })
 
+test('empty_profile on a Lever host fails clean and stays the first fill', () => {
+  const { props, firstFillAtToStore } = buildAutofillContractProps({
+    hostname: 'jobs.lever.co',
+    href: 'https://jobs.lever.co/wealthfront/78d6f6d5-1f08-4d5d-87be-c4250567bfb5/apply',
+    now,
+    installedAt,
+    firstFillAt: null,
+    recordSuccess: false,
+    failureReason: 'empty_profile',
+  })
+  assert.equal(props.ats, 'lever')
+  assert.equal(props.failure_reason, 'empty_profile')
+  assert.equal(props.http, undefined)
+  assert.equal(props.status, undefined)
+  assert.equal(props.eeo_attempted, undefined)
+  assert.equal(props.eeo_filled, undefined)
+  assert.equal(props.eeo_skipped, undefined)
+  assert.equal(props.is_first_fill, true)
+  assert.equal(props.time_to_first_fill_ms, 90_000)
+  assert.equal(props.minutes_since_install, 1.5)
+  assert.equal(firstFillAtToStore, null)
+})
+
+test('a Lever success can carry optional EEO props without them being required', () => {
+  const withoutEeo = buildAutofillContractProps({
+    hostname: 'jobs.lever.co',
+    now,
+    installedAt,
+    firstFillAt: null,
+    recordSuccess: true,
+  })
+  assert.equal(withoutEeo.props.ats, 'lever')
+  assert.equal(withoutEeo.props.is_first_fill, true)
+  assert.equal(withoutEeo.props.failure_reason, undefined)
+  assert.equal(withoutEeo.props.eeo_attempted, undefined)
+
+  const withEeo = buildAutofillContractProps({
+    hostname: 'jobs.lever.co',
+    now,
+    installedAt,
+    firstFillAt: null,
+    recordSuccess: true,
+    eeo: { attempted: true, filled: true, skipped: true },
+  })
+  assert.equal(withEeo.props.ats, 'lever')
+  assert.equal(withEeo.props.is_first_fill, true)
+  assert.equal(withEeo.props.eeo_attempted, true)
+  assert.equal(withEeo.props.eeo_filled, true)
+  assert.equal(withEeo.props.eeo_skipped, true)
+  assert.equal(withEeo.props.failure_reason, undefined)
+})
+
 test('empty_profile failed event includes failure_reason without inventing http/status', () => {
   const { props } = buildAutofillContractProps({
     hostname: 'www.carvana.com',

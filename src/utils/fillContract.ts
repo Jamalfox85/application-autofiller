@@ -4,11 +4,7 @@ export type AutofillContractEvent = 'autofill_attempted' | 'autofill_succeeded' 
 
 /** Stable snake_case reasons for autofill_failed. Only set on failed events. */
 export type AutofillFailureReason =
-  | 'empty_profile'
-  | 'no_fillable_fields'
-  | 'no_matching_fields'
-  | 'error'
-  | 'page_unreachable'
+  'empty_profile' | 'no_fillable_fields' | 'no_matching_fields' | 'error' | 'page_unreachable'
 
 export type AutofillContractProps = {
   ats: string
@@ -19,6 +15,13 @@ export type AutofillContractProps = {
   /** HTTP status when the failure path was an HTTP error; omit/null when N/A. */
   http?: number | null
   status?: number | null
+  /**
+   * Present only when a fill looked at EEO questions. Never required for
+   * autofill_succeeded — an unmapped or empty diversity block stays non-blocking.
+   */
+  eeo_attempted?: boolean
+  eeo_filled?: boolean
+  eeo_skipped?: boolean
 }
 
 // time_to_first_fill_ms is the install → first successful fill duration once that
@@ -35,6 +38,7 @@ export function buildAutofillContractProps(input: {
   failureReason?: AutofillFailureReason | null
   http?: number | null
   status?: number | null
+  eeo?: { attempted: boolean; filled: boolean; skipped: boolean } | null
 }): { props: AutofillContractProps; firstFillAtToStore: number | null } {
   const isFirstFill = input.firstFillAt == null
   const recordedAt = input.recordSuccess && input.firstFillAt == null ? input.now : null
@@ -59,6 +63,11 @@ export function buildAutofillContractProps(input: {
   // Only attach http/status when a caller had a real HTTP failure — never invent them.
   if (input.http != null) props.http = input.http
   if (input.status != null) props.status = input.status
+  if (input.eeo) {
+    props.eeo_attempted = input.eeo.attempted
+    props.eeo_filled = input.eeo.filled
+    props.eeo_skipped = input.eeo.skipped
+  }
 
   return {
     props,

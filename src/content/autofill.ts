@@ -1,7 +1,16 @@
 import { matchFieldToData } from './fieldMatch.ts'
-import { EMPTY_PROFILE_FILL_MESSAGE, coerceFillText, profileHasAutofillData } from '../utils/fillValue.ts'
+import {
+  EMPTY_PROFILE_FILL_MESSAGE,
+  coerceFillText,
+  profileHasAutofillData,
+} from '../utils/fillValue.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
-import { showAutofillNotification, showAutofillPrompt, showErrorNotification } from './notifications.ts'
+import { beginLeverFill, readLeverEeoTelemetry } from '../utils/siteRules/lever.ts'
+import {
+  showAutofillNotification,
+  showAutofillPrompt,
+  showErrorNotification,
+} from './notifications.ts'
 import {
   fillNativeInput,
   setSelectValue,
@@ -153,6 +162,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
     const fillableInputs = inputs.filter((input) => !isSkippableField(input))
     const activeSiteRule = siteRules.find((rule) => rule.detect())
+    beginLeverFill()
 
     await reportAttempt()
 
@@ -212,7 +222,10 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     lastUnfilledInputs = unfilledInputs
 
     if (filledCount > 0) {
-      await trackFillContract('autofill_succeeded', fillContext)
+      await trackFillContract('autofill_succeeded', {
+        ...fillContext,
+        eeo: readLeverEeoTelemetry(),
+      })
     } else {
       await reportFailed('no_matching_fields')
     }
@@ -266,7 +279,10 @@ export function undoLastFill(): number {
   for (const { input, prevValue, prevChecked } of records) {
     if (!input.isConnected) continue
 
-    if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'radio')) {
+    if (
+      input instanceof HTMLInputElement &&
+      (input.type === 'checkbox' || input.type === 'radio')
+    ) {
       if (input.checked !== !!prevChecked) {
         input.checked = !!prevChecked
         input.dispatchEvent(new Event('change', { bubbles: true }))
