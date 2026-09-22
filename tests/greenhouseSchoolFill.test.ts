@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { JSDOM } from 'jsdom'
-import { degreeSearchValues, pickDegreeOption, pickSchoolOption, schoolSearchValues } from '../src/utils/siteRules/greenhouseValues.ts'
+import { schoolSearchValues } from '../src/utils/siteRules/greenhouseValues.ts'
 
 const RAW_SCHOOL = 'The University of Texas at Austin'
 const CATALOG_SCHOOL = 'University of Texas - Austin'
@@ -26,15 +26,15 @@ function installDom(dom: JSDOM) {
   assign('getComputedStyle', win.getComputedStyle.bind(win))
 }
 
-function shownValue(input: HTMLInputElement): string {
+function visibleSchool(input: HTMLInputElement): string {
+  const typed = input.value.replace(/\s+/g, ' ').trim()
+  if (typed) return typed
   const single = input.closest('.select')?.querySelector('.select__single-value')
-  const label = single?.textContent?.replace(/\s+/g, ' ').trim() || ''
-  if (label) return label
-  return input.value.trim()
+  return (single?.textContent || '').replace(/\s+/g, ' ').trim()
 }
 
 test(
-  'Greenhouse school fill commits University of Texas - Austin, not the raw profile string',
+  'school fill leaves the catalog label, not the raw profile string',
   { timeout: 20_000 },
   async () => {
     const html = readFileSync(new URL('../fixtures/gh-edu-school-form.html', import.meta.url), 'utf8')
@@ -44,47 +44,43 @@ test(
     })
     installDom(dom)
 
-    const { comboboxSearchIsUncommitted, fillReactSelect } = await import('../src/utils/inputHandlers.ts')
+    const { comboboxSearchIsUncommitted } = await import('../src/utils/inputHandlers.ts')
+    const { default: greenhouseConfig } = await import('../src/utils/siteRules/greenhouse.ts')
     const school = dom.window.document.getElementById('school--0') as HTMLInputElement
     const degree = dom.window.document.getElementById('degree--0') as HTMLInputElement
-    assert.ok(school)
-    assert.ok(degree)
+    const discipline = dom.window.document.getElementById('discipline--0') as HTMLInputElement
+    assert.equal(school.getAttribute('role'), 'combobox')
+    assert.ok(dom.window.document.getElementById('react-select-school--0-listbox'))
+    assert.equal(degree.getAttribute('role'), null)
+    assert.equal(discipline.getAttribute('role'), null)
 
-    // A prior pass left the typed profile string in the combobox. That search text is
-    // not a committed .select__single-value, so a later autofill must still run.
+    const queries = schoolSearchValues(RAW_SCHOOL)
+    assert.equal(queries[0], CATALOG_SCHOOL)
+    assert.ok(queries.includes(RAW_SCHOOL))
+    assert.ok(queries.indexOf(CATALOG_SCHOOL) < queries.indexOf(RAW_SCHOOL))
+
+    // Prior pass left the raw profile string. There is no .select__single-value,
+    // so educationComboboxLabelSettled does not treat it as done.
     school.value = RAW_SCHOOL
     assert.equal(comboboxSearchIsUncommitted(school), true)
+    assert.equal(school.closest('.select')?.querySelector('.select__single-value'), null)
 
-    const schoolQueries = schoolSearchValues(RAW_SCHOOL)
-    assert.equal(schoolQueries[0], CATALOG_SCHOOL)
-    assert.ok(schoolQueries.includes(RAW_SCHOOL))
-
-    const schoolFilled = await fillReactSelect(
-      school,
-      schoolQueries,
-      `[id^=react-select-${school.id}-option-]`,
-      (options) => pickSchoolOption(options, schoolQueries),
-      'greenhouse',
-    )
-    assert.equal(schoolFilled, true)
-    assert.equal(shownValue(school), CATALOG_SCHOOL)
-    // #school--0 itself must not keep a later typed query (the raw profile string
-    // or "The University of Texas - Austin"). An empty input is only ok when the
-    // catalog label was committed into .select__single-value.
-    const schoolTyped = school.value.trim()
-    assert.ok(schoolTyped === '' || schoolTyped === CATALOG_SCHOOL)
-    assert.notEqual(schoolTyped, RAW_SCHOOL)
-    assert.notEqual(shownValue(school), RAW_SCHOOL)
-
-    const degreeQueries = degreeSearchValues('Bachelor of Science')
-    const degreeFilled = await fillReactSelect(
-      degree,
-      degreeQueries,
-      `[id^=react-select-${degree.id}-option-]`,
-      (options) => pickDegreeOption(options, degreeQueries),
-      'greenhouse',
-    )
-    assert.equal(degreeFilled, true)
-    assert.equal(shownValue(degree), "Bachelor's Degree")
+    const handled = await greenhouseConfig().apply(school, 'school--0', {
+      education: [
+        {
+          schoolName: RAW_SCHOOL,
+          degreeType: 'Bachelor of Science',
+          major: 'Computer Science',
+        },
+      ],
+    })
+    // The education handler resolves true after the queued fill, so the generic
+    // schoolName matcher does not also write the profile string.
+    assert.equal(handled, true)
+    assert.equal(visibleSchool(school), CATALOG_SCHOOL)
+    assert.notEqual(school.value.trim(), RAW_SCHOOL)
+    assert.notEqual(visibleSchool(school), 'The University of Texas - Austin')
+    assert.equal(degree.value, '')
+    assert.equal(discipline.value, '')
   },
 )

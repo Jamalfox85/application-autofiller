@@ -8,7 +8,7 @@
     <form id="application-form">
       <div class="education--container">
         <div class="education--form">
-          <div class="select" data-catalog="school">
+          <div class="select">
             <label id="school--0-label" for="school--0">School</label>
             <div class="select__control">
               <div class="select__value-container">
@@ -25,73 +25,39 @@
               <button type="button" aria-label="Toggle flyout" tabindex="-1"></button>
             </div>
             <div class="select__menu" hidden>
-              <div id="react-select-school--0-listbox" role="listbox">No options</div>
+              <div id="react-select-school--0-listbox" role="listbox">
+                <div role="option" id="react-select-school--0-option-0">Austin College</div>
+                <div role="option" id="react-select-school--0-option-1">University of Texas - Austin</div>
+                <div role="option" id="react-select-school--0-option-2">University of Texas - Dallas</div>
+              </div>
             </div>
           </div>
 
-          <div class="select" data-catalog="degree">
-            <label id="degree--0-label" for="degree--0">Degree</label>
-            <div class="select__control">
-              <div class="select__value-container">
-                <div class="select__placeholder">Select...</div>
-                <input
-                  id="degree--0"
-                  class="select__input"
-                  role="combobox"
-                  aria-expanded="false"
-                  aria-autocomplete="list"
-                  value=""
-                />
-              </div>
-              <button type="button" aria-label="Toggle flyout" tabindex="-1"></button>
-            </div>
-            <div class="select__menu" hidden>
-              <div id="react-select-degree--0-listbox" role="listbox"></div>
-            </div>
-          </div>
-
-          <div class="select" data-catalog="discipline">
-            <label id="discipline--0-label" for="discipline--0">Discipline</label>
-            <div class="select__control">
-              <div class="select__value-container">
-                <div class="select__placeholder">Select...</div>
-                <input
-                  id="discipline--0"
-                  class="select__input"
-                  role="combobox"
-                  aria-expanded="false"
-                  aria-autocomplete="list"
-                  value=""
-                />
-              </div>
-              <button type="button" aria-label="Toggle flyout" tabindex="-1"></button>
-            </div>
-            <div class="select__menu" hidden>
-              <div id="react-select-discipline--0-listbox" role="listbox"></div>
-            </div>
-          </div>
+          <!-- Plain inputs. They are not the react-select school path, so a filled
+               degree or discipline does not mean school--0 committed a catalog row. -->
+          <label for="degree--0">Degree</label>
+          <input id="degree--0" type="text" value="" />
+          <label for="discipline--0">Discipline</label>
+          <input id="discipline--0" type="text" value="" />
         </div>
       </div>
     </form>
     <script>
-      // Mirrors job-board education selects: mouseup on the control opens the menu.
-      // Degree and discipline are a static catalog. School is async (debounce), and the
-      // menu says "No options" until that search returns. Option clicks are not wired:
-      // a query that matches the catalog label still looks filled, and a later typed
-      // query is what #school--0 keeps showing when the filler moves on too soon.
-      const CATALOGS = {
-        school: [
-          'Austin College',
-          'Stephen F. Austin State University',
-          'University of Texas - Austin',
-          'University of Texas - Dallas',
-        ],
-        degree: ["Associate's Degree", "Bachelor's Degree", "Master's Degree"],
-        discipline: ['Computer Science', 'Engineering', 'Mathematics'],
-      }
+      // mouseup on the flyout opens the menu. Option mousedown/click does not choose:
+      // the typed search string stays in #school--0 unless the filler checks it.
+      // Typing filters after a short delay and shows "No options" until then, matching
+      // the async school catalog (debounce before "University of Texas - Austin").
+      const catalog = [
+        'Austin College',
+        'Stephen F. Austin State University',
+        'University of Texas - Austin',
+        'University of Texas - Dallas',
+      ]
+      const school = document.getElementById('school--0')
+      const root = school.closest('.select')
+      const listbox = document.getElementById('react-select-school--0-listbox')
 
-      function renderOptions(input, items) {
-        const listbox = input.closest('.select').querySelector('[role="listbox"]')
+      function show(items) {
         listbox.innerHTML = ''
         if (!items.length) {
           listbox.textContent = 'No options'
@@ -100,48 +66,28 @@
         items.forEach((label, index) => {
           const option = document.createElement('div')
           option.setAttribute('role', 'option')
-          option.id = 'react-select-' + input.id + '-option-' + index
+          option.id = 'react-select-school--0-option-' + index
           option.textContent = label
           listbox.append(option)
         })
       }
 
-      function openMenu(input) {
-        const root = input.closest('.select')
-        input.setAttribute('aria-expanded', 'true')
+      root.addEventListener('mouseup', () => {
+        if (school.getAttribute('aria-expanded') === 'true') return
+        school.setAttribute('aria-expanded', 'true')
         root.querySelector('.select__menu').hidden = false
-      }
+      })
 
-      document.querySelectorAll('.select').forEach((root) => {
-        const input = root.querySelector('input')
-        const kind = root.getAttribute('data-catalog')
-        const catalog = CATALOGS[kind]
-        root.addEventListener('mouseup', () => {
-          if (input.getAttribute('aria-expanded') === 'true') return
-          openMenu(input)
-          if (kind !== 'school') renderOptions(input, catalog)
-        })
-        input.addEventListener('input', () => {
-          const term = input.value.trim().toLowerCase()
-          if (kind !== 'school') {
-            renderOptions(
-              input,
-              catalog.filter((label) => !term || label.toLowerCase().includes(term)),
-            )
+      school.addEventListener('input', () => {
+        const term = school.value.trim().toLowerCase()
+        show([])
+        window.setTimeout(() => {
+          if (!term) {
+            show([])
             return
           }
-          renderOptions(input, [])
-          window.setTimeout(() => {
-            if (!term) {
-              renderOptions(input, [])
-              return
-            }
-            renderOptions(
-              input,
-              catalog.filter((label) => label.toLowerCase().includes(term)),
-            )
-          }, 500)
-        })
+          show(catalog.filter((label) => label.toLowerCase().includes(term)))
+        }, 500)
       })
     </script>
   </body>

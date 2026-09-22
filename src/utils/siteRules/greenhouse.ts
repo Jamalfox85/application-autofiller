@@ -1,6 +1,6 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { detectAts } from '../ats.ts'
-import { fillNativeInput, fillReactSelect, setReactInputValue } from '../../utils/inputHandlers'
+import { fillNativeInput, fillReactSelect, setReactInputValue } from '../../utils/inputHandlers.ts'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
   dialingCodeSearchValues,
@@ -439,9 +439,10 @@ function selectedComboboxLabel(input: HTMLElement): string {
   return root?.querySelector('.select__single-value')?.textContent?.replace(/\s+/g, ' ').trim() || ''
 }
 
-// fillReactSelect types every school query and can leave the last one in the input
-// when the listbox click does not update the controlled value. The visible school
-// must be the catalog label (queries[0]), never the raw profile string.
+// fillReactSelect returns true only when the visible value is the chosen option.
+// The education handler still resolves true either way, so the generic schoolName
+// matcher never runs. If no option settled, put the catalog label in the field
+// rather than leaving a later typed query.
 function ensureSchoolCatalogVisible(input: HTMLInputElement, catalogLabel: string) {
   const preferred = catalogLabel.replace(/\s+/g, ' ').trim()
   if (!preferred) return

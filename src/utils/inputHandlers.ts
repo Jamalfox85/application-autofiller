@@ -151,8 +151,10 @@ export const fillReactSelect = async (
       )
       if (found) {
         await delay(200)
-        alignCommittedCombobox(input, found)
-        return true
+        // commitReactOption only dispatches events. If nothing applies the row,
+        // the input still shows the query that was just typed. That query may be
+        // the raw profile string, so a no-op click must not count as success.
+        if (comboboxShowsOption(input, found)) return true
       }
 
       setReactInputValue(input, '')
@@ -163,6 +165,9 @@ export const fillReactSelect = async (
     }
   }
 
+  // Every query failed to settle. Drop a trailing typed query so the field cannot
+  // keep "The University of Texas at Austin" after the catalog attempt missed.
+  if (input.value.trim() && input.value.trim() !== values[0]) setReactInputValue(input, '')
   input.blur()
   return false
 }
@@ -206,21 +211,17 @@ function commitReactOption(option: HTMLElement) {
   option.click()
 }
 
-// A typed query is not the selection. If the listbox click did not replace it, the
-// combobox keeps whatever string was written last — for school, a later alias such as
-// "The University of Texas at Austin" — even though the matched row was the catalog label.
-function alignCommittedCombobox(input: HTMLInputElement, label: string) {
-  const root = input.closest('.select')
-  const single = root?.querySelector<HTMLElement>('.select__single-value')
-  const singleText = (single?.textContent || '').replace(/\s+/g, ' ').trim()
-  const typed = input.value.trim()
-  if (singleText === label && (typed === '' || typed === label)) return
-  if (singleText === label) {
-    setReactInputValue(input, '')
-    return
-  }
-  if (typed !== label) setReactInputValue(input, label)
-  if (single && singleText !== label) single.textContent = label
+// The visible school value is the search text while it is non-empty (that is what
+// #school--0 shows). A closed selection lives in .select__single-value only after
+// the input has been cleared. Neither is settled until it equals the chosen option.
+function comboboxShowsOption(input: HTMLInputElement, chosen: string): boolean {
+  const wanted = chosen.replace(/\s+/g, ' ').trim()
+  if (!wanted) return false
+  const typed = input.value.replace(/\s+/g, ' ').trim()
+  if (typed) return typed === wanted
+  const single = input.closest('.select')?.querySelector('.select__single-value')
+  const label = (single?.textContent || '').replace(/\s+/g, ' ').trim()
+  return label === wanted
 }
 
 // Search text sitting in a react-select input is not a committed answer. Greenhouse
