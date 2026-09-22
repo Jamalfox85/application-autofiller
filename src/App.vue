@@ -24,6 +24,11 @@ import UpdateEEODialog from './components/dialogs/UpdateEEODialog.vue'
 import UpdateOtherInfoDialog from './components/dialogs/UpdateOtherInfoDialog.vue'
 import CustomResponsesDialog from './components/dialogs/CustomResponsesDialog.vue'
 import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDialog.vue'
+import PaywallDialog from './components/PaywallDialog.vue'
+import ResumeAiDialog from './components/ResumeAiDialog.vue'
+import ProfileRosterDialog from './components/ProfileRosterDialog.vue'
+import { fetchBillingState, type BillingState } from '@/services/billing/client'
+import { rememberActiveProfile } from '@/services/billing/profileRoster'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -43,6 +48,26 @@ const personalInfo = ref<any>({})
 const activeView = ref<'main' | 'welcome' | 'history'>('welcome')
 const autofillState = ref<'idle' | 'filling' | 'done'>('idle')
 const lastFillCount = ref<{ filled: number; total: number } | null>(null)
+const billing = ref<BillingState | null>(null)
+const paywall = ref<{
+  mode: 'soft' | 'hard' | 'resume_ai' | 'multi_profile'
+  fillCount?: number
+  fillsRemaining?: number
+  ats?: string
+} | null>(null)
+const resumeOpen = ref(false)
+const profilesOpen = ref(false)
+
+const refreshBilling = async () => {
+  billing.value = await fetchBillingState()
+}
+
+const openPaywall = (
+  mode: 'soft' | 'hard' | 'resume_ai' | 'multi_profile',
+  extra?: { fillCount?: number; fillsRemaining?: number; ats?: string },
+) => {
+  paywall.value = { mode, ...extra }
+}
 
 const detection = ref<{ detected: boolean; siteLabel: string | null; fieldCount: number }>({
   detected: false,
@@ -110,7 +135,14 @@ const autofillCurrentPage = async () => {
   autofillState.value = 'filling'
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill' })
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill', surface: 'popup' })
+
+    if (response?.code === 'hard_cap' || response?.paywall === 'hard') {
+      autofillState.value = 'idle'
+      openPaywall('hard', response)
+      await refreshBilling()
+      return
+    }
 
     if (response?.success && response.fieldsCount > 0) {
       lastFillCount.value = { filled: response.fieldsCount, total: response.totalCount ?? response.fieldsCount }
@@ -128,6 +160,8 @@ const autofillCurrentPage = async () => {
         },
       })
       await loadFillHistory()
+      await refreshBilling()
+      if (response.paywall === 'soft') openPaywall('soft', response)
 
       setTimeout(() => {
         autofillState.value = 'idle'
@@ -179,6 +213,7 @@ const handleOnboardingFinish = async (profile?: any) => {
 
 const saveProfile = async (profile: any) => {
   personalInfo.value = profile
+  void rememberActiveProfile(profile)
   try {
     await savePersonalInfo(profile)
     showNotification('Profile saved successfully', 'success')
@@ -221,6 +256,7 @@ const loadAppState = async () => {
   }
 
   await loadFillHistory()
+  await refreshBilling()
   if (activeView.value === 'main') {
     await detectApplication()
   }
@@ -330,6 +366,28 @@ watch(authStatus, (next, previous) => {
 
       <AutoDetectSwitch class="section" />
 
+      <p v-if="billing" class="quota-note">
+        {{ billing.isPro ? 'Pro · unlimited fills' : `${billing.fillCount} of 25 free fills this month` }}
+      </p>
+
+      <div class="section-header-row">
+        <span class="section-header-label">Pro</span>
+      </div>
+      <div class="section-list">
+        <button class="section-row" type="button" @click="billing?.isPro ? (resumeOpen = true) : openPaywall('resume_ai')">
+          <span class="section-num">AI</span>
+          <span class="section-label">Resume tailor + ATS score</span>
+          <span class="section-meta">{{ billing?.isPro ? 'Included' : 'Pro feature' }}</span>
+          <span class="section-dot" :class="{ done: billing?.isPro }"></span>
+        </button>
+        <button class="section-row" type="button" @click="billing?.isPro ? (profilesOpen = true) : openPaywall('multi_profile')">
+          <span class="section-num">PR</span>
+          <span class="section-label">Profiles</span>
+          <span class="section-meta">{{ billing?.isPro ? 'Multiple' : 'Pro feature' }}</span>
+          <span class="section-dot" :class="{ done: billing?.isPro }"></span>
+        </button>
+      </div>
+
       <div class="section-header-row">
         <span class="section-header-label">Your information</span>
       </div>
@@ -410,6 +468,22 @@ watch(authStatus, (next, previous) => {
       @close="closeDialog('applicationAccount')"
       @save="saveProfile"
     />
+
+    <PaywallDialog
+      v-if="paywall"
+      :mode="paywall.mode"
+      :fill-count="paywall.fillCount"
+      :fills-remaining="paywall.fillsRemaining"
+      :ats="paywall.ats"
+      @close="paywall = null"
+    />
+    <ResumeAiDialog v-if="resumeOpen" @close="resumeOpen = false" @plan-required="resumeOpen = false; openPaywall('resume_ai')" />
+    <ProfileRosterDialog
+      :show="profilesOpen"
+      :personal-info="personalInfo"
+      @close="profilesOpen = false"
+      @use="saveProfile"
+    />
   </div>
 </template>
 
@@ -425,6 +499,13 @@ watch(authStatus, (next, previous) => {
   font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+.quota-note {
+  margin: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10.5px;
+  color: #8f8f99;
 }
 .header {
   display: flex;

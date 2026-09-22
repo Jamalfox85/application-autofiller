@@ -15,6 +15,7 @@ import {
 import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
+import { showFillPaywall } from './fillPaywall'
 import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
@@ -69,8 +70,11 @@ async function initialize() {
     // Auto-detect is ON - auto-fill after delay
     setTimeout(async () => {
       const result = await autofillPage('auto_on_detect')
-      if (result.success) {
+      if (result.code === 'hard_cap' || result.paywall === 'hard') {
+        void showFillPaywall('hard', result)
+      } else if (result.success) {
         showAutofillNotification(result)
+        if (result.paywall === 'soft') void showFillPaywall('soft', result)
       } else if (result.code === 'empty_profile') {
         showErrorNotification(result.message)
       }
@@ -117,8 +121,11 @@ async function initialize() {
       setTimeout(async () => {
         if (autoDetectEnabled) {
           const result = await autofillPage('auto_on_detect')
-          if (result.success) {
+          if (result.code === 'hard_cap' || result.paywall === 'hard') {
+            void showFillPaywall('hard', result)
+          } else if (result.success) {
             showAutofillNotification(result)
+            if (result.paywall === 'soft') void showFillPaywall('soft', result)
           } else if (result.code === 'empty_profile') {
             showErrorNotification(result.message)
           }
@@ -226,10 +233,13 @@ function isLikelyJobApplicationPage() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'autofill') {
     autofillPage('user_clicked_button').then((result) => {
-      // Also show an on-page toast — needed for the ⌘⇧F shortcut path, where the popup
-      // (and its own success view) isn't open to give feedback.
-      if (result.success) {
+      // The popup draws the paywall itself. The shortcut has no popup, so the page does.
+      const onPagePaywall = request.surface !== 'popup'
+      if (result.code === 'hard_cap' || result.paywall === 'hard') {
+        if (onPagePaywall) void showFillPaywall('hard', result)
+      } else if (result.success) {
         showAutofillNotification(result)
+        if (onPagePaywall && result.paywall === 'soft') void showFillPaywall('soft', result)
       } else {
         showErrorNotification(result.message)
       }

@@ -6,6 +6,8 @@ import {
   signInWithGoogle,
   signOut as signOutOfSupabase,
 } from '@/lib/auth'
+import { USER_ID_KEY } from '@/services/billing/entitlementStore'
+import { flushPendingProfilePlan } from '@/services/billing/profilePlan'
 
 export type AuthStatus = 'loading' | 'signed-in' | 'signed-out'
 
@@ -23,6 +25,16 @@ function applySession(next: Session | null) {
   session.value = next
   user.value = next?.user ?? null
   status.value = next ? 'signed-in' : 'signed-out'
+  try {
+    if (next?.user?.id) {
+      void chrome.storage.local.set({ [USER_ID_KEY]: next.user.id })
+      void flushPendingProfilePlan()
+    } else {
+      void chrome.storage.local.remove(USER_ID_KEY)
+    }
+  } catch {
+    // Billing identity is popup bookkeeping. Auth itself already applied.
+  }
 }
 
 export function useAuth() {
@@ -58,6 +70,7 @@ export function useAuth() {
       'fillHistory',
       'resumeUploadJob',
       'localToSupabaseMigrated_v1',
+      USER_ID_KEY,
     ])
     applySession(null)
   }

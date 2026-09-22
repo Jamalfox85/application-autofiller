@@ -20,6 +20,9 @@ import {
 import { normalizeText } from '@/utils/helpers.ts'
 import { trackFillContract, type TrackFillContractContext } from '@/services/fillTelemetry'
 import type { AutofillFailureReason } from '@/utils/fillContract'
+import { commitSuccessfulFill, evaluateFillAccess } from '@/services/billing/fillAccess'
+import { PAYWALL_COPY } from '@/services/billing/copy'
+import { showFillPaywall } from './fillPaywall'
 
 // import { api } from '../lib/api'
 
@@ -159,6 +162,26 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       }
     }
 
+    // Free monthly quota is extension-local. A storage failure must not block a
+    // claim-safe Greenhouse fill, and this path never calls the Resume API.
+    let access: Awaited<ReturnType<typeof evaluateFillAccess>> | null = null
+    try {
+      access = await evaluateFillAccess(fillContext)
+    } catch (error) {
+      console.error('[billing] quota check failed', error)
+    }
+    if (access?.decision === 'block') {
+      return {
+        success: false,
+        code: 'hard_cap',
+        paywall: 'hard' as const,
+        fillCount: access.fillCount,
+        fillsRemaining: access.fillsRemaining,
+        ats: access.ats,
+        message: PAYWALL_COPY.hard.title,
+      }
+    }
+
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
     const fillableInputs = inputs.filter((input) => !isSkippableField(input))
     const activeSiteRule = siteRules.find((rule) => rule.detect())
@@ -223,6 +246,10 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     lastUnfilledInputs = unfilledInputs
 
     const telemetry = activeSiteRule?.fillTelemetry?.() ?? null
+    let paywall: 'soft' | null = null
+    let fillCount = access?.fillCount
+    let fillsRemaining = access?.fillsRemaining
+    const ats = access?.ats
 
     if (filledCount > 0) {
       await trackFillContract('autofill_succeeded', {
@@ -230,6 +257,14 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
         eeo: readLeverEeoTelemetry(),
         telemetry,
       })
+      try {
+        const committed = await commitSuccessfulFill(ats || 'other')
+        paywall = committed.nudge
+        fillCount = committed.fillCount
+        fillsRemaining = committed.fillsRemaining
+      } catch (error) {
+        console.error('[billing] quota update failed', error)
+      }
     } else {
       await trackFillContract('autofill_failed', {
         ...fillContext,
@@ -246,6 +281,10 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       elapsedMs: Date.now() - startTime,
       roleGuess: guessJobTitle(),
       message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
+      paywall,
+      fillCount,
+      fillsRemaining,
+      ats,
     }
   } catch {
     await reportAttempt()
@@ -442,8 +481,11 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
   autofillDebounceTimer = setTimeout(async () => {
     if (autoDetectEnabled) {
       const result = await autofillPage('resync')
-      if (result.success) {
+      if (result.code === 'hard_cap' || result.paywall === 'hard') {
+        void showFillPaywall('hard', result)
+      } else if (result.success) {
         showAutofillNotification(result)
+        if (result.paywall === 'soft') void showFillPaywall('soft', result)
       } else if (result.code === 'empty_profile') {
         showErrorNotification(result.message)
       }

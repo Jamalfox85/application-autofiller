@@ -12,6 +12,9 @@ import {
   isAttributionHost,
   mergeInstallSource,
 } from './src/services/installAttribution.js'
+import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
+
+startExtensionPay()
 
 // Mixpanel tracking for the service-worker context. This can't use the mixpanel-browser
 // SDK (it needs `document`/`window`, which service workers don't have) so it posts to the
@@ -340,6 +343,15 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
 
 // Handle messages from content scripts or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'billing') {
+    handleBillingMessage(request)
+      .then((result) => sendResponse(result))
+      .catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }),
+      )
+    return true
+  }
+
   if (request.action === 'captureInstallAttribution') {
     enqueueInstallSource(() => enrichInstallSourceFromTab(sender?.tab?.url, request.referrer))
       .then((record) => sendResponse({ ok: !!record }))

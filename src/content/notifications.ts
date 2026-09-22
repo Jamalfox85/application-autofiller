@@ -252,8 +252,15 @@ export function showAutofillPrompt() {
     setTimeout(() => prompt.remove(), 300)
 
     const result = await autofillPage()
-    if (result.success) {
+    if (result.code === 'hard_cap' || result.paywall === 'hard') {
+      const { showFillPaywall } = await import('./fillPaywall')
+      void showFillPaywall('hard', result)
+    } else if (result.success) {
       showAutofillNotification(result)
+      if (result.paywall === 'soft') {
+        const { showFillPaywall } = await import('./fillPaywall')
+        void showFillPaywall('soft', result)
+      }
     } else {
       showErrorNotification(result.message)
     }
