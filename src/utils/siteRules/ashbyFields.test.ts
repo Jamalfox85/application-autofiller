@@ -2,10 +2,16 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   ashbyEducationDateValue,
+  ashbyEducationTextValue,
+  shouldRevealAshbyEducationEntry,
   ashbyEeoKind,
   ashbyEeoOptionMatches,
   ashbyEeoSearchLabels,
+  ashbyEeoTelemetry,
   ashbyEeoYesNo,
+  freshAshbyEeoTally,
+  markAshbyEeoFilled,
+  observeAshbyEeoField,
   ashbyDateSelectKind,
   ashbyFullName,
   ashbyLocationQueries,
@@ -14,6 +20,7 @@ import {
   ashbyTextValue,
   ashbyYesNoDecision,
   isAshbyLocationField,
+  isAshbyResumeField,
   isAshbySchoolField,
 } from './ashbyFields.ts'
 
@@ -65,6 +72,41 @@ describe('Ashby profile text', () => {
     )
   })
 
+  it('maps Render and LangChain contact, company, and title questions', () => {
+    assert.equal(ashbyTextValue({ path: 'phone', title: 'Phone', type: 'text' }, profile), '+1 5551234567')
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Location ', type: 'text' }, profile),
+      'San Francisco, California',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Current or Most Recent Company', type: 'text' }, profile),
+      'Analytical Engines',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Current or Most Recent Title', type: 'text' }, profile),
+      'Engineer',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Linkedin Profile Link', type: 'text' }, profile),
+      'https://linkedin.com/in/ada',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Preferred Name', type: 'text' }, profile),
+      null,
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'How did you hear about Ambrook?', type: 'text' }, profile),
+      null,
+    )
+    assert.equal(
+      ashbyYesNoDecision(
+        'Will you now, or in the future, require sponsorship (i.e. H-1B visa, etc.) to legally work in the U.S.?',
+        profile,
+      ),
+      'no',
+    )
+  })
+
   it('maps the standard contact fields from path, type, or title', () => {
     assert.equal(
       ashbyTextValue({ path: '_systemfield_email', title: 'Email', type: 'email' }, profile),
@@ -89,7 +131,9 @@ describe('Ashby profile text', () => {
     )
   })
 
-  it('leaves the resume file input alone', () => {
+  it('recognizes the resume dropzone and ignores other file uploads', () => {
+    assert.equal(isAshbyResumeField({ path: '_systemfield_resume', title: 'Resume', type: 'file' }), true)
+    assert.equal(isAshbyResumeField({ path: 'cover_letter', title: 'Cover Letter', type: 'file' }), false)
     assert.equal(
       ashbyTextValue({ path: '_systemfield_resume', title: 'Resume', type: 'file' }, profile),
       null,
@@ -178,6 +222,43 @@ describe('Ashby education dates', () => {
       '',
     )
   })
+
+  it('fills the second education row and asks for it only when that row has data', () => {
+    const two = {
+      ...profile,
+      education: [
+        profile.education[0],
+        {
+          schoolName: 'Massachusetts Institute of Technology',
+          degreeType: 'Master of Science',
+          major: 'Mathematics',
+          startYear: '2021-01',
+          graduationYear: '2023-06',
+          current: false,
+        },
+      ],
+    }
+    assert.equal(
+      ashbyEducationTextValue('_systemfield_education_history-degree', two, 1),
+      'Master of Science',
+    )
+    assert.equal(
+      ashbyEducationTextValue('_systemfield_education_history-major', two, 1),
+      'Mathematics',
+    )
+    assert.equal(
+      ashbyEducationDateValue('_systemfield_education_history-startDate', 'month', two, 1),
+      'January',
+    )
+    assert.equal(
+      ashbyEducationDateValue('_systemfield_education_history-endDate', 'year', two, 1),
+      '2023',
+    )
+    assert.equal(shouldRevealAshbyEducationEntry(1, two), true)
+    assert.equal(shouldRevealAshbyEducationEntry(2, two), false)
+    assert.equal(shouldRevealAshbyEducationEntry(1, profile), false)
+    assert.equal(ashbyEducationTextValue('_systemfield_education_history-degree', two, 2), '')
+  })
 })
 
 describe('Ashby yes/no and EEO questions', () => {
@@ -199,6 +280,30 @@ describe('Ashby yes/no and EEO questions', () => {
       ashbyYesNoDecision('Which country do you intend to work from?', profile),
       null,
     )
+    assert.equal(
+      ashbyYesNoDecision(
+        'This role requires you to already be legally authorized to work in the countries listed in the job posting and 1Password will not be offering work authorization, relocation assistance, or sponsorship/transferring of a visa. Do you live in, and are you legally authorized to work in the countries listed in the job posting?',
+        { workAuthorization: 'us_citizen', sponsorshipRequired: 'No' },
+      ),
+      'yes',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'uuid', title: 'Current/Last Company', type: 'text' }, profile),
+      'Analytical Engines',
+    )
+    assert.equal(
+      ashbyYesNoDecision(
+        'Will you now or in the future require Notion to sponsor an immigration case in order to employ you?',
+        profile,
+      ),
+      'no',
+    )
+    assert.equal(
+      ashbyYesNoDecision('Are you living in the country where this role is based and eligible to work there?', {
+        workAuthorization: 'green_card',
+      }),
+      'yes',
+    )
   })
 
   it('maps diversity survey options onto profile EEO values', () => {
@@ -208,6 +313,39 @@ describe('Ashby yes/no and EEO questions', () => {
     assert.equal(ashbyEeoOptionMatches('gender', 'Woman', profile), false)
     assert.equal(ashbyEeoOptionMatches('race', 'Asian or Asian American', profile), true)
     assert.equal(ashbyEeoOptionMatches('race', 'White', profile), false)
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'White (Not Hispanic or Latino)', {
+        ...profile,
+        raceEthnicity: 'hispanic_or_latino',
+      }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'Hispanic or Latino', {
+        ...profile,
+        raceEthnicity: 'hispanic_or_latino',
+      }),
+      true,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'Asian (Not Hispanic or Latino)', profile),
+      true,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('veteran', 'I am not a protected veteran', {
+        ...profile,
+        veteranStatus: 'veteran',
+      }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'veteran',
+        'I identify as one or more of the classifications of protected veteran listed above',
+        { ...profile, veteranStatus: 'veteran' },
+      ),
+      true,
+    )
     assert.equal(
       ashbyEeoOptionMatches('race', 'Hispanic or Latine', { ...profile, raceEthnicity: 'hispanic_or_latino' }),
       true,
@@ -221,6 +359,10 @@ describe('Ashby yes/no and EEO questions', () => {
     )
     assert.equal(
       ashbyEeoOptionMatches('race', 'I prefer not to answer', { ...profile, raceEthnicity: '' }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('race', 'I prefer not to answer', { ...profile, raceEthnicity: 'decline' }),
       true,
     )
     assert.equal(ashbyEeoOptionMatches('gender', 'I prefer not to answer', profile), false)
@@ -234,15 +376,122 @@ describe('Ashby yes/no and EEO questions', () => {
     assert.deepEqual(ashbyEeoSearchLabels('gender', profile), ['Man', 'Male'])
   })
 
-  it('skips EEO when answers are turned off and selects decline when unset', () => {
+  it('maps the smoke fixture EEO values onto standard survey labels', () => {
+    const fixture = {
+      eeoAnswersEnabled: true,
+      gender: 'female',
+      raceEthnicity: 'white',
+      veteranStatus: 'not_a_veteran',
+      disabilityStatus: 'no',
+    }
+    assert.equal(ashbyEeoOptionMatches('gender', 'Female', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('gender', 'Woman', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('gender', 'Male', fixture), false)
+    assert.equal(ashbyEeoOptionMatches('gender', 'Decline to self-identify', fixture), false)
+    assert.equal(ashbyEeoOptionMatches('race', 'White', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('race', 'White (Not Hispanic or Latino)', fixture), true)
+    assert.equal(ashbyEeoOptionMatches('race', 'Hispanic or Latino', fixture), false)
+    assert.equal(ashbyEeoOptionMatches('race', 'Decline to self-identify', fixture), false)
+    assert.equal(
+      ashbyEeoOptionMatches('veteran', 'I am not a protected veteran', fixture),
+      true,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'veteran',
+        'I decline to self-identify for protected veteran status',
+        fixture,
+      ),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'veteran',
+        'I identify as one or more of the classifications of protected veteran listed above',
+        fixture,
+      ),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches(
+        'disability',
+        'No, I do not have a disability and have not had one in the past',
+        fixture,
+      ),
+      true,
+    )
+    assert.deepEqual(ashbyEeoSearchLabels('gender', fixture), ['Woman', 'Female'])
+    assert.equal(ashbyEeoYesNo('disability', fixture), 'no')
+    assert.equal(ashbyEeoYesNo('veteran', fixture), 'no')
+    assert.equal(ashbyEeoYesNo('veteran', { veteranStatus: '' }), null)
+    assert.deepEqual(ashbyEeoSearchLabels('gender', { gender: '' }), [])
+  })
+
+  it('skips EEO when answers are turned off or the stored value is empty', () => {
     assert.equal(
       ashbyEeoOptionMatches('gender', 'Man', { ...profile, eeoAnswersEnabled: false }),
       false,
     )
     assert.equal(
       ashbyEeoOptionMatches('gender', 'Prefer not to say', { ...profile, gender: '' }),
+      false,
+    )
+    assert.equal(
+      ashbyEeoOptionMatches('gender', 'Prefer not to say', { ...profile, gender: 'decline' }),
       true,
     )
+    assert.deepEqual(ashbyEeoSearchLabels('gender', { ...profile, gender: '' }), [])
     assert.deepEqual(ashbyEeoSearchLabels('race', { ...profile, eeoAnswersEnabled: false }), [])
+    assert.deepEqual(ashbyEeoSearchLabels('race', { ...profile, raceEthnicity: 'decline' }), [
+      'Decline to self identify',
+      'Prefer not to say',
+      "I don't wish to answer",
+    ])
+  })
+
+  it('counts attempted, filled, and skipped EEO questions without a failure', () => {
+    const tally = freshAshbyEeoTally()
+    assert.deepEqual(ashbyEeoTelemetry(tally), {
+      eeo_attempted: 0,
+      eeo_filled: 0,
+      eeo_skipped: 4,
+    })
+
+    const fixture = {
+      eeoAnswersEnabled: true,
+      gender: 'female',
+      raceEthnicity: 'white',
+      veteranStatus: 'not_a_veteran',
+      disabilityStatus: 'no',
+    }
+    observeAshbyEeoField(tally, 'gender', fixture)
+    observeAshbyEeoField(tally, 'race', fixture)
+    observeAshbyEeoField(tally, 'veteran', fixture)
+    markAshbyEeoFilled(tally, 'gender')
+    markAshbyEeoFilled(tally, 'race')
+    markAshbyEeoFilled(tally, 'veteran')
+    assert.deepEqual(ashbyEeoTelemetry(tally), {
+      eeo_attempted: 3,
+      eeo_filled: 3,
+      eeo_skipped: 1,
+    })
+
+    const empty = freshAshbyEeoTally()
+    observeAshbyEeoField(empty, 'gender', { gender: '' })
+    observeAshbyEeoField(empty, 'race', { raceEthnicity: '' })
+    observeAshbyEeoField(empty, 'veteran', { eeoAnswersEnabled: false, veteranStatus: 'veteran' })
+    assert.deepEqual(ashbyEeoTelemetry(empty), {
+      eeo_attempted: 0,
+      eeo_filled: 0,
+      eeo_skipped: 4,
+    })
+
+    const unmapped = freshAshbyEeoTally()
+    observeAshbyEeoField(unmapped, 'disability', { disabilityStatus: 'no' })
+    assert.deepEqual(ashbyEeoTelemetry(unmapped), {
+      eeo_attempted: 1,
+      eeo_filled: 0,
+      eeo_skipped: 4,
+    })
   })
 })

@@ -208,14 +208,6 @@ function detectJobApplicationPage() {
     return { detected: false, method: null }
   }
 
-  if (
-    document.querySelector(
-      '.ashby-application-form-container, .ashby-application-form-field-entry, [data-field-path^="_systemfield_"]',
-    )
-  ) {
-    return { detected: true, method: 'dom_detection' }
-  }
-
   const hasApplicationUrl = applicationUrlPatterns.some((pattern) => url.includes(pattern))
 
   // It's likely a job application if:

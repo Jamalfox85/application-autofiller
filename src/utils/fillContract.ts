@@ -16,12 +16,13 @@ export type AutofillContractProps = {
   http?: number | null
   status?: number | null
   /**
-   * Present only when a fill looked at EEO questions. Never required for
-   * autofill_succeeded — an unmapped or empty diversity block stays non-blocking.
+   * Optional EEO outcome. Lever sends booleans. Ashby sends counts of gender,
+   * race, veteran, and disability (filled + skipped is 4). A skip does not
+   * set failure_reason and is not required for autofill_succeeded.
    */
-  eeo_attempted?: boolean
-  eeo_filled?: boolean
-  eeo_skipped?: boolean
+  eeo_attempted?: boolean | number
+  eeo_filled?: boolean | number
+  eeo_skipped?: boolean | number
 }
 
 // time_to_first_fill_ms is the install → first successful fill duration once that
@@ -39,6 +40,8 @@ export function buildAutofillContractProps(input: {
   http?: number | null
   status?: number | null
   eeo?: { attempted: boolean; filled: boolean; skipped: boolean } | null
+  /** Ashby site-rule counts. Copied only when Lever did not send booleans. */
+  telemetry?: Record<string, number | boolean | string> | null
 }): { props: AutofillContractProps; firstFillAtToStore: number | null } {
   const isFirstFill = input.firstFillAt == null
   const recordedAt = input.recordSuccess && input.firstFillAt == null ? input.now : null
@@ -67,6 +70,11 @@ export function buildAutofillContractProps(input: {
     props.eeo_attempted = input.eeo.attempted
     props.eeo_filled = input.eeo.filled
     props.eeo_skipped = input.eeo.skipped
+  } else if (input.telemetry) {
+    for (const key of ['eeo_attempted', 'eeo_filled', 'eeo_skipped'] as const) {
+      const value = input.telemetry[key]
+      if (typeof value === 'number') props[key] = value
+    }
   }
 
   return {

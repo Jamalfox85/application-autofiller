@@ -3,10 +3,15 @@ import { detectAts } from '../ats.ts'
 import { fillNativeInput, fillReactSelect, setSelectValue } from '../inputHandlers.ts'
 import {
   ashbyEducationDateValue,
+  ashbyEducationTextValue,
   ashbyEeoKind,
   ashbyEeoOptionMatches,
   ashbyEeoSearchLabels,
   ashbyEeoYesNo,
+  freshAshbyEeoTally,
+  markAshbyEeoFilled,
+  observeAshbyEeoField,
+  type AshbyEeoKind,
   ashbyDateSelectKind,
   ashbyLocationQueries,
   ashbySchoolQueries,
@@ -14,9 +19,18 @@ import {
   ashbyYesNoDecision,
   ashbyYesNoOption,
   isAshbyLocationField,
+  isAshbyResumeField,
   isAshbySchoolField,
+  shouldRevealAshbyEducationEntry,
+  ashbyEeoTelemetry,
   type AshbyYesNo,
 } from './ashbyFields.ts'
+
+// One click per page. formChanged sees the new inputs and runs autofill again.
+let revealedSecondEducation = false
+
+// Reset at the start of each fill. Counts gender, race, veteran, and disability.
+let eeoTally = freshAshbyEeoTally()
 
 // Snapshot at load. The application tab and survey mount inputs after the job
 // posting shell, which increases this count. Typing into a field does not.
@@ -26,39 +40,57 @@ const FORM_ROOTS = ['.ashby-application-form-container', '.ashby-survey-form-con
 
 export default function ashbyConfig(): SiteRule {
   return {
-    // jobs.ashbyhq.com plus the same form markup when a careers site embeds it.
+    // Hosted boards only (*.ashbyhq.com). Embedded forms on other hosts are deferred.
     detect: () =>
       detectAts({
         hostname: window.location.hostname,
         href: window.location.href,
         document,
       }) === 'ashby',
+    prepareFill: () => {
+      eeoTally = freshAshbyEeoTally()
+    },
+    fillTelemetry: () => ashbyEeoTelemetry(eeoTally),
     apply: async (input, _fieldText, personalInfo) => {
       const context = readAshbyField(input)
       if (!context) return false
 
+      const eeoKind: AshbyEeoKind | null = ashbyEeoKind(context.title)
+      if (eeoKind) observeAshbyEeoField(eeoTally, eeoKind, personalInfo)
+
       if (input instanceof HTMLSelectElement) {
-        return fillEducationDate(input, context.dateContainerId, personalInfo)
+        return fillEducationDate(input, context, personalInfo)
       }
 
       if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
         return false
       }
 
-      if (input.type === 'file' || context.path === '_systemfield_resume') {
-        // The profile stores a file name, not bytes. Leave the dropzone for the user.
+      if (
+        isAshbyResumeField({ path: context.path, title: context.title, type: input.type, id: input.id })
+      ) {
+        // Resume hook: the dropzone is `_systemfield_resume`. personalInfo only
+        // has resumeFileName, so there is no file to attach. Leave it for the user.
         return false
       }
 
+      if (input.type === 'file') return false
+
+      const educationIndex = educationEntryIndex(input, context.path)
+
       if (input instanceof HTMLInputElement && input.id.endsWith('-isCurrent')) {
-        return fillStillStudent(input, personalInfo)
+        return fillStillStudent(input, educationIndex, personalInfo)
       }
 
-      if (isPrimaryEducationInput(input) && isAshbySchoolField(context, {
-        placeholder: input.getAttribute('placeholder'),
-        autocomplete: isAutocomplete(input),
-      })) {
-        const queries = ashbySchoolQueries(personalInfo.education?.[0]?.schoolName)
+      if (
+        educationIndex != null &&
+        isAshbySchoolField(context, {
+          placeholder: input.getAttribute('placeholder'),
+          autocomplete: isAutocomplete(input),
+        })
+      ) {
+        revealSecondEducation(personalInfo)
+        const queries = ashbySchoolQueries(personalInfo.education?.[educationIndex]?.schoolName)
         if (queries.length === 0) return false
         return fillAshbyAutocomplete(input, queries)
       }
@@ -69,37 +101,58 @@ export default function ashbyConfig(): SiteRule {
         return fillAshbyAutocomplete(input, queries)
       }
 
-      const eeoKind = ashbyEeoKind(context.title)
       if (eeoKind && personalInfo.eeoAnswersEnabled !== false) {
         if (isAutocomplete(input)) {
           const labels = ashbyEeoSearchLabels(eeoKind, personalInfo)
           if (labels.length === 0) return false
-          return fillAshbyAutocomplete(input, labels)
+          const filled = await fillAshbyAutocomplete(input, labels)
+          if (filled) markAshbyEeoFilled(eeoTally, eeoKind)
+          return filled
         }
 
         if (
           input instanceof HTMLInputElement &&
           (input.type === 'radio' || (input.type === 'checkbox' && context.optionLabel))
         ) {
-          if (!ashbyEeoOptionMatches(eeoKind, context.optionLabel, personalInfo)) return false
-          clickChoice(input)
-          return true
+          if (ashbyEeoOptionMatches(eeoKind, context.optionLabel, personalInfo)) {
+            clickChoice(input)
+            markAshbyEeoFilled(eeoTally, eeoKind)
+            return true
+          }
+          // A short Yes/No label does not match the long survey phrases. Fall
+          // through so ashbyEeoYesNo can still press that button.
         }
       }
 
-      const yesNo =
-        ashbyYesNoDecision(context.title, personalInfo) ||
-        (eeoKind ? ashbyEeoYesNo(eeoKind, personalInfo) : null)
+      const workDecision = ashbyYesNoDecision(context.title, personalInfo)
+      const eeoDecision =
+        eeoKind && personalInfo.eeoAnswersEnabled !== false
+          ? ashbyEeoYesNo(eeoKind, personalInfo)
+          : null
+      const yesNo = workDecision || eeoDecision
       if (yesNo) {
         const option = ashbyYesNoOption(context.optionLabel)
         if (option) {
           if (option !== yesNo || !(input instanceof HTMLInputElement)) return false
           clickChoice(input)
+          if (eeoKind && eeoDecision && !workDecision) markAshbyEeoFilled(eeoTally, eeoKind)
           return true
         }
         if (input.type === 'checkbox' && context.entry) {
-          return clickYesNo(context.entry, yesNo)
+          const clicked = clickYesNo(context.entry, yesNo)
+          if (clicked && eeoKind && eeoDecision && !workDecision) markAshbyEeoFilled(eeoTally, eeoKind)
+          return clicked
         }
+      }
+
+      if (input.id.endsWith('-degree') || input.id.endsWith('-major')) {
+        // Both education rows reuse the same id suffix. Index picks the profile row.
+        // A third row is left alone so it is not overwritten with the first school.
+        if (educationIndex == null) return false
+        revealSecondEducation(personalInfo)
+        const value = ashbyEducationTextValue(input.id, personalInfo, educationIndex)
+        if (!value || !(input instanceof HTMLTextAreaElement || isWritableText(input))) return false
+        return fillNativeInput(input, value)
       }
 
       if (input instanceof HTMLTextAreaElement || isWritableText(input)) {
@@ -199,32 +252,63 @@ function isWritableText(input: HTMLInputElement): boolean {
   return type === 'text' || type === 'email' || type === 'tel' || type === 'url' || type === 'search' || type === ''
 }
 
-function isPrimaryEducationInput(input: HTMLElement): boolean {
+// Repeatable entries are siblings under one parent. A form that is not
+// repeatable has no entry wrapper; those controls are the first row.
+// Hosted apply forms do not render an employment-history section, so there
+// is no matching index for a second company/title/date/description block.
+function educationEntryIndex(input: HTMLElement, path: string): number | null {
   const block = input.closest('.ashby-application-form-input-education-entry')
-  if (!block?.parentElement) return true
-  return block.parentElement.querySelector('.ashby-application-form-input-education-entry') === block
+  if (block?.parentElement) {
+    const entries = Array.from(block.parentElement.children).filter((el) =>
+      el.classList.contains('ashby-application-form-input-education-entry'),
+    )
+    const index = entries.indexOf(block)
+    return index === 0 || index === 1 ? index : null
+  }
+  if (path === '_systemfield_education_history' || (input.id || '').includes('education_history')) {
+    return 0
+  }
+  return null
+}
+
+function revealSecondEducation(personalInfo: Parameters<SiteRule['apply']>[2]) {
+  if (revealedSecondEducation || typeof document === 'undefined') return
+  const rendered = document.querySelectorAll('.ashby-application-form-input-education-entry').length
+  if (!shouldRevealAshbyEducationEntry(rendered, personalInfo)) return
+  // Plaid puts the class on the button. The bundle also wraps that button.
+  // A disabled control means this posting caps the section (often at one row).
+  const button = document.querySelector<HTMLButtonElement>(
+    'button.ashby-application-form-input-education-add, .ashby-application-form-input-education-add button',
+  )
+  if (!button || button.disabled) return
+  revealedSecondEducation = true
+  button.click()
 }
 
 function fillEducationDate(
   input: HTMLSelectElement,
-  containerId: string | null,
+  context: { path: string; dateContainerId: string | null },
   personalInfo: Parameters<SiteRule['apply']>[2],
 ): boolean {
-  if (!containerId || !isPrimaryEducationInput(input)) return false
+  const index = educationEntryIndex(input, context.path)
+  if (index == null || !context.dateContainerId) return false
+  revealSecondEducation(personalInfo)
   const labels = Array.from(input.options).map((option) => option.textContent || option.label || '')
   const kind = ashbyDateSelectKind(labels)
   if (!kind) return false
-  const value = ashbyEducationDateValue(containerId, kind, personalInfo)
+  const value = ashbyEducationDateValue(context.dateContainerId, kind, personalInfo, index)
   if (!value) return false
   return setSelectValue(input, value, '')
 }
 
 function fillStillStudent(
   input: HTMLInputElement,
+  index: number | null,
   personalInfo: Parameters<SiteRule['apply']>[2],
 ): boolean {
-  if (!isPrimaryEducationInput(input)) return false
-  if (!personalInfo.education?.[0]?.current) return false
+  if (index == null) return false
+  revealSecondEducation(personalInfo)
+  if (!personalInfo.education?.[index]?.current) return false
   clickChoice(input)
   return true
 }

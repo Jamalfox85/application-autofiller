@@ -172,6 +172,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     }
 
     await markAutofillTriggered()
+    activeSiteRule?.prepareFill?.()
 
     const fillRecords: FillRecord[] = []
     const unfilledInputs: FormField[] = []
@@ -221,13 +222,20 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     lastFillRecords = fillRecords
     lastUnfilledInputs = unfilledInputs
 
+    const telemetry = activeSiteRule?.fillTelemetry?.() ?? null
+
     if (filledCount > 0) {
       await trackFillContract('autofill_succeeded', {
         ...fillContext,
         eeo: readLeverEeoTelemetry(),
+        telemetry,
       })
     } else {
-      await reportFailed('no_matching_fields')
+      await trackFillContract('autofill_failed', {
+        ...fillContext,
+        failureReason: 'no_matching_fields',
+        telemetry,
+      })
     }
 
     return {

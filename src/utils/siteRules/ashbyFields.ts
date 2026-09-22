@@ -1,6 +1,6 @@
-// Pure Ashby application-form mapping. The hosted form (jobs.ashbyhq.com and the
-// same markup embedded elsewhere) keys questions by data-field-path, not by
-// Greenhouse-style ids. These helpers stay DOM-free so they can be unit tested.
+// Pure Ashby application-form mapping for hosted boards (*.ashbyhq.com).
+// Questions are keyed by data-field-path, not Greenhouse-style ids. These
+// helpers stay DOM-free so they can be unit tested.
 
 export type AshbyProfile = {
   firstName?: string | null
@@ -125,6 +125,12 @@ export function ashbyLocationQueries(info: AshbyProfile): string[] {
   return unique(queries)
 }
 
+// Plain text Location questions (Render) take one value. Autocomplete fields
+// still search the full query list.
+export function ashbyLocationText(info: AshbyProfile): string {
+  return ashbyLocationQueries(info)[0] || ''
+}
+
 export function ashbySchoolQueries(schoolName?: string | null): string[] {
   if (!schoolName?.trim()) return []
   const trimmed = schoolName.trim()
@@ -195,8 +201,33 @@ export function isAshbySchoolField(
   )
 }
 
-export function ashbyEducationTextValue(id: string | null | undefined, info: AshbyProfile): string {
-  const education = info.education?.[0]
+// Hosted forms repeat education with "+ Add Education". Entries share one field
+// path, so the caller passes the entry index (0 or 1). A third row is ignored.
+export const ASHBY_EDUCATION_ENTRY_LIMIT = 2
+
+export function ashbyEducationEntryHasData(
+  row: NonNullable<AshbyProfile['education']>[number] | null | undefined,
+): boolean {
+  if (!row) return false
+  return [row.schoolName, row.degreeType, row.major, row.startYear, row.graduationYear].some(
+    (value) => !!(value || '').trim(),
+  )
+}
+
+// Click "+ Add Education" only when the form is showing fewer rows than the
+// profile has, and never past the second entry.
+export function shouldRevealAshbyEducationEntry(renderedCount: number, info: AshbyProfile): boolean {
+  if (renderedCount < 1 || renderedCount >= ASHBY_EDUCATION_ENTRY_LIMIT) return false
+  return ashbyEducationEntryHasData(info.education?.[renderedCount])
+}
+
+export function ashbyEducationTextValue(
+  id: string | null | undefined,
+  info: AshbyProfile,
+  index = 0,
+): string {
+  if (index < 0 || index >= ASHBY_EDUCATION_ENTRY_LIMIT) return ''
+  const education = info.education?.[index]
   if (!education || !id) return ''
   if (id.endsWith('-degree')) return (education.degreeType || '').trim()
   if (id.endsWith('-major')) return (education.major || '').trim()
@@ -218,8 +249,10 @@ export function ashbyEducationDateValue(
   containerId: string | null | undefined,
   kind: AshbyDateKind,
   info: AshbyProfile,
+  index = 0,
 ): string {
-  const education = info.education?.[0]
+  if (index < 0 || index >= ASHBY_EDUCATION_ENTRY_LIMIT) return ''
+  const education = info.education?.[index]
   if (!education || !containerId) return ''
   const source = containerId.endsWith('-startDate')
     ? education.startYear
@@ -240,24 +273,32 @@ export function ashbyYesNoDecision(title: string | null | undefined, info: Ashby
   const normalized = normalizeAshbyLabel(title)
   if (!normalized) return null
 
-  if (normalized.includes('sponsorship')) {
-    if (info.sponsorshipRequired === 'Yes') return 'yes'
-    if (info.sponsorshipRequired === 'No') return 'no'
-    const auth = info.workAuthorization || ''
-    if (NEEDS_SPONSORSHIP.has(auth)) return 'yes'
-    if (NO_SPONSORSHIP.has(auth)) return 'no'
-    return null
-  }
-
   const workAuthQuestion =
     normalized.includes('authorizedtowork') ||
     normalized.includes('legallyauthorized') ||
     normalized.includes('workauthorization') ||
     normalized.includes('eligibletowork')
+  // Authorization wins when a question also mentions sponsorship. 1Password asks
+  // one Yes/No: already authorized, and they will not sponsor. Yes means authorized.
   if (workAuthQuestion) {
     const auth = info.workAuthorization || ''
     if (AUTHORIZED_TO_WORK.has(auth)) return 'yes'
     if (NOT_AUTHORIZED.has(auth)) return 'no'
+    return null
+  }
+
+  // "sponsorship" (Ashby), "sponsor an immigration case" (Notion), and
+  // "immigration-related support or sponsorship" (Plaid).
+  const sponsorshipQuestion =
+    normalized.includes('sponsorship') ||
+    (normalized.includes('sponsor') &&
+      (normalized.includes('visa') || normalized.includes('immigration') || normalized.includes('employ')))
+  if (sponsorshipQuestion) {
+    if (info.sponsorshipRequired === 'Yes') return 'yes'
+    if (info.sponsorshipRequired === 'No') return 'no'
+    const auth = info.workAuthorization || ''
+    if (NEEDS_SPONSORSHIP.has(auth)) return 'yes'
+    if (NO_SPONSORSHIP.has(auth)) return 'no'
     return null
   }
 
@@ -281,6 +322,82 @@ export function ashbyYesNoOption(label: string | null | undefined): AshbyYesNo |
 }
 
 export type AshbyEeoKind = 'gender' | 'race' | 'veteran' | 'disability'
+
+const ASHBY_EEO_KINDS: AshbyEeoKind[] = ['gender', 'race', 'veteran', 'disability']
+
+export type AshbyEeoKindState = {
+  seen: boolean
+  valued: boolean
+  filled: boolean
+}
+
+export function freshAshbyEeoTally(): Record<AshbyEeoKind, AshbyEeoKindState> {
+  return {
+    gender: { seen: false, valued: false, filled: false },
+    race: { seen: false, valued: false, filled: false },
+    veteran: { seen: false, valued: false, filled: false },
+    disability: { seen: false, valued: false, filled: false },
+  }
+}
+
+export function ashbyEeoStoredValue(kind: AshbyEeoKind, info: AshbyProfile): string {
+  if (info.eeoAnswersEnabled === false) return ''
+  const value =
+    kind === 'gender'
+      ? info.gender
+      : kind === 'race'
+        ? info.raceEthnicity
+        : kind === 'veteran'
+          ? info.veteranStatus
+          : info.disabilityStatus
+  const text = (value || '').trim()
+  return text
+}
+
+export function observeAshbyEeoField(
+  tally: Record<AshbyEeoKind, AshbyEeoKindState>,
+  kind: AshbyEeoKind,
+  info: AshbyProfile,
+) {
+  const slot = tally[kind]
+  slot.seen = true
+  if (ashbyEeoStoredValue(kind, info)) slot.valued = true
+}
+
+export function markAshbyEeoFilled(
+  tally: Record<AshbyEeoKind, AshbyEeoKindState>,
+  kind: AshbyEeoKind,
+) {
+  const slot = tally[kind]
+  slot.seen = true
+  slot.valued = true
+  slot.filled = true
+}
+
+// Four questions. A filled question is also attempted. Everything else is skipped
+// (missing field, empty vault value, answers turned off, or an unmapped control).
+export function ashbyEeoTelemetry(tally: Record<AshbyEeoKind, AshbyEeoKindState>): {
+  eeo_attempted: number
+  eeo_filled: number
+  eeo_skipped: number
+} {
+  let attempted = 0
+  let filled = 0
+  let skipped = 0
+  for (const kind of ASHBY_EEO_KINDS) {
+    const slot = tally[kind]
+    if (slot.filled) {
+      attempted += 1
+      filled += 1
+    } else if (slot.seen && slot.valued) {
+      attempted += 1
+      skipped += 1
+    } else {
+      skipped += 1
+    }
+  }
+  return { eeo_attempted: attempted, eeo_filled: filled, eeo_skipped: skipped }
+}
 
 export function ashbyEeoKind(title: string | null | undefined): AshbyEeoKind | null {
   const normalized = normalizeAshbyLabel(title)
@@ -350,10 +467,18 @@ function phrasesMatch(label: string, phrases: string[] | undefined): boolean {
     return labelHas(label, phrases) && !labelHas(label, ['female', 'woman'])
   }
   if (phrases === VETERAN_PHRASES.veteran) {
+    // "I am not a protected veteran" contains "protected veteran".
+    if (labelHas(label, ['not a protected', 'not a veteran', 'i am not'])) return false
     // "Yes" alone is too broad on a multi-question page; require a veteran cue
     // unless the option is exactly Yes (common on a dedicated veteran question).
     if (normalizeAshbyLabel(label) === 'yes') return true
     return labelHas(label, phrases.filter((phrase) => phrase !== 'yes'))
+  }
+  if (phrases === RACE_PHRASES.hispanic_or_latino) {
+    // "White (Not Hispanic or Latino)" is the white option, not Hispanic.
+    const normalized = normalizeAshbyLabel(label)
+    if (normalized.includes('nothispanic') || normalized.includes('nonhispanic')) return false
+    return labelHas(label, phrases)
   }
   return labelHas(label, phrases)
 }
@@ -373,7 +498,10 @@ export function ashbyEeoOptionMatches(
           ? info.veteranStatus || ''
           : info.disabilityStatus || ''
 
-  if (!value || value === 'decline') return isDeclineOption(optionLabel)
+  // Empty values are a skip: do not pick a decline option just because the
+  // profile left the answer blank. An explicit stored decline still may.
+  if (!value) return false
+  if (value === 'decline') return isDeclineOption(optionLabel)
 
   const table =
     kind === 'gender'
@@ -415,7 +543,9 @@ export function ashbyEeoSearchLabels(kind: AshbyEeoKind, info: AshbyProfile): st
           ? info.veteranStatus || ''
           : info.disabilityStatus || ''
 
-  if (!value || value === 'decline') {
+  // Blank answers stay blank. Explicit decline still searches decline labels.
+  if (!value) return []
+  if (value === 'decline') {
     return ['Decline to self identify', 'Prefer not to say', "I don't wish to answer"]
   }
 
@@ -473,6 +603,17 @@ function isNameTitle(title: string): boolean {
   )
 }
 
+// Hosted apply forms put the resume on `_systemfield_resume` (a hidden file input
+// inside the dropzone). Cover letters and other uploads are separate file fields.
+// The profile mirror stores resumeFileName only, so callers must not invent a file.
+export function isAshbyResumeField(target: AshbyTextTarget): boolean {
+  if ((target.path || '') === '_systemfield_resume') return true
+  const type = (target.type || '').toLowerCase()
+  if (type !== 'file') return false
+  const title = normalizeAshbyLabel(target.title)
+  return title === 'resume' || title === 'cv' || title === 'curriculumvitae'
+}
+
 // Standard text/tel/email/url inputs. Empty string means the field is ours but
 // the profile has nothing to write. null means another handler (or the default
 // matcher) should look at it.
@@ -494,8 +635,10 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
     return (info.email || '').trim()
   }
 
+  const normalizedPath = normalizeAshbyLabel(path)
   const phoneTitle =
     type === 'tel' ||
+    normalizedPath === 'phone' ||
     normalizedTitle === 'phone' ||
     normalizedTitle === 'mobile' ||
     normalizedTitle === 'mobilephone' ||
@@ -505,6 +648,10 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
   if (phoneTitle) return ashbyPhoneValue(info)
 
   if (normalizedTitle.includes('linkedin')) return (info.linkedin || '').trim()
+
+  if (isAshbyLocationField(path, title) && type !== 'file') {
+    return ashbyLocationText(info)
+  }
   if (normalizedTitle.includes('github')) return (info.github || '').trim()
   if (
     !normalizedTitle.includes('linkedin') &&
@@ -515,21 +662,30 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
     return (info.website || '').trim()
   }
 
-  if (
-    normalizedTitle.includes('currentemployer') ||
-    normalizedTitle.includes('currentcompany') ||
+  // Hosted apply forms do not render a repeatable employment section.
+  // A single company or title question maps to the first role. Render asks
+  // "Current or Most Recent Company" and "Current or Most Recent Title".
+  const companyQuestion =
     normalizedTitle === 'employer' ||
-    normalizedTitle === 'companyname'
-  ) {
+    normalizedTitle === 'company' ||
+    normalizedTitle === 'companyname' ||
+    normalizedTitle === 'lastcompany' ||
+    ((normalizedTitle.includes('company') || normalizedTitle.includes('employer')) &&
+      (normalizedTitle.includes('current') ||
+        normalizedTitle.includes('recent') ||
+        normalizedTitle.includes('last')))
+  if (companyQuestion && !normalizedTitle.includes('companysize')) {
     return (info.experience?.[0]?.companyName || '').trim()
   }
 
-  if (
+  const titleQuestion =
     normalizedTitle.includes('jobtitle') ||
     normalizedTitle.includes('currenttitle') ||
     normalizedTitle.includes('currentrole') ||
-    normalizedTitle === 'positiontitle'
-  ) {
+    normalizedTitle.includes('recenttitle') ||
+    normalizedTitle === 'positiontitle' ||
+    normalizedTitle === 'title'
+  if (titleQuestion) {
     return (info.experience?.[0]?.jobTitle || '').trim()
   }
 
