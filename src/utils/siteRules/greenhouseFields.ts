@@ -1,5 +1,5 @@
 import { canadaProvinces, ukRegions, usStates } from '../locationLists.ts'
-import { monthNameFromLooseDate, yearFromLooseDate } from './greenhouseValues.ts'
+import { monthNameFromLooseDate, pickMonthOption, yearFromLooseDate } from './greenhouseValues.ts'
 
 // Greenhouse's #country control is the phone dialing-code react-select. Option labels look
 // like "United States +1" (country name, space, plus, calling code). It is not the
@@ -293,6 +293,22 @@ export function employmentFillPlan(
   if (!value) return { action: 'skip' }
   if (kind === 'startMonth' || kind === 'endMonth') return { action: 'month', value }
   return { action: 'text', value }
+}
+
+// Live job-boards render start-date-month-N as react-select. The flyout button
+// swallows click, so the menu has to open with the greenhouse mouseup / ArrowDown
+// path. The visible option is the month name ("June" from 2020-06), not the
+// "Select..." placeholder.
+export function employmentMonthReactFill(monthName: string): {
+  query: string
+  openMode: 'greenhouse'
+  pick: (optionTexts: string[]) => string | null
+} {
+  return {
+    query: monthName,
+    openMode: 'greenhouse',
+    pick: (optionTexts) => pickMonthOption(optionTexts, monthName),
+  }
 }
 
 // current-role-{n}_1 is the checkbox (option value "1"). Click it only when this

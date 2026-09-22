@@ -4,6 +4,7 @@ import {
   dialingCodeSearchValues,
   employmentCheckboxClick,
   employmentFillPlan,
+  employmentMonthReactFill,
   isGreenhousePhoneDialingCodeField,
   locationSearchQueries,
   parseGreenhouseEmploymentField,
@@ -282,6 +283,20 @@ describe('employment fill plan', () => {
       action: 'skip',
     })
     assert.deepEqual(employmentFillPlan('title', { jobTitle: '  ' }), { action: 'skip' })
+  })
+
+  it('fills the live start-month react-select with June from 2020-06', () => {
+    const plan = employmentFillPlan('startMonth', { startDate: '2020-06', present: true })
+    assert.deepEqual(plan, { action: 'month', value: 'June' })
+    if (plan.action !== 'month') return
+    const fill = employmentMonthReactFill(plan.value)
+    assert.equal(fill.query, 'June')
+    assert.equal(fill.openMode, 'greenhouse')
+    assert.equal(
+      fill.pick(['Select...', 'January', 'February', 'March', 'April', 'May', 'June', 'July']),
+      'June',
+    )
+    assert.equal(fill.pick(['Select...', 'January', 'May']), null)
   })
 
   it('writes a 4-digit year for 2020-06 and never the raw start date', () => {

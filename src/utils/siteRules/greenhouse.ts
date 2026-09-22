@@ -6,6 +6,7 @@ import {
   dialingCodeSearchValues,
   employmentCheckboxClick,
   employmentFillPlan,
+  employmentMonthReactFill,
   isGreenhousePhoneDialingCodeField,
   locationSearchQueries,
   parseGreenhouseEmploymentField,
@@ -248,7 +249,14 @@ const fieldHandlers: Array<{
           if (value != null) commitNativeSelect(input, value)
           return true
         }
-        await fillReactSelect(input, plan.value, `[id^=react-select-${input.id}-option-]`)
+        const month = employmentMonthReactFill(plan.value)
+        await fillReactSelect(
+          input,
+          month.query,
+          `[id^=react-select-${input.id}-option-]`,
+          month.pick,
+          month.openMode,
+        )
         return true
       }
       if (field.kind === 'startYear' || field.kind === 'endYear') {

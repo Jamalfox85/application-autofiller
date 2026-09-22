@@ -75,8 +75,9 @@ export async function fillWorkdayInput(
 // substring hit (for example "San Francisco, Cebu, Philippines").
 export type ReactSelectOptionPicker = (optionTexts: string[]) => string | null
 
-// 'greenhouse' opens the job-board menu (mouseup / ArrowDown). The default path is
-// unchanged for employment, location, EEO, Ashby, and Lever.
+// 'greenhouse' opens the job-board menu (mouseup / ArrowDown). Employment month,
+// education, and work-auth pass that mode. Location, EEO, Ashby, and Lever stay
+// on the default path.
 export type ReactSelectOpenMode = 'default' | 'greenhouse'
 
 export const fillReactSelect = async (
