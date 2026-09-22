@@ -1,5 +1,6 @@
 import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
 import { bestOptionIndex } from './optionMatch.ts'
+import { coerceFillText } from './fillValue.ts'
 
 type ReactTrackedField = (HTMLInputElement | HTMLTextAreaElement) & {
   _valueTracker?: { setValue: (value: string) => void }
@@ -23,15 +24,17 @@ export function setReactInputValue(input: HTMLInputElement | HTMLTextAreaElement
 
 export async function fillNativeInput(
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-  value: string,
-) {
-  if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) return
+  value: unknown,
+): Promise<boolean> {
+  const text = coerceFillText(value)
+  if (!text) return false
+  if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) return false
 
   input.focus()
   input.dispatchEvent(new Event('focus', { bubbles: true }))
 
   let current = ''
-  for (const char of value) {
+  for (const char of text) {
     current += char
     input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
@@ -42,6 +45,7 @@ export async function fillNativeInput(
 
   input.dispatchEvent(new Event('change', { bubbles: true }))
   input.dispatchEvent(new Event('blur', { bubbles: true }))
+  return true
 }
 
 export async function fillWorkdayInput(

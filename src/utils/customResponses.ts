@@ -1,4 +1,4 @@
-import { CustomResponse } from '@/types'
+import type { CustomResponse } from '../types/index.ts'
 
 function tokenize(normStr: string): string[] {
   if (!normStr) return []

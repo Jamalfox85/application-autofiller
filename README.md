@@ -20,7 +20,22 @@ You need to create 3 icon sizes in the `icons/` folder:
 
 Use Google Stitch or any design tool to create these.
 
-### 3. Build the Extension
+### 3. Configure the build
+
+The popup talks to Supabase. Those settings are baked in at build time. Copy the example and replace the placeholders with your project URL and anon key:
+
+```bash
+cp .env.example .env
+```
+
+Required:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+If either one is missing, or still set to the `.env.example` placeholder, the popup shows a setup message instead of a blank panel. Sign-in and profile sync need the real values. A store build has to be produced from a `.env` that contains them.
+
+### 4. Build the Extension
 
 ```bash
 npm run build
@@ -32,7 +47,7 @@ This will:
 - Copy all necessary files to `dist/`
 - Create a production-ready extension
 
-### 4. Load in Chrome
+### 5. Load in Chrome
 
 1. Open Chrome and go to `chrome://extensions/`
 2. Enable "Developer mode" (top right)

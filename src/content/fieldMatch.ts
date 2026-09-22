@@ -1,8 +1,8 @@
 import { FIELD_PATTERNS } from '../utils/fieldPatterns.ts'
-import { matchCustomResponse } from '@/utils/customResponses.ts'
+import { matchCustomResponse } from '../utils/customResponses.ts'
+import { coerceFillText } from '../utils/fillValue.ts'
 
-import { PersonalInfo, CustomResponse, Education, Experience } from '../types'
-import { normalizeText } from '@/utils/helpers.ts'
+import type { PersonalInfo, CustomResponse, Education, Experience } from '../types/index.ts'
 
 function matchesPattern(fieldText: string, pattern: string): boolean {
   return fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, ''))
@@ -30,9 +30,11 @@ export function matchFieldToData(
 
   // Special case: Current loccation (May only be jobs.lever.co)
   if (fieldText.includes('location-input')) {
-    const city = personalInfo.city || ''
-    const state = personalInfo.state || ''
-    return { matchedValue: `${city}, ${state}`.trim(), relativeMatchKey: 'location' }
+    const city = coerceFillText(personalInfo.city) || ''
+    const state = coerceFillText(personalInfo.state) || ''
+    const location = [city, state].filter(Boolean).join(', ')
+    if (!location) return null
+    return { matchedValue: location, relativeMatchKey: 'location' }
   }
 
   if (personalInfo.education && personalInfo.education.length > 0) {
@@ -79,8 +81,10 @@ export function matchFieldToData(
             relativeMatchKey: key,
           }
         }
+        const text = coerceFillText(personalInfo[key as keyof PersonalInfo])
+        if (!text) continue
         return {
-          matchedValue: String(personalInfo[key as keyof PersonalInfo]) || null,
+          matchedValue: text,
           relativeMatchKey: key,
         }
       }
@@ -182,9 +186,11 @@ function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
     isExplicitFullName ||
     (containsName && !isPartialNameField && !isNonPersonName && !isCommonMalPattern)
   ) {
-    const firstName = personalInfo.firstName || ''
-    const lastName = personalInfo.lastName || ''
-    return { matchedValue: `${firstName} ${lastName}`.trim(), relativeMatchKey: 'fullName' }
+    const firstName = coerceFillText(personalInfo.firstName) || ''
+    const lastName = coerceFillText(personalInfo.lastName) || ''
+    const fullName = `${firstName} ${lastName}`.trim()
+    if (!fullName) return
+    return { matchedValue: fullName, relativeMatchKey: 'fullName' }
   }
 }
 
@@ -201,7 +207,9 @@ function matchEducationField(fieldText: string, personalInfo: PersonalInfo) {
 
   for (const key of EDUCATION_FIELDS) {
     if (FIELD_PATTERNS[key].some((pattern) => matchesPattern(fieldText, pattern))) {
-      return { matchedValue: latestEducation[key] || null, relativeMatchKey: key }
+      const text = coerceFillText(latestEducation[key])
+      if (!text) continue
+      return { matchedValue: text, relativeMatchKey: key }
     }
   }
 }
@@ -219,7 +227,9 @@ function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
 
   for (const { patternKey, dataKey } of EXPERIENCE_FIELDS) {
     if (FIELD_PATTERNS[patternKey].some((pattern) => matchesPattern(fieldText, pattern))) {
-      return { matchedValue: latestExperience[dataKey] || null, relativeMatchKey: dataKey }
+      const text = coerceFillText(latestExperience[dataKey])
+      if (!text) continue
+      return { matchedValue: text, relativeMatchKey: dataKey }
     }
   }
 }
