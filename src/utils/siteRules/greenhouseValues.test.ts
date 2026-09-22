@@ -15,6 +15,7 @@ import {
   nativeWorkAuthorizationSelectValue,
   nativeYearSelectValue,
   parseGreenhouseEducationId,
+  educationComboboxLabelSettled,
   pickDegreeOption,
   pickDisciplineOption,
   pickMonthOption,
@@ -83,6 +84,30 @@ test('school search rewrites the smoke-seed UT Austin name to the Greenhouse cat
   const queries = schoolSearchValues('University of Texas at Austin')
   assert.equal(queries[0], 'University of Texas - Austin')
   assert.ok(queries.includes('University of Texas at Austin'))
+})
+
+test('raw UT Austin profile string is not an already-selected catalog school', () => {
+  const schoolName = 'The University of Texas at Austin'
+  const queries = schoolSearchValues(schoolName)
+  assert.equal(queries[0], 'University of Texas - Austin')
+  assert.equal(
+    pickSchoolOption(
+      [
+        'Select...',
+        'Austin College',
+        'Stephen F. Austin State University',
+        'University of Texas - Austin',
+        'University of Texas - Dallas',
+      ],
+      queries,
+    ),
+    'University of Texas - Austin',
+  )
+  // The closed combobox label is the typed profile string, not a menu option.
+  // Scoring it against the alias queries used to make pick([raw]) === raw and skip the menu.
+  assert.equal(pickSchoolOption([schoolName], queries), schoolName)
+  assert.equal(educationComboboxLabelSettled(schoolName, queries), false)
+  assert.equal(educationComboboxLabelSettled('University of Texas - Austin', queries), true)
 })
 
 test('school picker keeps UT Austin and rejects alphabetical neighbors such as Alverno', () => {
