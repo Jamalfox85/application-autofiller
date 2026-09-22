@@ -10,26 +10,36 @@ Two checks. They are not interchangeable.
 
 ---
 
-## Proven vs not yet proven
+## Greenhouse must-haves (proven vs not yet proven)
 
-The earlier mirror seed (`education: []`, `experience: []`) dual-confirmed the contact path only. `autofill_succeeded` with `ats=greenhouse` does not prove education or experience sections filled. Watch the form fields below on the next run.
+The earlier mirror seed (`education: []`, `experience: []`, no `workAuthorization`, no `resumeFileName`) dual-confirmed the contact path only. `autofill_succeeded` with `ats=greenhouse` does not prove the other rows. Watch the form on the next run.
 
-### Contact-path — proven
+| Must-have | Seed | Status |
+| --- | --- | --- |
+| Contact: name, email, phone, location, LinkedIn | `firstName`, `lastName`, `email`, `phone`, `phoneCountryCode`, `address`, `city`, `state`, `zip`, `country`, `linkedin` | **Proven:** name, email, phone, location-style (`country` dialing-code combobox, `candidate-location`). **Not yet proven:** `linkedin` (prior seed was empty; `greenhouse.ts` has no LinkedIn id). |
+| Experience: 2 roles | `experience[0]`, `experience[1]` | **Not yet proven.** No Greenhouse employment ids in `src/utils/siteRules/greenhouse.ts`. Generic `matchExperienceField` reads `experience[0]` only. |
+| Education: 2 entries | `education[0]`, `education[1]` | **Not yet proven.** Handlers read `education[0]` only. |
+| Work authorization and sponsorship | `workAuthorization`, `sponsorshipRequired` | **Not yet proven.** Handlers exist; the prior seed omitted both keys. |
+| Resume filename | `resumeFileName` | **Filename is set. Binary attach may still be skipped.** `greenhouse.ts` does not upload a file. |
 
-Name, email, phone, and location-style fields, from the prior dual-confirm:
+### Contact — proven (except LinkedIn)
 
 - `firstName`, `lastName`, `email`, `phone`, `phoneCountryCode` (Greenhouse phone dialing-code combobox, id `country`)
 - Location-style: `address`, `city`, `state`, `zip`, `country`, and the Greenhouse city typeahead `candidate-location`
+- `linkedin` is in this seed. Record it proven only after a run shows the field filled.
 
-### LinkedIn — seeded, not claimed proven
+### Experience — 2 roles, not yet proven
 
-The prior seed left `linkedin` empty, so that run did not show a LinkedIn fill. This fixture sets a URL. Generic field matching can fill a LinkedIn input; `src/utils/siteRules/greenhouse.ts` has no dedicated LinkedIn id. Record LinkedIn as proven only after a run shows the field filled.
+Both rows use `Experience` keys from `src/types/index.ts`: `companyName`, `jobTitle`, `startDate`, `endDate` or `present`, `description`, `locationCity`, `locationState`.
 
-### Full-profile section-fill — not yet proven
+- `experience[0]` is the current role (`present: true`, no `endDate`).
+- `experience[1]` is a past role (`present: false`, `endDate` set).
 
-Seeded so the next Greenhouse run can check these sections. Still unproven until the form shows the values.
+Greenhouse site rules have no employment ids. A fill of the first role through generic field matching would still leave the second role unproven.
 
-**Education** (`education[0]`). Greenhouse handlers in `src/utils/siteRules/greenhouse.ts` (index 0 only):
+### Education — 2 entries, not yet proven
+
+`education[0]` is what `src/utils/siteRules/greenhouse.ts` reads:
 
 | `PersonalInfo` field | Greenhouse id | How the handler reads it |
 | --- | --- | --- |
@@ -39,17 +49,24 @@ Seeded so the next Greenhouse run can check these sections. Still unproven until
 | `startYear` | `start-month--0`, `start-year--0` | Month needs a month in the string (`2016-09` → September). Year needs `YYYY`. |
 | `graduationYear` | `end-month--0`, `end-year--0` | Same parsing (`2020-05` → May / 2020). |
 
-`current` is on `Education` in `src/types/index.ts`. These handlers do not read it. The fixture sets `current: false` and a `graduationYear` so the end month/year ids have a value to search. A bare year such as `2016` fills the year input and skips the month combobox (`monthNameFromLooseDate` returns null).
+`current` is on `Education`. These handlers do not read it. A bare year such as `2016` fills the year input and skips the month combobox.
 
-**Experience** (`experience[0]`), same type names as `Experience` in `src/types/index.ts`:
+`education[1]` is in the seed (Master's). Site rules have no `school--1` / `degree--1` ids, so the second entry is not wired.
 
-- `companyName`, `jobTitle`, `startDate`, `endDate`, `present`, `description`, `locationCity`, `locationState`
+### Work authorization and sponsorship — not yet proven
 
-Greenhouse `siteRules` have no employment ids (nothing like `company--0`). Generic `matchExperienceField` in `src/content/fieldMatch.ts` can match company, title, dates, and description when the field text hits `FIELD_PATTERNS`, and that path is not dual-confirmed. `present: false` with an `endDate` is explicit; the Greenhouse education handlers do not read experience dates.
+Stored values, not display sentences. The profile editor (`UpdateOtherInfoDialog.vue`) saves `workAuthorization: 'authorized_no_sponsorship'` with the label "Authorized, no sponsorship needed", and `sponsorshipRequired: 'No'`.
 
-### Resume and cover letter — not filled by Greenhouse siteRules
+Greenhouse matches question text (`legallyauthorized` / `authorizedtowork`, and `sponsorship`) on a `question_*` id. Those handlers treat `authorized_no_sponsorship` as authorized and `sponsorshipRequired: 'No'` as no sponsorship. A free-text value such as "Authorized to work in the US" is not in that list.
 
-`greenhouse.ts` does not attach a resume or cover letter. `resumeFileName` on `PersonalInfo` is the filename shown in the UI, not a file stored in the mirror. This seed omits both. Do not record a file upload as part of this smoke.
+### Resume filename — set; file attach may be skipped
+
+`resumeFileName` is `ada-lovelace-resume.pdf`. That key is the filename shown in the UI. The mirror seed has no file bytes, and `greenhouse.ts` has no resume or cover-letter upload handler. On the form, expect the filename field only if some other matcher writes the string. The binary file control can stay empty. Do not record an attachment as part of this smoke until a run shows the file attached.
+
+### Optional, and out of v1
+
+- **EEO (optional, non-blocking):** `eeoAnswersEnabled: false`. Greenhouse EEO handlers skip when that flag is false. Gender, race, disability, and veteran answers are omitted.
+- **Out of v1:** essays, referrals, and portfolio beyond LinkedIn (`website`, `github`, `otherLinks`). Those keys are omitted from this seed.
 
 ---
 
@@ -67,7 +84,7 @@ Greenhouse `siteRules` have no employment ids (nothing like `company--0`). Gener
 ### Seed the mirror (service worker console)
 
 1. On the extension card → **Service worker** → **Inspect**
-2. Paste and run. Fields match `PersonalInfo` / `Education` / `Experience` in `src/types/index.ts` (camelCase). Copy-paste snippet:
+2. Paste and run. Keys match `PersonalInfo` / `Education` / `Experience` in `src/types/index.ts`. Copy-paste snippet:
 
 ```js
 await chrome.storage.local.set({
@@ -83,8 +100,10 @@ await chrome.storage.local.set({
     zip: '78701',
     country: 'United States',
     linkedin: 'https://www.linkedin.com/in/alex-smoke',
-    website: '',
-    github: '',
+    resumeFileName: 'ada-lovelace-resume.pdf',
+    workAuthorization: 'authorized_no_sponsorship',
+    sponsorshipRequired: 'No',
+    eeoAnswersEnabled: false,
     education: [
       {
         id: 1,
@@ -95,21 +114,39 @@ await chrome.storage.local.set({
         graduationYear: '2020-05',
         current: false,
       },
+      {
+        id: 2,
+        schoolName: 'University of Texas at Austin',
+        degreeType: 'Master of Science',
+        major: 'Computer Science',
+        startYear: '2020-09',
+        graduationYear: '2022-05',
+        current: false,
+      },
     ],
     experience: [
       {
         id: 1,
         companyName: 'Northwind Labs',
         jobTitle: 'Software Engineer',
-        startDate: '2020-06',
-        endDate: '2024-03',
-        present: false,
+        startDate: '2022-06',
+        present: true,
         description: 'Shipped internal tools used by the support team.',
         locationCity: 'Austin',
         locationState: 'TX',
       },
+      {
+        id: 2,
+        companyName: 'Contoso',
+        jobTitle: 'Support Engineer',
+        startDate: '2018-06',
+        endDate: '2022-05',
+        present: false,
+        description: 'Handled product questions and wrote help-center articles.',
+        locationCity: 'Austin',
+        locationState: 'TX',
+      },
     ],
-    skills: [],
   },
 })
 ```
@@ -118,8 +155,12 @@ await chrome.storage.local.set({
 
 ```js
 const { personalInfo } = await chrome.storage.local.get('personalInfo')
-console.log(personalInfo)
-console.log(personalInfo.education[0], personalInfo.experience[0])
+console.log(personalInfo.education, personalInfo.experience)
+console.log(
+  personalInfo.workAuthorization,
+  personalInfo.sponsorshipRequired,
+  personalInfo.resumeFileName,
+)
 ```
 
 ### Success-path apply
@@ -127,12 +168,14 @@ console.log(personalInfo.education[0], personalInfo.experience[0])
 1. Open a Carvana Greenhouse apply URL that includes `gh_jid` (`job-boards.greenhouse.io` or `boards.greenhouse.io`).
 2. Trigger autofill.
 3. In the **same service worker** DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
-4. On the form, check section-fill separately from that event:
-   - Education: `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`
-   - Experience: company, title, dates, description, and city/state if the board shows them
-   - Leave resume and cover letter unchecked; Greenhouse site rules do not fill those files
+4. On the form, check each must-have separately from that event:
+   - Contact: name, email, phone, location-style (proven). LinkedIn (not yet proven).
+   - Education: `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0` for `education[0]`. `education[1]` has no site-rule ids.
+   - Experience: both roles (company, title, dates, description, city/state) if the board shows them.
+   - Work authorization and sponsorship questions (`question_*`).
+   - Resume: `resumeFileName` is set. Binary file attach may still be skipped.
 
-Contact fields (name, email, phone, location-style) are the proven path. Education and experience stay **not yet proven** until this form check passes.
+Contact name, email, phone, and location-style fields are the proven path. Education, both experience roles, work authorization, sponsorship, LinkedIn, and file attach stay **not yet proven** until this form check passes.
 
 ### Empty-profile reset
 
@@ -146,7 +189,7 @@ await chrome.storage.local.set({ personalInfo: {} })
 
 **Purpose:** confirm the production architecture — signed-in profile from Supabase is mirrored locally, then autofilled.
 
-This path is not the mirror-only seed in section 1. A signed-in profile whose remote `education` and `experience` arrays are empty still cannot prove Greenhouse section-fill.
+This path is not the mirror-only seed in section 1. A signed-in profile whose remote education, experience, work authorization, or resume filename is empty still cannot prove those Greenhouse must-haves.
 
 ### Sign in
 
@@ -175,9 +218,14 @@ In the service worker console, read the mirror and compare it to the known Supab
 const { personalInfo } = await chrome.storage.local.get('personalInfo')
 console.log(personalInfo.firstName, personalInfo.email)
 console.log(personalInfo.education, personalInfo.experience)
+console.log(
+  personalInfo.workAuthorization,
+  personalInfo.sponsorshipRequired,
+  personalInfo.resumeFileName,
+)
 ```
 
-If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replace the section 1 seed. Section-fill on the form follows whatever education and experience rows Supabase returned, which may differ from the fixture above.
+If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replace the section 1 seed. Section-fill on the form follows whatever rows Supabase returned, which may differ from the fixture above.
 
 ### Success-path apply
 
@@ -185,4 +233,4 @@ If this mirror shows `Alex` / `alex.smoke@example.com`, the popup did not replac
 2. Trigger autofill.
 3. In the service worker DevTools → **Network**, confirm Mixpanel receives `autofill_succeeded` with `ats=greenhouse`.
 
-Same split as section 1: that event confirms the contact success path. Education ids (`school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`) and experience fields are section-fill and stay unproven until the form shows them. Greenhouse site rules still do not attach a resume or cover letter.
+Same split as section 1: that event confirms the contact success path. Education ids (`school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0`), both experience roles, work authorization, sponsorship, and resume file attach stay unproven until the form shows them. `resumeFileName` on the remote profile is still a filename; Greenhouse site rules do not upload the file.
