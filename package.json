@@ -8,7 +8,7 @@
     "build": "vite build && vite build --config vite.content.config.ts && npm run copy-files",
     "copy-files": "cp manifest.json dist/ && cp content.css dist/ && cp background.js dist/ && node scripts/emit-install-attribution.mjs && mkdir -p dist/icons && (cp -r icons/* dist/icons/ || true)",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/utils/optionMatch.test.ts src/utils/siteRules/greenhouseValues.test.ts tests/greenhouseFields.test.ts src/utils/ats.test.ts src/utils/fillContract.test.ts src/utils/fillValue.test.ts src/content/fieldMatch.test.ts src/lib/supabaseConfig.test.ts src/services/installAttribution.test.ts"
+    "test": "node --experimental-strip-types --test src/utils/optionMatch.test.ts src/utils/siteRules/greenhouseValues.test.ts src/utils/siteRules/ashbyFields.test.ts tests/greenhouseFields.test.ts src/utils/ats.test.ts src/utils/fillContract.test.ts src/utils/fillValue.test.ts src/content/fieldMatch.test.ts src/lib/supabaseConfig.test.ts src/services/installAttribution.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",
