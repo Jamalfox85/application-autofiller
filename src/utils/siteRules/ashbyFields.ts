@@ -54,6 +54,72 @@ const COUNTRY_LABELS: Record<string, string> = {
   great_britain: 'United Kingdom',
 }
 
+// Trailing tokens Ashby actually renders ("United States", "USA", "US").
+const COUNTRY_OPTION_TOKENS: Record<string, string[]> = {
+  united_states: ['united states', 'united states of america', 'usa', 'us'],
+  us: ['united states', 'united states of america', 'usa', 'us'],
+  usa: ['united states', 'united states of america', 'usa', 'us'],
+  canada: ['canada'],
+  united_kingdom: ['united kingdom', 'uk', 'great britain', 'britain', 'gb'],
+  uk: ['united kingdom', 'uk', 'great britain', 'britain', 'gb'],
+  great_britain: ['united kingdom', 'uk', 'great britain', 'britain', 'gb'],
+}
+
+const US_STATE_ABBREV: Record<string, string> = {
+  alabama: 'al',
+  alaska: 'ak',
+  arizona: 'az',
+  arkansas: 'ar',
+  california: 'ca',
+  colorado: 'co',
+  connecticut: 'ct',
+  delaware: 'de',
+  florida: 'fl',
+  georgia: 'ga',
+  hawaii: 'hi',
+  idaho: 'id',
+  illinois: 'il',
+  indiana: 'in',
+  iowa: 'ia',
+  kansas: 'ks',
+  kentucky: 'ky',
+  louisiana: 'la',
+  maine: 'me',
+  maryland: 'md',
+  massachusetts: 'ma',
+  michigan: 'mi',
+  minnesota: 'mn',
+  mississippi: 'ms',
+  missouri: 'mo',
+  montana: 'mt',
+  nebraska: 'ne',
+  nevada: 'nv',
+  'new hampshire': 'nh',
+  'new jersey': 'nj',
+  'new mexico': 'nm',
+  'new york': 'ny',
+  'north carolina': 'nc',
+  'north dakota': 'nd',
+  ohio: 'oh',
+  oklahoma: 'ok',
+  oregon: 'or',
+  pennsylvania: 'pa',
+  'rhode island': 'ri',
+  'south carolina': 'sc',
+  'south dakota': 'sd',
+  tennessee: 'tn',
+  texas: 'tx',
+  utah: 'ut',
+  vermont: 'vt',
+  virginia: 'va',
+  washington: 'wa',
+  'west virginia': 'wv',
+  wisconsin: 'wi',
+  wyoming: 'wy',
+  'district of columbia': 'dc',
+  'washington dc': 'dc',
+}
+
 const AUTHORIZED_TO_WORK = new Set([
   'us_citizen',
   'green_card',
@@ -129,6 +195,130 @@ export function ashbyLocationQueries(info: AshbyProfile): string[] {
 // still search the full query list.
 export function ashbyLocationText(info: AshbyProfile): string {
   return ashbyLocationQueries(info)[0] || ''
+}
+
+// Geo rows share a city prefix ("San Francisco, Córdoba, Argentina" and
+// "San Francisco, California, United States"). A shortest-prefix match picks the
+// foreign homonym. Prefer the vault country and state; return null when no row
+// is that place so the fill can leave the field blank instead of clicking it.
+export function pickAshbyLocationOption(optionTexts: string[], info: AshbyProfile): string | null {
+  const city = normalizeAshbyPlace(info.city)
+  const stateForms = ashbyStateForms(info.state)
+  const tokens = ashbyCountryTokens(info.country)
+  let best: { text: string; score: number } | null = null
+
+  for (const raw of optionTexts) {
+    const text = collapseAshbyOption(raw)
+    if (!text) continue
+    const parts = text
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+    if (parts.length === 0) continue
+    const norms = parts.map((part) => normalizeAshbyPlace(part))
+
+    const countryClass = classifyAshbyCountry(norms, tokens, stateForms)
+    if (countryClass === 'mismatch') continue
+    const stateClass = classifyAshbyState(norms, stateForms, tokens)
+    if (stateClass === 'mismatch') continue
+
+    const first = norms[0] || ''
+    const cityExact = !!city && first === city
+    const cityLoose = !!city && !cityExact && placeContains(first, city)
+    const countryOnly = !cityExact && !cityLoose && countryClass === 'match' && parts.length === 1
+
+    if (city && !cityExact && !cityLoose && !countryOnly) continue
+    if (!city && stateClass !== 'match' && countryClass !== 'match') continue
+
+    const confident =
+      countryClass === 'match' ||
+      (stateClass === 'match' && (cityExact || !city)) ||
+      (tokens.length === 0 && stateForms.length === 0 && cityExact)
+    if (!confident) continue
+
+    let score = 0
+    // A bare "United States" row is a country-question fallback. It must not beat
+    // "San Francisco, CA", whose country segment is only the state abbreviation.
+    if (countryClass === 'match' && !countryOnly) score += 100
+    if (cityExact) score += 40
+    else if (cityLoose) score += 5
+    else if (countryOnly) score += 15
+    if (stateClass === 'match') score += 30
+    if (!best || score > best.score) best = { text, score }
+  }
+
+  return best?.text ?? null
+}
+
+function ashbyCountryTokens(country?: string | null): string[] {
+  const key = (country || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  const listed = COUNTRY_OPTION_TOKENS[key] || []
+  const label = countryLabel(country)
+  const tokens = new Set<string>()
+  for (const token of [...listed, label]) {
+    const normalized = normalizeAshbyPlace(token)
+    if (normalized) tokens.add(normalized)
+  }
+  return [...tokens]
+}
+
+function ashbyStateForms(state?: string | null): string[] {
+  const label = normalizeAshbyPlace((state || '').replace(/_/g, ' '))
+  if (!label) return []
+  const forms = new Set<string>([label])
+  const abbrev = US_STATE_ABBREV[label]
+  if (abbrev) forms.add(abbrev)
+  for (const [name, code] of Object.entries(US_STATE_ABBREV)) {
+    if (code === label) forms.add(name)
+  }
+  return [...forms]
+}
+
+function classifyAshbyCountry(
+  norms: string[],
+  tokens: string[],
+  stateForms: string[],
+): 'match' | 'mismatch' | 'unknown' {
+  if (tokens.length === 0) return 'unknown'
+  const last = norms[norms.length - 1] || ''
+  if (!last) return 'unknown'
+  if (tokens.includes(last)) return 'match'
+  if (stateForms.includes(last)) return 'unknown'
+  // A lone city has no country segment. Two-letter tails ("CA") are states.
+  if (norms.length === 1 || last.length <= 2) return 'unknown'
+  return 'mismatch'
+}
+
+function classifyAshbyState(
+  norms: string[],
+  stateForms: string[],
+  tokens: string[],
+): 'match' | 'mismatch' | 'unknown' {
+  if (stateForms.length === 0) return 'unknown'
+  const regionParts = norms.length === 1 ? norms : norms.slice(1)
+  if (regionParts.some((part) => stateForms.includes(part))) return 'match'
+  if (norms.length < 2) return 'unknown'
+  // "City, Country" has no region. Any other region is a different place.
+  if (tokens.includes(norms[1] || '')) return 'unknown'
+  return 'mismatch'
+}
+
+function placeContains(label: string, city: string): boolean {
+  return label.startsWith(`${city} `) || label.endsWith(` ${city}`) || label.includes(` ${city} `)
+}
+
+function collapseAshbyOption(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeAshbyPlace(value: string | null | undefined): string {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/\./g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
 }
 
 export function ashbySchoolQueries(schoolName?: string | null): string[] {

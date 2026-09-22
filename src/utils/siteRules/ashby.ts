@@ -14,6 +14,7 @@ import {
   type AshbyEeoKind,
   ashbyDateSelectKind,
   ashbyLocationQueries,
+  pickAshbyLocationOption,
   ashbySchoolQueries,
   ashbyTextValue,
   ashbyYesNoDecision,
@@ -102,7 +103,9 @@ export default function ashbyConfig(): SiteRule {
       if (isAutocomplete(input) && isAshbyLocationField(context.path, context.title)) {
         const queries = ashbyLocationQueries(personalInfo)
         if (queries.length === 0) return false
-        return fillAshbyAutocomplete(input, queries)
+        return fillAshbyAutocomplete(input, queries, (options) =>
+          pickAshbyLocationOption(options, personalInfo),
+        )
       }
 
       if (eeoKind && personalInfo.eeoAnswersEnabled !== false) {
@@ -325,8 +328,9 @@ function fillStillStudent(
 async function fillAshbyAutocomplete(
   input: HTMLInputElement | HTMLTextAreaElement,
   queries: string[],
+  pickOption?: (optionTexts: string[]) => string | null,
 ): Promise<boolean> {
-  const filled = await fillReactSelect(input, queries, '[role="option"]')
+  const filled = await fillReactSelect(input, queries, '[role="option"]', pickOption)
   if (!filled) {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     input.blur()
