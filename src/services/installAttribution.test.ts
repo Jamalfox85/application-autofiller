@@ -179,6 +179,8 @@ test('locked mixpanel event names stay on the contract', () => {
   const index = read('src/content/index.js')
   const contract = read('src/utils/fillContract.ts')
   const greenhouse = read('src/utils/siteRules/greenhouse.ts')
+  const mixpanelHttp = read('src/services/mixpanelHttp.ts')
+  const background = read('background.js')
 
   assert.match(pick, /trackEvent\('onboarding_started'/)
   assert.match(welcome, /trackEvent\('profile_completed'/)
@@ -195,4 +197,6 @@ test('locked mixpanel event names stay on the contract', () => {
   assert.doesNotMatch(welcome, /profile_setup_completed/)
   assert.match(greenhouse, /function greenhouseConfig/)
   assert.match(greenhouse, /greenhouse\.io/)
+  assert.match(mixpanelHttp, /action: 'trackMixpanel'/)
+  assert.match(background, /request\.action === 'trackMixpanel'/)
 })

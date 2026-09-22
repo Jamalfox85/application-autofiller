@@ -71,6 +71,8 @@ async function initialize() {
       const result = await autofillPage('auto_on_detect')
       if (result.success) {
         showAutofillNotification(result)
+      } else if (result.code === 'empty_profile') {
+        showErrorNotification(result.message)
       }
     }, 1000)
   } else {
@@ -117,6 +119,8 @@ async function initialize() {
           const result = await autofillPage('auto_on_detect')
           if (result.success) {
             showAutofillNotification(result)
+          } else if (result.code === 'empty_profile') {
+            showErrorNotification(result.message)
           }
         } else {
           showAutofillPrompt()

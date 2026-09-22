@@ -8,6 +8,7 @@ import { useFillHistory } from './composables/useFillHistory'
 import { useAuth } from './composables/useAuth'
 import { getSiteLabel } from '@/utils/jobSitePatterns.ts'
 import { trackFillContract } from '@/services/fillTelemetry'
+import { supabaseConfigError } from '@/lib/supabase'
 import DataVault from './components/DataVault.vue'
 import Welcome from './components/Welcome.vue'
 import HistoryView from './components/HistoryView.vue'
@@ -133,7 +134,7 @@ const autofillCurrentPage = async () => {
       }, 3200)
     } else {
       autofillState.value = 'idle'
-      showNotification('No available fields found to autofill', 'error')
+      showNotification(response?.message || 'No available fields found to autofill', 'error')
     }
   } catch (error) {
     autofillState.value = 'idle'
@@ -222,6 +223,7 @@ const loadAppState = async () => {
 
 // Lifecycle
 onMounted(async () => {
+  if (supabaseConfigError) return
   await initAuth()
   if (authStatus.value === 'signed-in') {
     await loadAppState()
@@ -245,7 +247,13 @@ watch(authStatus, (next, previous) => {
       <button v-if="authStatus === 'signed-in'" class="signout-btn" @click="handleSignOut">Sign out</button>
     </header>
 
-    <div v-if="authStatus === 'loading'" class="auth-loading">
+    <div v-if="supabaseConfigError" class="config-error">
+      <img class="logo-mark" src="/assets/logo/gofillr-icon-small.svg" alt="" width="36" height="36" />
+      <h1 class="config-error-title">GoFillr needs a rebuild</h1>
+      <p class="config-error-body">{{ supabaseConfigError }}</p>
+    </div>
+
+    <div v-else-if="authStatus === 'loading'" class="auth-loading">
       <div class="spinner"></div>
     </div>
 
@@ -461,6 +469,36 @@ watch(authStatus, (next, previous) => {
   border: 3px solid #23272f;
   border-top-color: #7c3aed;
   animation: spin 0.8s linear infinite;
+}
+.config-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 24px;
+  .logo-mark {
+    width: 36px;
+    height: 36px;
+    display: block;
+    margin-bottom: 4px;
+  }
+}
+.config-error-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ebebee;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.config-error-body {
+  font-size: 12px;
+  color: #8f8f99;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 300px;
 }
 @keyframes spin {
   to {

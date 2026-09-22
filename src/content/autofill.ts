@@ -1,6 +1,7 @@
 import { matchFieldToData } from './fieldMatch.ts'
+import { EMPTY_PROFILE_FILL_MESSAGE, coerceFillText, profileHasAutofillData } from '../utils/fillValue.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
-import { showAutofillNotification, showAutofillPrompt } from './notifications.ts'
+import { showAutofillNotification, showAutofillPrompt, showErrorNotification } from './notifications.ts'
 import {
   fillNativeInput,
   setSelectValue,
@@ -126,8 +127,19 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     const reviewSettingData = await chrome.storage.local.get('reviewHighlightEnabled')
     const reviewHighlightEnabled = reviewSettingData.reviewHighlightEnabled ?? true
 
-    if (!personalInfo) {
-      return { success: false, message: 'No personal info saved' }
+    // {} is what background.js writes on install, and it is truthy. Filling it
+    // used to type the literal "undefined" into name and email. Greenhouse site
+    // rules also return true when they own a field but have nothing to write,
+    // which would count as a successful fill. Bail out before any of that, but
+    // still record the attempt — an empty profile is a failed fill, not a skip.
+    if (!profileHasAutofillData(personalInfo)) {
+      await reportAttempt()
+      await trackFillContract('autofill_failed', hostname)
+      return {
+        success: false,
+        code: 'empty_profile',
+        message: EMPTY_PROFILE_FILL_MESSAGE,
+      }
     }
 
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
@@ -358,24 +370,28 @@ async function fillByDefault(
   matchedValue: string,
   relativeMatchKey: string | undefined,
 ) {
+  const text = coerceFillText(matchedValue)
+  if (!text) return false
+
   if (input instanceof HTMLSelectElement && relativeMatchKey) {
-    const handled = setSelectValue(input, matchedValue, relativeMatchKey)
+    const handled = setSelectValue(input, text, relativeMatchKey)
     if (handled) {
       return true
     }
   } else if (input instanceof HTMLInputElement && input.type === 'checkbox') {
-    const handled = setCheckboxValue(input, matchedValue)
+    const handled = setCheckboxValue(input, text)
     if (handled) {
       return true
     }
   } else if (input instanceof HTMLInputElement && input.type === 'radio' && relativeMatchKey) {
-    const handled = setRadioValue(input, matchedValue, relativeMatchKey)
+    const handled = setRadioValue(input, text, relativeMatchKey)
     if (handled) {
       return true
     }
   } else {
     // Handle regular inputs and textareas (both have .value)
-    await fillNativeInput(input as HTMLInputElement | HTMLTextAreaElement, matchedValue)
+    const wrote = await fillNativeInput(input as HTMLInputElement | HTMLTextAreaElement, text)
+    if (!wrote) return false
     await new Promise((resolve) => setTimeout(resolve, 100))
     return true
   }
@@ -392,6 +408,8 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
       const result = await autofillPage('resync')
       if (result.success) {
         showAutofillNotification(result)
+      } else if (result.code === 'empty_profile') {
+        showErrorNotification(result.message)
       }
     } else {
       if (!hasShownPopup) {

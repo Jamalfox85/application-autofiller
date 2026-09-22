@@ -347,6 +347,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  if (request.action === 'trackMixpanel') {
+    // Content scripts and the popup relay here so Mixpanel is not subject to the
+    // host page's connect-src. trackMixpanelEvent already swallows fetch errors.
+    const eventName = typeof request.eventName === 'string' ? request.eventName : ''
+    trackMixpanelEvent(eventName, request.properties)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
   if (request.action === 'openPopup') {
     chrome.action.openPopup()
     sendResponse({ success: true })
