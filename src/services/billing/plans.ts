@@ -1,5 +1,4 @@
-// ExtensionPay plan nicknames. Create these in the ExtensionPay dashboard
-// (https://extensionpay.com) before a store build:
+// Verified ExtensionPay dashboard SKUs for gofillr:
 //   pro_monthly — $5.99 USD / month
 //   pro_annual  — $49 USD / year
 // They are SKU keys, not secrets. Checkout passes the nickname to

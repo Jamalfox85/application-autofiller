@@ -17,7 +17,7 @@ import {
 } from './billing/entitlementStore.ts'
 import { fillsRemaining } from './billing/quota.ts'
 import { readFillQuota } from './billing/quotaStore.ts'
-import { writeProfilePlan } from './billing/profilePlan.ts'
+import { clearPendingProfilePlan, syncProPlanAfterPurchase } from './billing/profilePlan.ts'
 import {
   PAID_EVENT,
   checkoutAbandonedProps,
@@ -55,8 +55,8 @@ async function refreshEntitlement(): Promise<{ isPro: boolean; plan: BillingPlan
     const isPro = user?.paid === true
     const plan = isPro ? planOf(user) : null
     await writeEntitlement({ isPro, plan, updatedAt: Date.now() })
-    if (isPro && !previous.isPro) await writeProfilePlan('pro')
-    if (!isPro && previous.isPro) await writeProfilePlan('free')
+    if (isPro && !previous.isPro) await syncProPlanAfterPurchase()
+    if (!isPro && previous.isPro) await clearPendingProfilePlan()
     return { isPro, plan }
   } catch (error) {
     console.error('[extpay] getUser failed', error)
@@ -72,7 +72,7 @@ async function onPaid(user: PaidUser): Promise<void> {
 
   const plan = planOf(user) ?? session?.plan ?? 'monthly'
   await writeEntitlement({ isPro: true, plan, updatedAt: Date.now() })
-  await writeProfilePlan('pro')
+  await syncProPlanAfterPurchase()
 
   const quota = await readFillQuota().catch(() => null)
   const ctx = await paidEventContext({

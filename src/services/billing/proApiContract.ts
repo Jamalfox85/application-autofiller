@@ -4,11 +4,12 @@ import { isPlanRequiredResponse } from './planRequired.ts'
 // is no separate tailor route. Upload/parse is not in this map and stays ungated.
 // Fill quota never calls these routes.
 //
-// ENFORCE_PLAN_GATE defaults on. Both POSTs require
+// ENFORCE_PLAN_GATE is on. Both POSTs require
 // Authorization: Bearer <supabase access token> and profiles.plan = pro.
-// Otherwise they return 403 with error.code plan_required, with or without
-// success: false. This client always sends the Bearer token and turns that
-// 403 into the resume Pro upgrade UI. The client does not write profiles.plan.
+// Otherwise they return 403 with error code plan_required (`error.code`, including
+// a nested `error.error.code`). This client always sends the Bearer token and
+// turns that 403 into the resume Pro upgrade UI. The client does not write
+// profiles.plan; purchase sync is POST /billing/plan.
 export const PRO_RESUME_PATHS = {
   generate: '/resumes/generate',
   analyze: '/ats/analyze',
@@ -17,6 +18,12 @@ export const PRO_RESUME_PATHS = {
 export type ProResumeAction = keyof typeof PRO_RESUME_PATHS
 
 const API_KEY_PLACEHOLDER = 'your-resume-api-key'
+
+export function configuredResumeApiKey(apiKey: string | null | undefined): string | null {
+  const key = (apiKey ?? '').trim()
+  if (!key || key === API_KEY_PLACEHOLDER) return null
+  return key
+}
 
 export function resumeApiBaseUrl(configured: string | null | undefined): string {
   const value = (configured ?? '').trim().replace(/\/$/, '')
@@ -31,10 +38,8 @@ export function proResumeHeaders(token: string, apiKey: string | null | undefine
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   }
-  const key = (apiKey ?? '').trim()
-  if (key && key !== API_KEY_PLACEHOLDER) {
-    headers['X-API-Key'] = key
-  }
+  const key = configuredResumeApiKey(apiKey)
+  if (key) headers['X-API-Key'] = key
   return headers
 }
 
