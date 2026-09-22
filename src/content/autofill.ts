@@ -8,9 +8,7 @@ import {
   setRadioValue,
 } from '@/utils/inputHandlers.ts'
 import { normalizeText } from '@/utils/helpers.ts'
-import { captureEvent } from '@/services/posthog'
-import { trackEvent } from '@/services/mixpanelHttp'
-import { noteApplyAttempt } from './applySession'
+import { trackFillContract } from '@/services/fillTelemetry'
 
 // import { api } from '../lib/api'
 
@@ -33,9 +31,6 @@ const REVIEW_HIGHLIGHT_DURATION_MS = 6000
 let lastFillRecords: FillRecord[] = []
 let lastUnfilledInputs: FormField[] = []
 
-// Stable per page-load identifiers/counters for the autofill analytics events below.
-const FORM_INSTANCE_ID = crypto.randomUUID()
-let attemptCountForForm = 0
 let lastAutofillTriggeredAt: number | null = null
 
 const AUTOFILL_TRIGGERED_AT_KEY = 'lastAutofillTriggeredAt'
@@ -108,25 +103,17 @@ function isSkippableField(input: FormField) {
   return false
 }
 
-// Best-effort guess at which section of a multi-step ATS form is showing. There's no
-// generic "current step" concept in the site-rules architecture, so this just looks for
-// common section headings on the page — falls back to 'unknown' rather than guessing wrong.
-function guessFormStep(): string {
-  const headingText = Array.from(document.querySelectorAll('h1, h2, h3, legend'))
-    .map((el) => (el.textContent || '').toLowerCase())
-    .join(' ')
-
-  if (/education|degree|university|school/.test(headingText)) return 'education'
-  if (/experience|work history|employment/.test(headingText)) return 'work_history'
-  if (/skill/.test(headingText)) return 'skills'
-  if (/personal|contact|basic info/.test(headingText)) return 'personal_info'
-  return 'unknown'
-}
-
-export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_clicked_button') {
+export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user_clicked_button') {
   let filledCount = 0
   let attemptedCount = 0
-  attemptCountForForm++
+  let reportedAttempt = false
+
+  const hostname = window.location.hostname
+  const reportAttempt = async () => {
+    if (reportedAttempt) return
+    reportedAttempt = true
+    await trackFillContract('autofill_attempted', hostname)
+  }
 
   try {
     const startTime = Date.now()
@@ -147,14 +134,10 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     const fillableInputs = inputs.filter((input) => !isSkippableField(input))
     const activeSiteRule = siteRules.find((rule) => rule.detect())
 
+    await reportAttempt()
+
     if (fillableInputs.length === 0) {
-      trackEvent('autofill_blocked_or_failed', {
-        failure_reason: 'no_form_detected',
-        job_site: window.location.hostname,
-        failure_stage: 'detection',
-        attempt_count_for_form: attemptCountForForm,
-      })
-      noteApplyAttempt({ success: false, filledCount: 0, attemptedCount: 0, triggerSource })
+      await trackFillContract('autofill_failed', hostname)
       return { success: false, message: 'No fillable fields found' }
     }
 
@@ -208,30 +191,9 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     lastFillRecords = fillRecords
     lastUnfilledInputs = unfilledInputs
 
-    await captureEvent('application_autofilled', {
-      filledCount: filledCount,
-      success: filledCount > 0,
-      action: 'application_autofill',
-    })
+    await trackFillContract(filledCount > 0 ? 'autofill_succeeded' : 'autofill_failed', hostname)
 
-    const fieldsFailedCount = Math.max(attemptedCount - filledCount, 0)
-    const filledDenom = filledCount + fieldsFailedCount
-
-    trackEvent('autofill_triggered', {
-      trigger_source: triggerSource,
-      form_step_detected: guessFormStep(),
-      fill_fields_attempted_count: attemptedCount,
-      autofill_success: filledCount > 0,
-    })
-
-    trackEvent('autofill_completed', {
-      form_instance_id: FORM_INSTANCE_ID,
-      fields_filled_count: filledCount,
-      fields_failed_count: fieldsFailedCount,
-      filled_percent: filledDenom === 0 ? 0 : Math.round((filledCount / filledDenom) * 100),
-    })
-
-    const result = {
+    return {
       success: filledCount > 0,
       fieldsCount: filledCount,
       totalCount: attemptedCount,
@@ -240,21 +202,9 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       roleGuess: guessJobTitle(),
       message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
     }
-    noteApplyAttempt({
-      success: result.success,
-      filledCount,
-      attemptedCount,
-      triggerSource,
-    })
-    return result
-  } catch (error) {
-    trackEvent('autofill_blocked_or_failed', {
-      failure_reason: 'parse_error',
-      job_site: window.location.hostname,
-      failure_stage: 'injection',
-      attempt_count_for_form: attemptCountForForm,
-    })
-    noteApplyAttempt({ success: false, filledCount: 0, attemptedCount, triggerSource })
+  } catch {
+    await reportAttempt()
+    await trackFillContract('autofill_failed', hostname)
     return { success: false, message: 'Error during autofill' }
   }
 }
