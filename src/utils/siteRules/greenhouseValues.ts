@@ -406,3 +406,171 @@ export function isStateQuestion(fieldText: string): boolean {
     (fieldText.includes('province') && !fieldText.includes('provincial'))
   )
 }
+
+// Profile editor values (UpdateOtherInfoDialog). work_visa is "authorized now,
+// sponsorship later" — legally authorized, and sponsorship yes unless overridden.
+const AUTHORIZED_TO_WORK = new Set([
+  'us_citizen',
+  'green_card',
+  'work_visa',
+  'authorized_no_sponsorship',
+])
+
+const NO_SPONSORSHIP_STATUSES = new Set([
+  'us_citizen',
+  'green_card',
+  'authorized_no_sponsorship',
+])
+
+export function isAuthorizedToWork(workAuthorization?: string): boolean {
+  return AUTHORIZED_TO_WORK.has(workAuthorization ?? '')
+}
+
+// sponsorshipRequired ('Yes' / 'No') wins. When it is unset, infer from status.
+export function profileRequiresSponsorship(info: {
+  workAuthorization?: string
+  sponsorshipRequired?: string
+}): boolean {
+  if (info.sponsorshipRequired) return info.sponsorshipRequired === 'Yes'
+  return !NO_SPONSORSHIP_STATUSES.has(info.workAuthorization ?? '')
+}
+
+// Typed into react-select only if the open menu has no matching option yet.
+// "Yes" alone hides SpaceX's sentence options ("…for any employer"), which do
+// not contain the word Yes. The sentence query is the first attempt; Yes/No is
+// the fallback for boards whose menu is literally Yes and No.
+export function workAuthorizationSearchValues(workAuthorization?: string): string[] {
+  if (workAuthorization === 'work_visa') return ['present employer', 'Yes']
+  if (isAuthorizedToWork(workAuthorization)) return ['any employer', 'Yes']
+  return ['No', 'not authorized']
+}
+
+export function sponsorshipSearchValues(requiresSponsorship: boolean): string[] {
+  return requiresSponsorship ? ['Yes', 'require sponsorship'] : ['No', 'not require']
+}
+
+type RankedOption = { raw: string; n: string }
+
+function normalizeOption(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function rankOptions(optionTexts: string[]): RankedOption[] {
+  return optionTexts
+    .map((text) => ({ raw: text, n: normalizeOption(text) }))
+    .filter((option) => option.n.length > 0)
+}
+
+function isNotAuthorized(n: string): boolean {
+  return n.includes('not authorized') || n.includes('not authorised') || n.includes('unauthorized')
+}
+
+function isPresentEmployerOnly(n: string): boolean {
+  return n.includes('present employer') || n.includes('current employer only')
+}
+
+function isAnyEmployer(n: string): boolean {
+  return n.includes('any employer') && !isNotAuthorized(n)
+}
+
+function isUnknownStatus(n: string): boolean {
+  return n.includes('unknown')
+}
+
+function mentionsSponsorship(n: string): boolean {
+  return n.includes('sponsor')
+}
+
+// Unrestricted authorization: legally allowed to work, not tied to the current
+// employer, and not a sponsorship or "unknown" answer.
+function isUnrestrictedAuthorized(n: string): boolean {
+  const authorized =
+    n.includes('authorized to work') ||
+    n.includes('authorised to work') ||
+    n.includes('legally authorized') ||
+    n.includes('legally authorised')
+  return (
+    authorized &&
+    !isNotAuthorized(n) &&
+    !isPresentEmployerOnly(n) &&
+    !mentionsSponsorship(n) &&
+    !isUnknownStatus(n)
+  )
+}
+
+function affirmsSponsorship(n: string): boolean {
+  if (deniesSponsorship(n)) return false
+  if (n === 'yes' || n.startsWith('yes ')) return true
+  return (
+    n.includes('require sponsorship') ||
+    n.includes('requires sponsorship') ||
+    n.includes('need sponsorship') ||
+    n.includes('needs sponsorship')
+  )
+}
+
+function deniesSponsorship(n: string): boolean {
+  if (n === 'no' || n.startsWith('no ')) return true
+  if (n.startsWith('yes')) return false
+  return (
+    n.includes('not require') ||
+    n.includes('not need') ||
+    n.includes('no sponsorship') ||
+    n.includes('without sponsorship')
+  )
+}
+
+// Returns the option label to click, or null when none of the visible labels fit.
+// Exact Yes/No wins. Sentence menus (no Yes/No) use the authorization wording.
+export function pickWorkAuthorizationOption(
+  optionTexts: string[],
+  workAuthorization?: string,
+): string | null {
+  if (!workAuthorization) return null
+  const options = rankOptions(optionTexts)
+  if (!isAuthorizedToWork(workAuthorization)) {
+    return (
+      options.find((option) => option.n === 'no')?.raw ||
+      options.find((option) => isNotAuthorized(option.n))?.raw ||
+      options.find((option) => affirmsSponsorship(option.n) && !isNotAuthorized(option.n))?.raw ||
+      null
+    )
+  }
+
+  // "Authorized, sponsorship needed later" maps to the present-employer sentence
+  // when that choice exists. A Yes/No menu still gets Yes (sponsorship is separate).
+  if (workAuthorization === 'work_visa') {
+    const presentOnly = options.find((option) => isPresentEmployerOnly(option.n))
+    if (presentOnly) return presentOnly.raw
+  }
+
+  return (
+    options.find((option) => option.n === 'yes')?.raw ||
+    options.find((option) => isAnyEmployer(option.n))?.raw ||
+    options.find((option) => isUnrestrictedAuthorized(option.n))?.raw ||
+    null
+  )
+}
+
+export function pickSponsorshipOption(
+  optionTexts: string[],
+  requiresSponsorship: boolean,
+): string | null {
+  const options = rankOptions(optionTexts)
+  if (requiresSponsorship) {
+    return (
+      options.find((option) => option.n === 'yes')?.raw ||
+      options.find((option) => affirmsSponsorship(option.n))?.raw ||
+      null
+    )
+  }
+  return (
+    options.find((option) => option.n === 'no')?.raw ||
+    options.find((option) => deniesSponsorship(option.n))?.raw ||
+    null
+  )
+}

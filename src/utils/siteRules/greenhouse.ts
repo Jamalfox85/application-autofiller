@@ -25,8 +25,13 @@ import {
   pickDisciplineOption,
   pickMonthOption,
   pickSchoolOption,
+  pickSponsorshipOption,
+  pickWorkAuthorizationOption,
+  profileRequiresSponsorship,
   schoolSearchValues,
+  sponsorshipSearchValues,
   stateSearchValues,
+  workAuthorizationSearchValues,
   yearFromLooseDate,
   type GreenhouseEducationField,
 } from './greenhouseValues.ts'
@@ -72,6 +77,11 @@ function countGreenhouseFillableFields(): number {
   const root = document.getElementById('application-form') || document.body
   if (!root) return 0
   return root.querySelectorAll('input:not([type="hidden"]), textarea, select').length
+}
+
+function greenhouseQuestionOptionSelector(inputId: string): string | undefined {
+  const questionId = inputId.match(/question_(\d+)/)?.[1] || ''
+  return questionId ? `[id^=react-select-question_${questionId}-option-]` : undefined
 }
 
 const fieldHandlers: Array<{
@@ -231,21 +241,19 @@ const fieldHandlers: Array<{
     },
   },
   {
+    // Question text only. Option labels vary: Yes/No, or sentences such as
+    // "I am authorized to work in the United States for any employer".
     match: (_, fieldText) =>
       fieldText.includes('legallyauthorized') || fieldText.includes('authorizedtowork'),
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization) return false
-      const isAuthorized = [
-        'us_citizen',
-        'green_card',
-        'work_visa',
-        'authorized_no_sponsorship',
-      ].includes(personalInfo.workAuthorization)
-      const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
-      const optionSelector = questionId
-        ? `[id^=react-select-question_${questionId}-option-]`
-        : undefined
-      await fillReactSelect(input, isAuthorized ? 'Yes' : 'No', optionSelector)
+      await fillReactSelect(
+        input,
+        workAuthorizationSearchValues(personalInfo.workAuthorization),
+        greenhouseQuestionOptionSelector(input.id),
+        (options) => pickWorkAuthorizationOption(options, personalInfo.workAuthorization),
+        'greenhouse',
+      )
       return true
     },
   },
@@ -253,16 +261,14 @@ const fieldHandlers: Array<{
     match: (_, fieldText) => fieldText.includes('sponsorship'),
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization && !personalInfo.sponsorshipRequired) return false
-      const requiresSponsorship = personalInfo.sponsorshipRequired
-        ? personalInfo.sponsorshipRequired === 'Yes'
-        : !['us_citizen', 'green_card', 'authorized_no_sponsorship'].includes(
-            personalInfo.workAuthorization ?? '',
-          )
-      const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
-      const optionSelector = questionId
-        ? `[id^=react-select-question_${questionId}-option-]`
-        : undefined
-      await fillReactSelect(input, requiresSponsorship ? 'Yes' : 'No', optionSelector)
+      const needsSponsorship = profileRequiresSponsorship(personalInfo)
+      await fillReactSelect(
+        input,
+        sponsorshipSearchValues(needsSponsorship),
+        greenhouseQuestionOptionSelector(input.id),
+        (options) => pickSponsorshipOption(options, needsSponsorship),
+        'greenhouse',
+      )
       return true
     },
   },

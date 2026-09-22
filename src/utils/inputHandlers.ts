@@ -101,14 +101,33 @@ export const fillReactSelect = async (
   for (const currentValue of values) {
     try {
       if (openMode === 'greenhouse') {
-        // Set the catalog query before the menu opens so the first school/degree fetch
-        // is not the alphabetical A-page (Alverno College is on that page).
+        // Work-authorization question_* menus are a static list. Read them before
+        // typing so "Yes" does not hide a sentence such as "for any employer".
+        // School and degree catalogs must receive the query before the menu opens,
+        // or the first fetch is the alphabetical A-page (Alverno College).
+        const questionMenu = /question_\d+/.test(input.id)
+        if (questionMenu && pickOption) {
+          input.focus()
+          openGreenhouseMenu(input)
+          await delay(150)
+          if (commitOwnedOption(input, selectId, pickOption)) {
+            await delay(200)
+            return true
+          }
+        }
         input.focus()
         setReactInputValue(input, currentValue)
         openGreenhouseMenu(input)
       } else {
         openReactSelect(input)
         await delay(150)
+        // Read the open menu before typing. A short query such as "Yes" filters
+        // out sentence options that do not contain that word (work authorization
+        // on SpaceX), and the combobox stays blank.
+        if (pickOption && commitOwnedOption(input, selectId, pickOption)) {
+          await delay(200)
+          return true
+        }
         setReactInputValue(input, '')
         setReactInputValue(input, currentValue)
       }
@@ -183,6 +202,7 @@ const waitForOptionMatch = (
   maxRetries = 40,
   retryCount = 0,
   optionsSeenAt = -1,
+  noOptionsStreak = 0,
 ): Promise<boolean> => {
   return new Promise((resolve) => {
     const options = collectReactOptions(input, selectId).filter(
@@ -195,6 +215,14 @@ const waitForOptionMatch = (
     if (match instanceof HTMLElement) {
       commitReactOption(match)
       resolve(true)
+      return
+    }
+
+    // "No options" means this query filtered the menu empty. Move on to the next
+    // search string. A still-empty menu (school/city typeahead) keeps polling.
+    const nextNoOptionsStreak = ownedMenuHasNoOptions(input) ? noOptionsStreak + 1 : 0
+    if (nextNoOptionsStreak >= 3) {
+      resolve(false)
       return
     }
 
@@ -214,6 +242,7 @@ const waitForOptionMatch = (
             maxRetries,
             retryCount + 1,
             seenAt,
+            nextNoOptionsStreak,
           ),
         )
       }, 100)
@@ -222,6 +251,48 @@ const waitForOptionMatch = (
 
     resolve(false)
   })
+}
+
+// Options that belong to this combobox. Skips another field's open listbox, which
+// findVisibleListbox() would otherwise return before this menu has mounted.
+function collectOwnedReactOptions(input: HTMLInputElement, selectId?: string): HTMLElement[] {
+  const inputId = input.id
+  const listbox =
+    (inputId && document.getElementById(`react-select-${inputId}-listbox`)) ||
+    (inputId && document.querySelector(`[role="listbox"][id*="${CSS.escape(inputId)}"]`))
+
+  const fromListbox = listbox
+    ? Array.from(listbox.querySelectorAll<HTMLElement>('[role="option"]'))
+    : []
+  if (fromListbox.length > 0) return fromListbox
+
+  if (selectId) {
+    return Array.from(document.querySelectorAll<HTMLElement>(selectId))
+  }
+  return []
+}
+
+function commitOwnedOption(
+  input: HTMLInputElement,
+  selectId: string | undefined,
+  pickOption: ReactSelectOptionPicker,
+): boolean {
+  const options = collectOwnedReactOptions(input, selectId).filter(
+    (option) => !isPlaceholderOption(option.textContent || ''),
+  )
+  const match = matchPickedOption(options, pickOption)
+  if (!(match instanceof HTMLElement)) return false
+  commitReactOption(match)
+  return true
+}
+
+function ownedMenuHasNoOptions(input: HTMLInputElement): boolean {
+  const inputId = input.id
+  const listbox = inputId ? document.getElementById(`react-select-${inputId}-listbox`) : null
+  const menu = listbox?.closest('.select__menu') || listbox
+  if (!menu) return false
+  const text = (menu.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  return text === 'no options'
 }
 
 function matchBestOption(options: HTMLElement[], searchValue: string) {
