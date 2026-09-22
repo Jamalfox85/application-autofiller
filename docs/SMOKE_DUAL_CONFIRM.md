@@ -19,7 +19,7 @@ The earlier mirror seed (`education: []`, `experience: []`, no `workAuthorizatio
 | Contact: name, email, phone, location, LinkedIn | `firstName`, `lastName`, `email`, `phone`, `phoneCountryCode`, `address`, `city`, `state`, `zip`, `country`, `linkedin` | **Proven:** name, email, phone, location-style (`country` dialing-code combobox, `candidate-location`). **Not yet proven:** `linkedin` (prior seed was empty; `greenhouse.ts` has no LinkedIn id). |
 | Experience: 2 roles | `experience[0]`, `experience[1]` | **Not yet proven on a live form.** Site rules fill `company-name-N`, `title-N`, `start-date-month-N`, `start-date-year-N`, `end-date-month-N`, `end-date-year-N`, and `current-role-N_1` from `experience[N]`. The board renders row 0 until "Add another" adds row 1. Description and city/state are not inputs on this employment block. |
 | Education: 2 entries | `education[0]`, `education[1]` | **Not yet proven on a live form.** Handlers read `education[N]` for `school--N` and the other `--N` ids. The board shows row 0 until the education **Add another** button reveals row 1. Re-smoke this seed before marking it proven. |
-| Work authorization and sponsorship | `workAuthorization`, `sponsorshipRequired` | **Not yet proven.** Handlers exist; the prior seed omitted both keys. |
+| Work authorization and sponsorship | `workAuthorization`, `sponsorshipRequired` | **Not yet proven on a live form.** Handlers match `legallyauthorized` / `authorizedtowork` and `sponsorship`. This seed fills Yes or an "any employer" sentence, and No (or "will not require") for sponsorship. Re-smoke on SpaceX and Freeform. |
 | Resume filename | `resumeFileName` | **Filename is set. Binary attach may still be skipped.** `greenhouse.ts` does not upload a file. |
 | EEO (optional) | `eeoAnswersEnabled`, `gender`, `raceEthnicity`, `veteranStatus`, `disabilityStatus` | **Attempted, not a must-have.** Fill when the vault has values and the question text matches. Missing or unmapped questions are skipped and non-blocking. This does not gate the experience gap. |
 
@@ -68,11 +68,15 @@ Still not proven until a live form shows the values. EEO is an optional attempt 
 
 Re-smoke with the full-profile seed in this doc (`SMOKE_DUAL_CONFIRM`) before calling education proven. Expect both rows: UT Austin, Computer Science, bachelor dates September 2016–May 2020, then the master's row September 2020–May 2022.
 
-### Work authorization and sponsorship — not yet proven
+### Work authorization and sponsorship — not yet proven on a live form
 
 Stored values, not display sentences. The profile editor (`UpdateOtherInfoDialog.vue`) saves `workAuthorization: 'authorized_no_sponsorship'` with the label "Authorized, no sponsorship needed", and `sponsorshipRequired: 'No'`.
 
 Greenhouse matches question text (`legallyauthorized` / `authorizedtowork`, and `sponsorship`) on a `question_*` id. Those handlers treat `authorized_no_sponsorship` as authorized and `sponsorshipRequired: 'No'` as no sponsorship. A free-text value such as "Authorized to work in the US" is not in that list.
+
+Yes/No menus get **Yes** (authorized) and **No** (sponsorship). Some boards, including SpaceX, have no Yes option. The work-auth menu is sentences such as "I am authorized to work in the United States for any employer". Typing "Yes" into that react-select filters the list empty and the combobox stays blank. The filler reads the open menu first and chooses the "any employer" sentence for this seed. A separate sponsorship question, when the board has one, gets **No**.
+
+Re-smoke on SpaceX and Freeform (employment-visible boards) with the full-profile seed below before marking this row proven. A board that does not ask the question has nothing to fill.
 
 ### Resume filename — set; file attach may be skipped
 
@@ -211,7 +215,7 @@ console.log(
    - **Contact (must-have):** name, email, phone, location-style are the proven fill. LinkedIn is not yet proven.
    - **Education (must-have):** `school--0`, `degree--0`, `discipline--0`, `start-month--0`, `start-year--0`, `end-month--0`, `end-year--0` for `education[0]` (University of Texas - Austin, Bachelor's Degree, Computer Science, September 2016–May 2020). The education **Add another** control reveals `school--1` and the other `--1` ids for `education[1]` (same school, Master's Degree, September 2020–May 2022). A wrong alphabetical school (Alverno or Austin College) is a fail.
    - **Experience (must-have):** `company-name-0`, `title-0`, `start-date-month-0`, `start-date-year-0`, and `current-role-0_1` for `experience[0]` (current role: June 2022, end dates left empty). After **Add another**, the `-1` ids for `experience[1]` (Contoso, June 2018–May 2022, current role unchecked). Description and city/state are not on this block. A board with `employment: hidden` has nothing to fill. It outranks EEO.
-   - **Work authorization and sponsorship (must-have):** `question_*` text for legally authorized and sponsorship.
+   - **Work authorization and sponsorship (must-have):** `question_*` text for legally authorized and sponsorship. For this seed, expect Yes or "I am authorized to work … for any employer", and No (or a "will not require sponsorship" sentence) when that question is on the form. SpaceX's work-auth menu has no Yes option. A missing question stays blank.
    - **Resume (must-have):** `resumeFileName` is set. Binary file attach may still be skipped.
    - **EEO (optional, attempted):** gender, race, veteran, and disability when those questions are on the form. Filled when the label matches the handlers. Skipped and non-blocking when the question is missing or unmapped. An EEO skip does not block the experience check above.
 

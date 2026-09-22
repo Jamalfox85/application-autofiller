@@ -5,6 +5,7 @@ import {
   degreeSearchValues,
   disciplineSearchValues,
   greenhouseEducationRowsToAdd,
+  isAuthorizedToWork,
   isResidenceCountryField,
   isStateQuestion,
   locationSearchValues,
@@ -14,8 +15,13 @@ import {
   pickDisciplineOption,
   pickMonthOption,
   pickSchoolOption,
+  pickSponsorshipOption,
+  pickWorkAuthorizationOption,
+  profileRequiresSponsorship,
   schoolSearchValues,
+  sponsorshipSearchValues,
   stateSearchValues,
+  workAuthorizationSearchValues,
   yearFromLooseDate,
 } from './greenhouseValues.ts'
 
@@ -228,4 +234,99 @@ test('state questions skip statements and united states', () => {
   assert.equal(isStateQuestion('pleaseselectyourstate'), true)
   assert.equal(isStateQuestion('personalstatement'), false)
   assert.equal(isStateQuestion('unitedstates'), false)
+})
+
+// SpaceX "Are you legally authorized to work in the United States?" has no Yes/No.
+const SPACEX_WORK_AUTH = [
+  'I am authorized to work in the United States for any employer',
+  'I am authorized to work in the United States for my present employer only',
+  'I require sponsorship to work in the United States',
+  'I am not authorized to work in the United States',
+  'My status to work in the United States is unknown',
+]
+
+const YES_NO = ['No', 'Yes']
+
+test('authorized_no_sponsorship is authorized and does not require sponsorship', () => {
+  assert.equal(isAuthorizedToWork('authorized_no_sponsorship'), true)
+  assert.equal(
+    profileRequiresSponsorship({
+      workAuthorization: 'authorized_no_sponsorship',
+      sponsorshipRequired: 'No',
+    }),
+    false,
+  )
+  assert.equal(
+    profileRequiresSponsorship({ workAuthorization: 'work_visa', sponsorshipRequired: '' }),
+    true,
+  )
+  assert.equal(
+    profileRequiresSponsorship({ workAuthorization: 'work_visa', sponsorshipRequired: 'No' }),
+    false,
+  )
+})
+
+test('work authorization picks the unrestricted sentence, not Yes, on SpaceX', () => {
+  assert.equal(
+    pickWorkAuthorizationOption(SPACEX_WORK_AUTH, 'authorized_no_sponsorship'),
+    'I am authorized to work in the United States for any employer',
+  )
+  assert.equal(
+    pickWorkAuthorizationOption(SPACEX_WORK_AUTH, 'us_citizen'),
+    'I am authorized to work in the United States for any employer',
+  )
+  assert.equal(
+    pickWorkAuthorizationOption(SPACEX_WORK_AUTH, 'green_card'),
+    'I am authorized to work in the United States for any employer',
+  )
+  assert.deepEqual(workAuthorizationSearchValues('authorized_no_sponsorship'), [
+    'any employer',
+    'Yes',
+  ])
+})
+
+test('work authorization picks exact Yes on a Yes/No menu', () => {
+  assert.equal(pickWorkAuthorizationOption(YES_NO, 'authorized_no_sponsorship'), 'Yes')
+  assert.equal(
+    pickWorkAuthorizationOption(
+      ['No', 'Yes, Netherlands Highly Skilled Migrant Visa', 'Yes'],
+      'authorized_no_sponsorship',
+    ),
+    'Yes',
+  )
+})
+
+test('work_visa prefers present-employer wording and still answers Yes when that is the menu', () => {
+  assert.equal(
+    pickWorkAuthorizationOption(SPACEX_WORK_AUTH, 'work_visa'),
+    'I am authorized to work in the United States for my present employer only',
+  )
+  assert.equal(pickWorkAuthorizationOption(YES_NO, 'work_visa'), 'Yes')
+})
+
+test('need_sponsorship answers No, or the not-authorized sentence when Yes/No is absent', () => {
+  assert.equal(pickWorkAuthorizationOption(YES_NO, 'need_sponsorship'), 'No')
+  assert.equal(
+    pickWorkAuthorizationOption(SPACEX_WORK_AUTH, 'need_sponsorship'),
+    'I am not authorized to work in the United States',
+  )
+  assert.equal(pickWorkAuthorizationOption(SPACEX_WORK_AUTH, ''), null)
+})
+
+test('sponsorship No does not select an option that only contains "no" inside "not"', () => {
+  const sentences = [
+    'I will require sponsorship now or in the future',
+    'I will not require sponsorship now or in the future',
+  ]
+  assert.equal(
+    pickSponsorshipOption(sentences, false),
+    'I will not require sponsorship now or in the future',
+  )
+  assert.equal(
+    pickSponsorshipOption(sentences, true),
+    'I will require sponsorship now or in the future',
+  )
+  assert.equal(pickSponsorshipOption(YES_NO, false), 'No')
+  assert.equal(pickSponsorshipOption(YES_NO, true), 'Yes')
+  assert.deepEqual(sponsorshipSearchValues(false), ['No', 'not require'])
 })
