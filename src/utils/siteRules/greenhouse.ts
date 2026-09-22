@@ -2,12 +2,19 @@ import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { fillNativeInput, fillReactSelect } from '../../utils/inputHandlers'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
+  dialingCodeSearchValues,
+  isGreenhousePhoneDialingCodeField,
+  locationSearchQueries,
+  phoneDialingCodeTarget,
+  pickDialingCodeOption,
+  pickLocationOption,
+} from './greenhouseFields.ts'
+import {
   countrySearchValues,
   degreeSearchValues,
   disciplineSearchValues,
   isResidenceCountryField,
   isStateQuestion,
-  locationSearchValues,
   monthNameFromLooseDate,
   schoolSearchValues,
   stateSearchValues,
@@ -53,25 +60,32 @@ const fieldHandlers: Array<{
   handle: FieldHandler
 }> = [
   {
-    // Inside the phone fieldset. Options look like "United States +1".
-    match: (input, _) => input.id === 'country',
+    // #country is the phone dialing-code combobox ("United States +1"), not a
+    // country-of-residence question_* select.
+    match: (input, _) => isGreenhousePhoneDialingCodeField(input.getAttribute('id')),
     handle: async (input, _, personalInfo) => {
-      const queries = countrySearchValues(personalInfo.country)
-      if (queries.length === 0) return true
-      await fillReactSelect(input, queries, '[id^=react-select-country-option-]')
+      const target = phoneDialingCodeTarget(personalInfo)
+      if (!target) return true
+      await fillReactSelect(
+        input,
+        dialingCodeSearchValues(target),
+        '[id^=react-select-country-option-]',
+        (options) => pickDialingCodeOption(options, target),
+      )
       return true
     },
   },
   {
     match: (input, _) => input.id === 'candidate-location',
     handle: async (input, _, personalInfo) => {
-      const queries = locationSearchValues({
-        city: personalInfo.city,
-        state: stateSearchValues(personalInfo.state)[0],
-        country: countrySearchValues(personalInfo.country)[0],
-      })
+      const queries = locationSearchQueries(personalInfo)
       if (queries.length === 0) return true
-      await fillReactSelect(input, queries, '[id^=react-select-candidate-location-option-]')
+      await fillReactSelect(
+        input,
+        queries,
+        '[id^=react-select-candidate-location-option-]',
+        (options) => pickLocationOption(options, personalInfo),
+      )
       return true
     },
   },
