@@ -1,7 +1,7 @@
 import ExtPay from 'extpay'
 import type { BillingPlan, CheckoutSource } from './billing/plans.ts'
 import {
-  EXTENSION_PAY_EXTENSION_ID_PLACEHOLDER,
+  EXTENSION_PAY_EXTENSION_ID,
   EXTENSION_PAY_PLAN_SKUS,
   isExtensionPayConfigured,
   planFromExtPayInterval,
@@ -28,7 +28,7 @@ import { paidEventContext, trackPaid } from './billing/trackPaid.ts'
 
 const extensionId = (
   (import.meta.env.VITE_EXTENSIONPAY_EXTENSION_ID as string | undefined) ||
-  EXTENSION_PAY_EXTENSION_ID_PLACEHOLDER
+  EXTENSION_PAY_EXTENSION_ID
 ).trim()
 
 const configured = isExtensionPayConfigured(extensionId)
@@ -134,7 +134,7 @@ async function rememberCheckoutTab(session: CheckoutSession): Promise<void> {
 export function startExtensionPay(): void {
   if (!configured) {
     console.warn(
-      '[extpay] VITE_EXTENSIONPAY_EXTENSION_ID is unset or still the placeholder. Checkout is disabled until the ExtensionPay extension id is baked in at build time.',
+      '[extpay] VITE_EXTENSIONPAY_EXTENSION_ID is empty. Checkout is disabled.',
     )
     return
   }

@@ -5,7 +5,9 @@
 // They are SKU keys, not secrets. Checkout passes the nickname to
 // extpay.openPaymentPage(nickname).
 
-export const EXTENSION_PAY_EXTENSION_ID_PLACEHOLDER = 'your-extensionpay-id'
+// Permanent ExtensionPay extension id for GoFillr. Not a secret. ExtPay mints a
+// per-install API key at runtime and stores it in chrome.storage.sync.
+export const EXTENSION_PAY_EXTENSION_ID = 'gofillr'
 
 export const EXTENSION_PAY_PLAN_SKUS = {
   monthly: 'pro_monthly',
@@ -30,7 +32,7 @@ export const SOFT_GATE_AT = 10
 
 export function isExtensionPayConfigured(extensionId: string | null | undefined): boolean {
   const id = (extensionId ?? '').trim()
-  return id.length > 0 && id !== EXTENSION_PAY_EXTENSION_ID_PLACEHOLDER
+  return id.length > 0
 }
 
 export function priceForPlan(plan: BillingPlan): number {

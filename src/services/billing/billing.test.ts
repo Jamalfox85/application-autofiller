@@ -19,7 +19,12 @@ import {
   softPaywallShownProps,
 } from './paidEvents.ts'
 import { PRO_RESUME_PATHS, postProResume, proResumeHeaders } from './proApiContract.ts'
-import { EXTENSION_PAY_PLAN_SKUS, isExtensionPayConfigured, priceForPlan } from './plans.ts'
+import {
+  EXTENSION_PAY_EXTENSION_ID,
+  EXTENSION_PAY_PLAN_SKUS,
+  isExtensionPayConfigured,
+  priceForPlan,
+} from './plans.ts'
 import { addRosterProfile, initialRoster } from './profileRoster.ts'
 import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
 
@@ -218,7 +223,8 @@ test('generate and ats analyze send the supabase bearer token', async () => {
 })
 
 test('extension pay skus and profile plan stay out of ordinary profile saves', () => {
-  assert.equal(isExtensionPayConfigured('your-extensionpay-id'), false)
+  assert.equal(EXTENSION_PAY_EXTENSION_ID, 'gofillr')
+  assert.equal(isExtensionPayConfigured(''), false)
   assert.equal(isExtensionPayConfigured('gofillr'), true)
   assert.deepEqual(EXTENSION_PAY_PLAN_SKUS, { monthly: 'pro_monthly', annual: 'pro_annual' })
 

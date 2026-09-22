@@ -32,7 +32,7 @@ Required:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-- `VITE_EXTENSIONPAY_EXTENSION_ID` — ExtensionPay extension id (placeholder `your-extensionpay-id` until you register GoFillr). Plan nicknames to create in the dashboard: `pro_monthly` ($5.99/mo) and `pro_annual` ($49/yr). Do not commit the per-install ExtensionPay API key; the library stores it in `chrome.storage.sync`.
+- `VITE_EXTENSIONPAY_EXTENSION_ID` — ExtensionPay extension id. The committed default is `gofillr`. Plan nicknames to create in the dashboard: `pro_monthly` ($5.99/mo) and `pro_annual` ($49/yr). Do not commit the per-install ExtensionPay API key; the library stores it in `chrome.storage.sync`.
 
 If either one is missing, or still set to the `.env.example` placeholder, the popup shows a setup message instead of a blank panel. Sign-in and profile sync need the real values. A store build has to be produced from a `.env` that contains them.
 
