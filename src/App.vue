@@ -141,15 +141,20 @@ const autofillCurrentPage = async () => {
     showNotification('Unable to autofill this page', 'error')
 
     let jobSite: string | undefined
+    let pageHref: string | undefined
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      jobSite = tab?.url ? new URL(tab.url).hostname : undefined
+      pageHref = tab?.url
+      jobSite = pageHref ? new URL(pageHref).hostname : undefined
     } catch {
       // Tab URL can be unavailable on chrome:// and similar pages.
     }
-    const host = jobSite || ''
-    await trackFillContract('autofill_attempted', host)
-    await trackFillContract('autofill_failed', host)
+    const fillContext = { hostname: jobSite || '', href: pageHref }
+    await trackFillContract('autofill_attempted', fillContext)
+    await trackFillContract('autofill_failed', {
+      ...fillContext,
+      failureReason: 'page_unreachable',
+    })
   }
 }
 

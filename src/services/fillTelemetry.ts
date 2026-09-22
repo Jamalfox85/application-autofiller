@@ -7,10 +7,21 @@ import {
   buildAutofillContractProps,
   type AutofillContractEvent,
   type AutofillContractProps,
+  type AutofillFailureReason,
 } from '../utils/fillContract'
+import type { AtsPageContext } from '../utils/ats'
 
 const FIRST_FILL_KEY = 'firstAutofillSucceededAt'
 const INSTALL_FALLBACK_KEY = 'extensionInstalledAt'
+
+export type TrackFillContractContext = {
+  hostname: string
+  href?: string | null
+  document?: AtsPageContext['document']
+  failureReason?: AutofillFailureReason | null
+  http?: number | null
+  status?: number | null
+}
 
 async function getInstalledAtMs(): Promise<number> {
   const data = await chrome.storage.local.get(['stats', INSTALL_FALLBACK_KEY])
@@ -25,10 +36,20 @@ async function getInstalledAtMs(): Promise<number> {
   return now
 }
 
+function normalizeContext(
+  hostnameOrContext: string | TrackFillContractContext,
+): TrackFillContractContext {
+  if (typeof hostnameOrContext === 'string') {
+    return { hostname: hostnameOrContext }
+  }
+  return hostnameOrContext
+}
+
 export async function fillContractProps(
-  hostname: string,
+  hostnameOrContext: string | TrackFillContractContext,
   event: AutofillContractEvent,
 ): Promise<AutofillContractProps> {
+  const context = normalizeContext(hostnameOrContext)
   const installedAt = await getInstalledAtMs()
   const now = Date.now()
   const stored = await chrome.storage.local.get(FIRST_FILL_KEY)
@@ -36,11 +57,16 @@ export async function fillContractProps(
     typeof stored[FIRST_FILL_KEY] === 'number' ? (stored[FIRST_FILL_KEY] as number) : null
 
   const built = buildAutofillContractProps({
-    hostname,
+    hostname: context.hostname,
+    href: context.href,
+    document: context.document,
     now,
     installedAt,
     firstFillAt: existing,
     recordSuccess: event === 'autofill_succeeded',
+    failureReason: event === 'autofill_failed' ? context.failureReason : null,
+    http: event === 'autofill_failed' ? context.http : null,
+    status: event === 'autofill_failed' ? context.status : null,
   })
 
   if (built.firstFillAtToStore != null) {
@@ -50,8 +76,11 @@ export async function fillContractProps(
   return built.props
 }
 
-export async function trackFillContract(event: AutofillContractEvent, hostname: string) {
-  const properties = await fillContractProps(hostname, event)
+export async function trackFillContract(
+  event: AutofillContractEvent,
+  hostnameOrContext: string | TrackFillContractContext,
+) {
+  const properties = await fillContractProps(hostnameOrContext, event)
   void trackEvent(event, properties)
   void captureEvent(event, properties)
 }
