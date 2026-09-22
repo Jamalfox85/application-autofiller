@@ -13,6 +13,7 @@ import {
   mergeInstallSource,
 } from './src/services/installAttribution.js'
 import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
+import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 
 startExtensionPay()
 
@@ -411,17 +412,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true
 })
 
-// Keyboard shortcut handler (optional - can add keyboard shortcuts in manifest)
+// Keyboard shortcut. Signed-out on purpose: the popup Autofill button is behind
+// Google sign-in, and mirror-only smoke seeds chrome.storage.local.personalInfo
+// then uses this command. The content script reads that mirror and does not
+// check a session.
 if (chrome.commands) {
   chrome.commands.onCommand.addListener((command) => {
-    if (command === 'autofill-page') {
-      // Get active tab and trigger autofill
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-          chrome.tabs.sendMessage(tabs[0].id, { action: 'autofill' })
-        }
+    if (command !== 'autofill-page') return
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0] && tabs[0].id
+      if (tabId == null) return
+      void deliverAutofillCommand(tabId, {
+        sendMessage(id, message) {
+          return chrome.tabs.sendMessage(id, message)
+        },
+        insertCSS(id) {
+          return chrome.scripting.insertCSS({
+            target: { tabId: id, allFrames: true },
+            files: ['content.css'],
+          })
+        },
+        executeScript(id) {
+          return chrome.scripting.executeScript({
+            target: { tabId: id, allFrames: true },
+            files: ['content.js'],
+          })
+        },
+      }).catch((error) => {
+        console.error('Autofill command failed', error)
       })
-    }
+    })
   })
 }
 

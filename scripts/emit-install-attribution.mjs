@@ -34,6 +34,7 @@ const define = {
 }
 
 await mkdir('dist/src/services', { recursive: true })
+await mkdir('dist/src/utils', { recursive: true })
 await esbuild.build({
   entryPoints: ['src/services/installAttribution.ts'],
   outfile: 'dist/src/services/installAttribution.js',
@@ -41,7 +42,6 @@ await esbuild.build({
   bundle: true,
   platform: 'neutral',
 })
-
 await esbuild.build({
   entryPoints: ['src/services/extensionPayWorker.ts'],
   outfile: 'dist/src/services/extensionPayWorker.js',
@@ -57,4 +57,12 @@ await esbuild.build({
   format: 'iife',
   bundle: true,
   platform: 'browser',
+})
+
+await esbuild.build({
+  entryPoints: ['src/utils/contentScriptConnection.ts'],
+  outfile: 'dist/src/utils/contentScriptConnection.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'neutral',
 })

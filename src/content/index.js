@@ -21,6 +21,8 @@ import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
 import { detectAts } from '../utils/ats.ts'
 
+const CONTENT_SCRIPT_INSTALLED = '__gofillrContentScript'
+
 function isTopFrame() {
   try {
     return window.top === window
@@ -29,11 +31,50 @@ function isTopFrame() {
   }
 }
 
-// Initialize when page loads
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initialize)
-} else {
-  initialize()
+// Register before page setup. A throw while scanning the page must not leave the
+// tab without a listener — that is the "Receiving end does not exist" failure on
+// the Ctrl+Shift+F path. The flag skips a second listener when the service worker
+// reinjects this file into a frame that already has it.
+function onRuntimeMessage(request, _sender, sendResponse) {
+  if (request.action === 'autofill') {
+    autofillPage('user_clicked_button').then((result) => {
+      // The popup draws the paywall itself. The shortcut has no popup, so the page does.
+      const onPagePaywall = request.surface !== 'popup'
+      if (result.code === 'hard_cap' || result.paywall === 'hard') {
+        if (onPagePaywall) void showFillPaywall('hard', result)
+      } else if (result.success) {
+        showAutofillNotification(result)
+        if (onPagePaywall && result.paywall === 'soft') void showFillPaywall('soft', result)
+      } else {
+        showErrorNotification(result.message)
+      }
+      sendResponse(result)
+    })
+    return true // Keep message channel open for async response
+  }
+
+  if (request.action === 'detectApplication') {
+    const detected = isLikelyJobApplicationPage()
+    sendResponse({
+      detected,
+      siteLabel: detected ? getSiteLabel(window.location.hostname) : null,
+      fieldCount: detected
+        ? document.querySelectorAll('input, textarea, select').length
+        : 0,
+    })
+    return false
+  }
+}
+
+if (!globalThis[CONTENT_SCRIPT_INSTALLED]) {
+  globalThis[CONTENT_SCRIPT_INSTALLED] = true
+  chrome.runtime.onMessage.addListener(onRuntimeMessage)
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize)
+  } else {
+    initialize()
+  }
 }
 
 let hasShownPopup = false
@@ -228,35 +269,3 @@ function detectJobApplicationPage() {
 function isLikelyJobApplicationPage() {
   return detectJobApplicationPage().detected
 }
-
-// Listen for messages from the popup and the keyboard-shortcut command
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'autofill') {
-    autofillPage('user_clicked_button').then((result) => {
-      // The popup draws the paywall itself. The shortcut has no popup, so the page does.
-      const onPagePaywall = request.surface !== 'popup'
-      if (result.code === 'hard_cap' || result.paywall === 'hard') {
-        if (onPagePaywall) void showFillPaywall('hard', result)
-      } else if (result.success) {
-        showAutofillNotification(result)
-        if (onPagePaywall && result.paywall === 'soft') void showFillPaywall('soft', result)
-      } else {
-        showErrorNotification(result.message)
-      }
-      sendResponse(result)
-    })
-    return true // Keep message channel open for async response
-  }
-
-  if (request.action === 'detectApplication') {
-    const detected = isLikelyJobApplicationPage()
-    sendResponse({
-      detected,
-      siteLabel: detected ? getSiteLabel(window.location.hostname) : null,
-      fieldCount: detected
-        ? document.querySelectorAll('input, textarea, select').length
-        : 0,
-    })
-    return false
-  }
-})
