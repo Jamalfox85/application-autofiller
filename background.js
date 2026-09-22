@@ -1,5 +1,18 @@
 // Background service worker - handles extension lifecycle and events
 
+// Shared with the popup and content script. copy-files emits the compiled module at
+// this path; the worker is not part of the Vite bundle, so it imports the file directly.
+import {
+  INSTALL_SOURCE_STORAGE_KEY,
+  attributionFromLanding,
+  attributionFromTabUrls,
+  attributionFromUrl,
+  installSourceProperties,
+  canEnrichInstallSource,
+  isAttributionHost,
+  mergeInstallSource,
+} from './src/services/installAttribution.js'
+
 // Mixpanel tracking for the service-worker context. This can't use the mixpanel-browser
 // SDK (it needs `document`/`window`, which service workers don't have) so it posts to the
 // HTTP Track API directly — see src/services/mixpanelHttp.ts for the same approach used by
@@ -29,6 +42,7 @@ function mixpanelSuperProperties() {
 async function trackMixpanelEvent(eventName, properties) {
   try {
     const distinctId = await getOrCreateMixpanelDistinctId()
+    const installProps = installSourceProperties(await readInstallSource())
     const cleanProperties = Object.fromEntries(
       Object.entries(properties || {}).filter(([, value]) => value !== undefined && value !== null && value !== ''),
     )
@@ -45,6 +59,7 @@ async function trackMixpanelEvent(eventName, properties) {
             time: Math.floor(Date.now() / 1000),
             $insert_id: crypto.randomUUID(),
             ...mixpanelSuperProperties(),
+            ...installProps,
             ...cleanProperties,
           },
         },
@@ -55,49 +70,152 @@ async function trackMixpanelEvent(eventName, properties) {
   }
 }
 
-async function getInstallSource() {
-  try {
-    const info = await chrome.management.getSelf()
-    switch (info.installType) {
-      case 'normal':
-        return 'chrome_web_store'
-      case 'sideload':
-        return 'direct_link'
-      case 'development':
-        return 'unpacked'
-      case 'admin':
-        return 'admin_policy'
-      default:
-        return info.installType || 'chrome_web_store'
-    }
-  } catch {
-    return 'chrome_web_store'
+function channelFromInstallType(installType) {
+  switch (installType) {
+    case 'normal':
+      return 'chrome_web_store'
+    case 'sideload':
+      return 'direct_link'
+    case 'development':
+      return 'unpacked'
+    case 'admin':
+      return 'admin_policy'
+    default:
+      return installType || 'chrome_web_store'
   }
+}
+
+async function readManagementInfo() {
+  try {
+    return await chrome.management.getSelf()
+  } catch {
+    return null
+  }
+}
+
+async function readInstallSource() {
+  const data = await chrome.storage.local.get(INSTALL_SOURCE_STORAGE_KEY)
+  return data[INSTALL_SOURCE_STORAGE_KEY] || {}
+}
+
+// Install-source writes share one queue so onInstalled and a landing-page message
+// can't clobber each other's read-modify-write.
+let installSourceQueue = Promise.resolve()
+
+function enqueueInstallSource(task) {
+  const run = installSourceQueue.then(task, task)
+  installSourceQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+async function attributionFromOpenTabs() {
+  try {
+    const tabs = await chrome.tabs.query({})
+    return attributionFromTabUrls(tabs)
+  } catch {
+    return {}
+  }
+}
+
+// onInstalled only reports reason. Campaign params, when they exist, are still on
+// the Chrome Web Store listing tab or a gofillr.com landing tab, or on the
+// extension update URL for sideloads. We never read arbitrary tab URLs.
+async function handleInstall() {
+  const info = await readManagementInfo()
+  const channel = channelFromInstallType(info?.installType)
+  const fromUpdateUrl = info?.updateUrl ? attributionFromUrl(info.updateUrl) : {}
+  const fromTabs = await attributionFromOpenTabs()
+  const fromWorker = attributionFromUrl(self.location?.href || '')
+
+  let incoming = {}
+  incoming = mergeInstallSource(incoming, fromTabs).record
+  incoming = mergeInstallSource(incoming, fromUpdateUrl).record
+  incoming = mergeInstallSource(incoming, fromWorker).record
+  incoming = mergeInstallSource(incoming, { install_source: channel }, { allowChannel: true }).record
+
+  const existing = await readInstallSource()
+  const merged = mergeInstallSource(existing, incoming, { allowChannel: true }).record
+  // A startup backfill may have closed the window before this install handler ran.
+  merged.source_locked_at = new Date().toISOString()
+
+  await chrome.storage.local.set({
+    personalInfo: {},
+    stats: {
+      installDate: new Date().toISOString(),
+      totalAutofills: 0,
+    },
+    [INSTALL_SOURCE_STORAGE_KEY]: merged,
+  })
+
+  console.info('[install-source] captured', installSourceProperties(merged))
+
+  await trackMixpanelEvent('extension_installed', {
+    language: self.navigator?.language,
+    name_of_install_user_type: 'new',
+  })
+}
+
+// Upgrades don't get a second look at the install tabs. Stamp the channel once
+// and close the first-run window so a later visit to gofillr.com isn't treated
+// as the install campaign.
+async function backfillInstallChannel() {
+  const data = await chrome.storage.local.get([INSTALL_SOURCE_STORAGE_KEY, 'stats'])
+  const existing = data[INSTALL_SOURCE_STORAGE_KEY] || {}
+  if (existing.install_source && existing.source_locked_at) return existing
+
+  const info = await readManagementInfo()
+  const { record } = mergeInstallSource(
+    existing,
+    { install_source: channelFromInstallType(info?.installType) },
+    { allowChannel: true },
+  )
+  if (!record.source_locked_at) {
+    const parsed = Date.parse(data.stats?.installDate || '')
+    // No installDate yet means onInstalled(install) hasn't written stats. Leave
+    // the window unlocked so that handler (and a landing-tab message) can still
+    // record campaign params. An existing installDate closes the window at that
+    // timestamp, which is already expired for anyone upgrading later.
+    if (!Number.isNaN(parsed)) record.source_locked_at = new Date(parsed).toISOString()
+  }
+  await chrome.storage.local.set({ [INSTALL_SOURCE_STORAGE_KEY]: record })
+  return record
+}
+
+async function enrichInstallSourceFromTab(tabUrl, referrer) {
+  let hostOk = false
+  try {
+    hostOk = !!tabUrl && isAttributionHost(new URL(tabUrl).hostname)
+  } catch {
+    hostOk = false
+  }
+  if (!hostOk) return null
+
+  const existing = await readInstallSource()
+  if (!canEnrichInstallSource(existing)) return existing
+
+  const fields = attributionFromLanding(tabUrl, referrer)
+  const { record, changed } = mergeInstallSource(existing, fields)
+  if (!changed) return existing
+
+  await chrome.storage.local.set({ [INSTALL_SOURCE_STORAGE_KEY]: record })
+  console.info('[install-source] enriched', installSourceProperties(record))
+  return record
 }
 
 // Installation event
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    // Set default storage
-    chrome.storage.local.set({
-      personalInfo: {},
-      stats: {
-        installDate: new Date().toISOString(),
-        totalAutofills: 0,
-      },
-    })
-
-    getInstallSource().then((installSource) => {
-      trackMixpanelEvent('extension_installed', {
-        install_source: installSource,
-        language: self.navigator?.language,
-        name_of_install_user_type: 'new',
-        // utm_campaign omitted — Chrome does not expose campaign params to the extension
-        // at install time without a landing-page handoff.
-      })
-    })
+    return enqueueInstallSource(() => handleInstall())
+  }
+  if (details.reason === 'update') {
+    return enqueueInstallSource(() => backfillInstallChannel())
   }
 })
+
+enqueueInstallSource(() => backfillInstallChannel())
 
 // ---------------------------------------------------------------------------
 // Resume upload — runs here, not in the popup.
@@ -222,6 +340,13 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
 
 // Handle messages from content scripts or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'captureInstallAttribution') {
+    enqueueInstallSource(() => enrichInstallSourceFromTab(sender?.tab?.url, request.referrer))
+      .then((record) => sendResponse({ ok: !!record }))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
   if (request.action === 'openPopup') {
     chrome.action.openPopup()
     sendResponse({ success: true })

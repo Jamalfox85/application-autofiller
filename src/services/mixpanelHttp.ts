@@ -19,6 +19,7 @@ import {
   extensionSuperProperties,
   stripEmpty,
 } from './mixpanelConfig'
+import { getInstallSourceProperties } from './installSource'
 
 export async function trackEvent(
   eventName: string,
@@ -27,6 +28,7 @@ export async function trackEvent(
 ) {
   try {
     const distinctId = await getOrCreateDistinctId()
+    const installProps = await getInstallSourceProperties()
 
     await fetch(MIXPANEL_HTTP_TRACK_URL, {
       method: 'POST',
@@ -41,6 +43,7 @@ export async function trackEvent(
             time: Math.floor(Date.now() / 1000),
             $insert_id: crypto.randomUUID(),
             ...extensionSuperProperties(),
+            ...installProps,
             ...stripEmpty(properties),
           },
         },
