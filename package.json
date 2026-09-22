@@ -8,7 +8,7 @@
     "build": "vite build && vite build --config vite.content.config.ts && npm run copy-files",
     "copy-files": "cp manifest.json dist/ && cp content.css dist/ && cp background.js dist/ && node scripts/emit-install-attribution.mjs && mkdir -p dist/icons && (cp -r icons/* dist/icons/ || true)",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/utils/optionMatch.test.ts src/utils/siteRules/greenhouseValues.test.ts src/utils/siteRules/ashbyFields.test.ts src/utils/siteRules/leverFields.test.ts tests/greenhouseFields.test.ts src/utils/ats.test.ts src/utils/fillContract.test.ts src/utils/fillValue.test.ts src/content/fieldMatch.test.ts src/content/contentScriptLoad.test.ts src/utils/contentScriptConnection.test.ts src/lib/supabaseConfig.test.ts src/services/installAttribution.test.ts src/services/billing/billing.test.ts"
+    "test": "node --experimental-strip-types --test src/utils/optionMatch.test.ts src/utils/siteRules/greenhouseValues.test.ts src/utils/siteRules/ashbyFields.test.ts src/utils/siteRules/leverFields.test.ts tests/greenhouseFields.test.ts tests/greenhouseSchoolFill.test.ts src/utils/ats.test.ts src/utils/fillContract.test.ts src/utils/fillValue.test.ts src/content/fieldMatch.test.ts src/content/contentScriptLoad.test.ts src/utils/contentScriptConnection.test.ts src/lib/supabaseConfig.test.ts src/services/installAttribution.test.ts src/services/billing/billing.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",
@@ -26,6 +26,7 @@
     "@types/node": "^25.0.10",
     "@vitejs/plugin-vue": "^5.2.1",
     "esbuild": "^0.21.5",
+    "jsdom": "^29.1.1",
     "typescript": "^5.7.3",
     "vite": "^5.4.11",
     "vue-tsc": "^2.2.0"

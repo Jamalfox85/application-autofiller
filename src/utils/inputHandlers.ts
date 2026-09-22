@@ -134,9 +134,24 @@ export const fillReactSelect = async (
       }
       if (openMode === 'greenhouse') await delay(150)
 
-      const found = await waitForOptionMatch(input, currentValue, selectId, pickOption)
+      // School search is async (Greenhouse debounceTimeout is 300ms) and the menu
+      // reads "No options" until that request returns. Aborting on the first empty
+      // paint types the next query — including the raw profile string — and a late
+      // catalog row then counts as success while that typed string is still visible.
+      const found = await waitForOptionMatch(
+        input,
+        currentValue,
+        selectId,
+        pickOption,
+        40,
+        0,
+        -1,
+        0,
+        openMode === 'greenhouse' ? 8 : 0,
+      )
       if (found) {
         await delay(200)
+        alignCommittedCombobox(input, found)
         return true
       }
 
@@ -191,6 +206,37 @@ function commitReactOption(option: HTMLElement) {
   option.click()
 }
 
+// A typed query is not the selection. If the listbox click did not replace it, the
+// combobox keeps whatever string was written last — for school, a later alias such as
+// "The University of Texas at Austin" — even though the matched row was the catalog label.
+function alignCommittedCombobox(input: HTMLInputElement, label: string) {
+  const root = input.closest('.select')
+  const single = root?.querySelector<HTMLElement>('.select__single-value')
+  const singleText = (single?.textContent || '').replace(/\s+/g, ' ').trim()
+  const typed = input.value.trim()
+  if (singleText === label && (typed === '' || typed === label)) return
+  if (singleText === label) {
+    setReactInputValue(input, '')
+    return
+  }
+  if (typed !== label) setReactInputValue(input, label)
+  if (single && singleText !== label) single.textContent = label
+}
+
+// Search text sitting in a react-select input is not a committed answer. Greenhouse
+// shows the selection in .select__single-value and clears the input. A prior pass that
+// only typed the profile school name must be filled again.
+export function comboboxSearchIsUncommitted(input: HTMLElement): boolean {
+  if (!(input instanceof HTMLInputElement)) return false
+  if (input.getAttribute('role') !== 'combobox') return false
+  const typed = input.value.trim()
+  if (!typed) return false
+  const label =
+    input.closest('.select')?.querySelector('.select__single-value')?.textContent?.replace(/\s+/g, ' ').trim() ||
+    ''
+  return typed !== label
+}
+
 function optionLabel(el: Element) {
   return (el.textContent || '').replace(/\s+/g, ' ').trim()
 }
@@ -204,7 +250,11 @@ const waitForOptionMatch = (
   retryCount = 0,
   optionsSeenAt = -1,
   noOptionsStreak = 0,
-): Promise<boolean> => {
+  // Greenhouse education search paints "No options" during the debounce. Ignore
+  // that until this many polls have elapsed (~100ms each, after the initial wait)
+  // so the catalog row can land before the next query is typed.
+  noOptionsMinRetry = 0,
+): Promise<string | false> => {
   return new Promise((resolve) => {
     const options = collectReactOptions(input, selectId).filter(
       (option) => !isPlaceholderOption(option.textContent || ''),
@@ -214,15 +264,17 @@ const waitForOptionMatch = (
       : matchBestOption(options, searchValue)
 
     if (match instanceof HTMLElement) {
+      const label = optionLabel(match)
       commitReactOption(match)
-      resolve(true)
+      resolve(label)
       return
     }
 
     // "No options" means this query filtered the menu empty. Move on to the next
     // search string. A still-empty menu (school/city typeahead) keeps polling.
+    // A menu that has not had time to replace the initial empty paint is not empty.
     const nextNoOptionsStreak = ownedMenuHasNoOptions(input) ? noOptionsStreak + 1 : 0
-    if (nextNoOptionsStreak >= 3) {
+    if (nextNoOptionsStreak >= 3 && retryCount >= noOptionsMinRetry) {
       resolve(false)
       return
     }
@@ -244,6 +296,7 @@ const waitForOptionMatch = (
             retryCount + 1,
             seenAt,
             nextNoOptionsStreak,
+            noOptionsMinRetry,
           ),
         )
       }, 100)

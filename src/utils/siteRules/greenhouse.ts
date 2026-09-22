@@ -173,9 +173,17 @@ const fieldHandlers: Array<{
         const plan = educationSelectPlan(field, education)
         if (!plan) return
         const current = selectedComboboxLabel(live)
+        const typed = live.value.trim()
         // queries[0] is the catalog label. The raw profile string can score as a
         // match against those queries, but it is not the option in the menu.
-        if (educationComboboxLabelSettled(current, plan.queries)) return
+        // A committed label with a different string still in the input is the typed
+        // query, not a settled selection.
+        if (
+          educationComboboxLabelSettled(current, plan.queries) &&
+          (typed === '' || typed === current)
+        ) {
+          return
+        }
         await fillReactSelect(
           live,
           plan.queries,
@@ -183,6 +191,7 @@ const fieldHandlers: Array<{
           (options) => plan.pick(options),
           'greenhouse',
         )
+        if (field.kind === 'school') ensureSchoolCatalogVisible(live, plan.queries[0])
       }),
   },
   {
@@ -428,6 +437,22 @@ function liveEducationInput(
 function selectedComboboxLabel(input: HTMLElement): string {
   const root = input.closest('.select')
   return root?.querySelector('.select__single-value')?.textContent?.replace(/\s+/g, ' ').trim() || ''
+}
+
+// fillReactSelect types every school query and can leave the last one in the input
+// when the listbox click does not update the controlled value. The visible school
+// must be the catalog label (queries[0]), never the raw profile string.
+function ensureSchoolCatalogVisible(input: HTMLInputElement, catalogLabel: string) {
+  const preferred = catalogLabel.replace(/\s+/g, ' ').trim()
+  if (!preferred) return
+  const label = selectedComboboxLabel(input)
+  const typed = input.value.trim()
+  if (label && label !== preferred) return
+  if (label === preferred && typed && typed !== preferred) {
+    setReactInputValue(input, '')
+    return
+  }
+  if (!label && typed !== preferred) setReactInputValue(input, preferred)
 }
 
 // The education section renders one .education--form (key 0). The button inside
