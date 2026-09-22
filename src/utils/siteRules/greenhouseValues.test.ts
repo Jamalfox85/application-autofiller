@@ -4,6 +4,7 @@ import {
   countrySearchValues,
   degreeSearchValues,
   disciplineSearchValues,
+  educationSchoolReactFill,
   greenhouseEducationRowsToAdd,
   isAuthorizedToWork,
   isResidenceCountryField,
@@ -83,6 +84,33 @@ test('school search rewrites the smoke-seed UT Austin name to the Greenhouse cat
   const queries = schoolSearchValues('University of Texas at Austin')
   assert.equal(queries[0], 'University of Texas - Austin')
   assert.ok(queries.includes('University of Texas at Austin'))
+})
+
+test('education school fill opens the job-board menu and picks UT Austin past Select...', () => {
+  const fill = educationSchoolReactFill('The University of Texas at Austin')
+  assert.ok(fill)
+  assert.equal(fill.openMode, 'greenhouse')
+  assert.equal(fill.queries[0], 'University of Texas - Austin')
+  assert.equal(
+    fill.pick([
+      'Select...',
+      'Austin College',
+      'Stephen F. Austin State University',
+      'University of Texas - Austin',
+      'University of Texas - Dallas',
+    ]),
+    'University of Texas - Austin',
+  )
+  assert.equal(fill.pick(['Select...', 'Austin College', 'Stephen F. Austin State University']), null)
+
+  const shorthand = educationSchoolReactFill('UT Austin')
+  assert.equal(shorthand?.openMode, 'greenhouse')
+  assert.equal(
+    shorthand?.pick(['Select...', 'University of Texas - Austin']),
+    'University of Texas - Austin',
+  )
+  assert.equal(educationSchoolReactFill(''), null)
+  assert.equal(educationSchoolReactFill('   '), null)
 })
 
 test('school picker keeps UT Austin and rejects alphabetical neighbors such as Alverno', () => {

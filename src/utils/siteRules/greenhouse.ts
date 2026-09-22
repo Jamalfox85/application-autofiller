@@ -18,6 +18,7 @@ import {
   countrySearchValues,
   degreeSearchValues,
   disciplineSearchValues,
+  educationSchoolReactFill,
   greenhouseEducationRowsToAdd,
   isResidenceCountryField,
   isStateQuestion,
@@ -30,11 +31,9 @@ import {
   pickDegreeOption,
   pickDisciplineOption,
   pickMonthOption,
-  pickSchoolOption,
   pickSponsorshipOption,
   pickWorkAuthorizationOption,
   profileRequiresSponsorship,
-  schoolSearchValues,
   sponsorshipSearchValues,
   stateSearchValues,
   workAuthorizationSearchValues,
@@ -178,7 +177,7 @@ const fieldHandlers: Array<{
           plan.queries,
           `[id^=react-select-${live.id}-option-]`,
           (options) => plan.pick(options),
-          'greenhouse',
+          plan.openMode,
         )
       }),
   },
@@ -391,26 +390,34 @@ function enqueueEducationFill(task: () => Promise<void>): Promise<boolean> {
 }
 
 function educationSelectPlan(field: GreenhouseEducationField, education: EducationEntry) {
-  if (field.kind === 'school') {
-    const queries = schoolSearchValues(education.schoolName)
-    if (queries.length === 0) return null
-    return { queries, pick: (options: string[]) => pickSchoolOption(options, queries) }
-  }
+  if (field.kind === 'school') return educationSchoolReactFill(education.schoolName)
   if (field.kind === 'degree') {
     const queries = degreeSearchValues(education.degreeType)
     if (queries.length === 0) return null
-    return { queries, pick: (options: string[]) => pickDegreeOption(options, queries) }
+    return {
+      queries,
+      openMode: 'greenhouse' as const,
+      pick: (options: string[]) => pickDegreeOption(options, queries),
+    }
   }
   if (field.kind === 'discipline') {
     const queries = disciplineSearchValues(education.major)
     if (queries.length === 0) return null
-    return { queries, pick: (options: string[]) => pickDisciplineOption(options, queries) }
+    return {
+      queries,
+      openMode: 'greenhouse' as const,
+      pick: (options: string[]) => pickDisciplineOption(options, queries),
+    }
   }
   if (field.kind === 'start-month' || field.kind === 'end-month') {
     const source = field.kind === 'start-month' ? education.startYear : education.graduationYear
     const month = monthNameFromLooseDate(source)
     if (!month) return null
-    return { queries: [month], pick: (options: string[]) => pickMonthOption(options, month) }
+    return {
+      queries: [month],
+      openMode: 'greenhouse' as const,
+      pick: (options: string[]) => pickMonthOption(options, month),
+    }
   }
   return null
 }

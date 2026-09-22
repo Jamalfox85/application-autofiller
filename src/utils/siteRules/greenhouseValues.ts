@@ -139,8 +139,11 @@ export function disciplineSearchValues(major?: string): string[] {
 }
 
 // Resume text rarely matches Greenhouse's school catalog string. "University of Texas at Austin"
-// is stored as "University of Texas - Austin"; "MIT" is not a substring of the official name.
-// Queries are ordered so the catalog shape is tried before the raw profile string.
+// and "The University of Texas at Austin" are stored as "University of Texas - Austin";
+// the typeahead returns nothing for the raw profile string (the leading "The" and the word
+// "at"). "MIT" is not a substring of the official name. Queries are ordered so the catalog
+// shape is tried before the raw profile string. A leading "The" is dropped for the alias
+// lookup and added back as its own query so "The New School" still searches "New School".
 const SCHOOL_ALIASES: Record<string, string[]> = {
   mit: ['Massachusetts Institute of Technology'],
   ucla: ['University of California - Los Angeles'],
@@ -166,7 +169,11 @@ export function schoolSearchValues(schoolName?: string): string[] {
   const simplified = trimmed.replace(/[.]/g, '').replace(/\s+/g, ' ').trim()
   const expandedUniv = simplified.replace(/\buniv\b/i, 'University')
   const alias = SCHOOL_ALIASES[schoolAliasKey(trimmed)] || SCHOOL_ALIASES[schoolAliasKey(simplified)]
+  const withoutArticle = simplified.replace(/^the\s+/i, '').trim()
   const seeds = [...(alias || []), trimmed, simplified, expandedUniv]
+  if (withoutArticle && withoutArticle.toLowerCase() !== simplified.toLowerCase()) {
+    seeds.push(withoutArticle)
+  }
   const queries: string[] = []
   for (const seed of seeds) {
     queries.push(...campusRewrites(seed), seed)
@@ -177,7 +184,12 @@ export function schoolSearchValues(schoolName?: string): string[] {
 }
 
 function schoolAliasKey(value: string): string {
-  return value.toLowerCase().replace(/[.]/g, '').replace(/\s+/g, ' ').trim()
+  return value
+    .toLowerCase()
+    .replace(/[.]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^the\s+/, '')
 }
 
 function campusRewrites(value: string): string[] {
@@ -225,6 +237,24 @@ export function pickSchoolOption(optionTexts: string[], targets: string[]): stri
     if (!best || score > best.score) best = { text, score }
   }
   return best?.text ?? null
+}
+
+// school--N on Dropbox and Coinbase embeds is the same job-board react-select as
+// employment start-date-month and work authorization. The placeholder is "Select...",
+// and the flyout button swallows click, so the menu opens with the greenhouse
+// mouseup / ArrowDown path. The picker then chooses the catalog school.
+export function educationSchoolReactFill(schoolName?: string): {
+  queries: string[]
+  openMode: 'greenhouse'
+  pick: (optionTexts: string[]) => string | null
+} | null {
+  const queries = schoolSearchValues(schoolName)
+  if (queries.length === 0) return null
+  return {
+    queries,
+    openMode: 'greenhouse',
+    pick: (optionTexts) => pickSchoolOption(optionTexts, queries),
+  }
 }
 
 function scoreSchool(option: string, target: string): number {
