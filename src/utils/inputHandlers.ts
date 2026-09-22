@@ -66,10 +66,16 @@ export async function fillWorkdayInput(
   }
 }
 
+// Chooses one visible option label to click, or null to keep waiting / try the next query.
+// Greenhouse uses this so a dialing-code or location list isn't accepted on the first
+// substring hit (for example "San Francisco, Cebu, Philippines").
+export type ReactSelectOptionPicker = (optionTexts: string[]) => string | null
+
 export const fillReactSelect = async (
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   value: string | string[],
   selectId?: string,
+  pickOption?: ReactSelectOptionPicker,
 ): Promise<boolean> => {
   const values = (Array.isArray(value) ? value : [value]).map((entry) => entry.trim()).filter(Boolean)
   if (values.length === 0) return false
@@ -90,7 +96,7 @@ export const fillReactSelect = async (
       setReactInputValue(input, '')
       setReactInputValue(input, currentValue)
 
-      const found = await waitForOptionMatch(input, currentValue, selectId)
+      const found = await waitForOptionMatch(input, currentValue, selectId, pickOption)
       if (found) {
         await delay(200)
         return true
@@ -134,10 +140,15 @@ function commitReactOption(option: HTMLElement) {
   option.click()
 }
 
+function optionLabel(el: Element) {
+  return (el.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
 const waitForOptionMatch = (
   input: HTMLInputElement,
   searchValue: string,
   selectId?: string,
+  pickOption?: ReactSelectOptionPicker,
   maxRetries = 40,
   retryCount = 0,
   optionsSeenAt = -1,
@@ -146,14 +157,9 @@ const waitForOptionMatch = (
     const options = collectReactOptions(input, selectId).filter(
       (option) => !isPlaceholderOption(option.textContent || ''),
     )
-    const optionIndex =
-      options.length > 0
-        ? bestOptionIndex(
-            options.map((option) => option.textContent?.trim() || ''),
-            searchValue,
-          )
-        : -1
-    const match = optionIndex >= 0 ? options[optionIndex] : undefined
+    const match = pickOption
+      ? matchPickedOption(options, pickOption)
+      : matchBestOption(options, searchValue)
 
     if (match instanceof HTMLElement) {
       commitReactOption(match)
@@ -169,7 +175,15 @@ const waitForOptionMatch = (
     if (stillWaiting) {
       setTimeout(() => {
         resolve(
-          waitForOptionMatch(input, searchValue, selectId, maxRetries, retryCount + 1, seenAt),
+          waitForOptionMatch(
+            input,
+            searchValue,
+            selectId,
+            pickOption,
+            maxRetries,
+            retryCount + 1,
+            seenAt,
+          ),
         )
       }, 100)
       return
@@ -177,6 +191,22 @@ const waitForOptionMatch = (
 
     resolve(false)
   })
+}
+
+function matchBestOption(options: HTMLElement[], searchValue: string) {
+  if (options.length === 0) return undefined
+  const optionIndex = bestOptionIndex(
+    options.map((option) => option.textContent?.trim() || ''),
+    searchValue,
+  )
+  return optionIndex >= 0 ? options[optionIndex] : undefined
+}
+
+function matchPickedOption(options: HTMLElement[], pickOption: ReactSelectOptionPicker) {
+  if (options.length === 0) return undefined
+  const chosen = pickOption(options.map((option) => optionLabel(option)))
+  if (!chosen) return undefined
+  return options.find((option) => optionLabel(option) === chosen)
 }
 
 function isPlaceholderOption(text: string): boolean {
