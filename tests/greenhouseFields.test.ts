@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   dialingCodeSearchValues,
+  employmentFillPlan,
   isGreenhousePhoneDialingCodeField,
   locationSearchQueries,
+  parseGreenhouseEmploymentField,
   phoneDialingCodeTarget,
   pickDialingCodeOption,
   pickLocationOption,
@@ -143,5 +145,130 @@ describe('location option preference', () => {
       usProfile,
     )
     assert.equal(picked, 'San Francisco, CA, USA')
+  })
+})
+
+// Mirror seed in docs/SMOKE_DUAL_CONFIRM.md. experience[0] is current; [1] is past.
+const currentRole = {
+  companyName: 'Northwind Labs',
+  jobTitle: 'Software Engineer',
+  startDate: '2022-06',
+  present: true,
+  description: 'Shipped internal tools used by the support team.',
+  locationCity: 'Austin',
+  locationState: 'TX',
+}
+
+const pastRole = {
+  companyName: 'Contoso',
+  jobTitle: 'Support Engineer',
+  startDate: '2018-06',
+  endDate: '2022-05',
+  present: false,
+  description: 'Handled product questions and wrote help-center articles.',
+  locationCity: 'Austin',
+  locationState: 'TX',
+}
+
+describe('employment field ids', () => {
+  it('maps job-boards employment ids for the first and second rows', () => {
+    assert.deepEqual(parseGreenhouseEmploymentField('company-name-0'), { index: 0, kind: 'company' })
+    assert.deepEqual(parseGreenhouseEmploymentField('title-0'), { index: 0, kind: 'title' })
+    assert.deepEqual(parseGreenhouseEmploymentField('start-date-month-0'), {
+      index: 0,
+      kind: 'startMonth',
+    })
+    assert.deepEqual(parseGreenhouseEmploymentField('start-date-year-0'), {
+      index: 0,
+      kind: 'startYear',
+    })
+    assert.deepEqual(parseGreenhouseEmploymentField('end-date-month-0'), { index: 0, kind: 'endMonth' })
+    assert.deepEqual(parseGreenhouseEmploymentField('end-date-year-0'), { index: 0, kind: 'endYear' })
+    assert.deepEqual(parseGreenhouseEmploymentField('current-role-0_1'), {
+      index: 0,
+      kind: 'currentRole',
+    })
+
+    assert.deepEqual(parseGreenhouseEmploymentField('company-name-1'), { index: 1, kind: 'company' })
+    assert.deepEqual(parseGreenhouseEmploymentField('title-1'), { index: 1, kind: 'title' })
+    assert.deepEqual(parseGreenhouseEmploymentField('start-date-month-1'), {
+      index: 1,
+      kind: 'startMonth',
+    })
+    assert.deepEqual(parseGreenhouseEmploymentField('start-date-year-1'), {
+      index: 1,
+      kind: 'startYear',
+    })
+    assert.deepEqual(parseGreenhouseEmploymentField('end-date-month-1'), { index: 1, kind: 'endMonth' })
+    assert.deepEqual(parseGreenhouseEmploymentField('end-date-year-1'), { index: 1, kind: 'endYear' })
+    assert.deepEqual(parseGreenhouseEmploymentField('current-role-1_1'), {
+      index: 1,
+      kind: 'currentRole',
+    })
+  })
+
+  it('does not treat education ids or the current-role wrapper as employment', () => {
+    for (const id of [
+      'school--0',
+      'degree--0',
+      'discipline--0',
+      'start-month--0',
+      'start-year--0',
+      'end-month--0',
+      'end-year--0',
+      'school--1',
+      'start-month--1',
+      'candidate-location',
+      'country',
+      'current-role-0',
+      'company-name-0-label',
+      'question_36622861002',
+    ]) {
+      assert.equal(parseGreenhouseEmploymentField(id), null, id)
+    }
+    assert.equal(parseGreenhouseEmploymentField(null), null)
+    assert.equal(parseGreenhouseEmploymentField(''), null)
+  })
+})
+
+describe('employment fill plan', () => {
+  it('fills the current role and leaves end dates empty', () => {
+    assert.deepEqual(employmentFillPlan('company', currentRole), {
+      action: 'text',
+      value: 'Northwind Labs',
+    })
+    assert.deepEqual(employmentFillPlan('title', currentRole), {
+      action: 'text',
+      value: 'Software Engineer',
+    })
+    assert.deepEqual(employmentFillPlan('startMonth', currentRole), { action: 'month', value: 'June' })
+    assert.deepEqual(employmentFillPlan('startYear', currentRole), { action: 'text', value: '2022' })
+    assert.deepEqual(employmentFillPlan('endMonth', currentRole), { action: 'skip' })
+    assert.deepEqual(employmentFillPlan('endYear', currentRole), { action: 'skip' })
+    assert.deepEqual(employmentFillPlan('currentRole', currentRole), { action: 'check' })
+  })
+
+  it('fills the past role end month and year and does not check current role', () => {
+    assert.deepEqual(employmentFillPlan('company', pastRole), { action: 'text', value: 'Contoso' })
+    assert.deepEqual(employmentFillPlan('title', pastRole), {
+      action: 'text',
+      value: 'Support Engineer',
+    })
+    assert.deepEqual(employmentFillPlan('startMonth', pastRole), { action: 'month', value: 'June' })
+    assert.deepEqual(employmentFillPlan('startYear', pastRole), { action: 'text', value: '2018' })
+    assert.deepEqual(employmentFillPlan('endMonth', pastRole), { action: 'month', value: 'May' })
+    assert.deepEqual(employmentFillPlan('endYear', pastRole), { action: 'text', value: '2022' })
+    assert.deepEqual(employmentFillPlan('currentRole', pastRole), { action: 'skip' })
+  })
+
+  it('skips a blank company or a year-only start month', () => {
+    assert.deepEqual(employmentFillPlan('company', { companyName: '  ' }), { action: 'skip' })
+    assert.deepEqual(employmentFillPlan('startMonth', { startDate: '2016', present: false }), {
+      action: 'skip',
+    })
+    assert.deepEqual(employmentFillPlan('startYear', { startDate: '2016', present: false }), {
+      action: 'text',
+      value: '2016',
+    })
   })
 })
