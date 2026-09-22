@@ -17,7 +17,16 @@ import { siteRules } from '../utils/siteRules/index.ts'
 import { trackEvent } from '../services/mixpanelHttp'
 import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
+import { captureLandingAttribution } from '../services/installSource'
 import { atsFromHostname } from '../utils/ats.ts'
+
+function isTopFrame() {
+  try {
+    return window.top === window
+  } catch {
+    return false
+  }
+}
 
 // Initialize when page loads
 if (document.readyState === 'loading') {
@@ -28,6 +37,12 @@ if (document.readyState === 'loading') {
 
 let hasShownPopup = false
 async function initialize() {
+  // gofillr.com is not a job page, so this has to run before the early return below.
+  // Only the top frame: iframes would report the parent as the referrer.
+  if (isTopFrame()) {
+    void captureLandingAttribution(window.location.href, document.referrer)
+  }
+
   await maybeTrackConfirmationPage()
 
   // Check if this is a job application page

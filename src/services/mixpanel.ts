@@ -18,6 +18,7 @@ import {
   extensionSuperProperties,
   stripEmpty,
 } from './mixpanelConfig'
+import { getInstallSourceProperties } from './installSource'
 
 let readyPromise: Promise<void> | null = null
 
@@ -45,5 +46,11 @@ export function initMixpanel() {
 
 export async function trackEvent(eventName: string, properties?: Record<string, unknown>) {
   await ensureReady()
-  mixpanel.track(eventName, stripEmpty(properties))
+  const installProps = await getInstallSourceProperties()
+  if (Object.keys(installProps).length > 0) {
+    // Same super-property path as platform / app_version, so later popup events
+    // keep the install stamp without each call site threading it through.
+    mixpanel.register(installProps)
+  }
+  mixpanel.track(eventName, stripEmpty({ ...installProps, ...properties }))
 }

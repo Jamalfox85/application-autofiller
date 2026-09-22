@@ -1,4 +1,6 @@
 // src/services/posthog.ts
+import { getInstallSourceProperties } from './installSource'
+
 const POSTHOG_API_KEY = import.meta.env.VITE_POSTHOG_API_KEY as string
 const POSTHOG_API_HOST = import.meta.env.VITE_POSTHOG_API_HOST as string
 
@@ -7,10 +9,11 @@ export const captureEvent = async (
   properties?: Record<string, any>,
   options?: { keepalive?: boolean },
 ) => {
+  const installProps = await getInstallSourceProperties()
   const payload = {
     api_key: POSTHOG_API_KEY,
     event: eventName,
-    properties: properties || {},
+    properties: { ...installProps, ...(properties || {}) },
     distinct_id: 'extension-user', // Required
     timestamp: new Date().toISOString(),
   }
