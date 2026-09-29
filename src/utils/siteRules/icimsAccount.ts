@@ -139,23 +139,36 @@ const present = (value: string | undefined | null): string => {
   return value.trim() === '' ? '' : value
 }
 
-// Portal `icims` only. The legacy accountEmail / accountPassword pair is a Workday
-// leftover and is not an iCIMS login.
-export function getIcimsAccount(personalInfo: Partial<PersonalInfo> | null | undefined): {
-  email: string
-  password: string
-} {
+function resolveIcimsAccount(personalInfo: Partial<PersonalInfo> | null | undefined) {
   const icimsAccounts = (personalInfo?.applicationAccounts ?? []).filter(
     (account) => account.portal?.trim().toLowerCase() === ICIMS_ACCOUNT_PORTAL,
   )
   const complete = icimsAccounts.find(
     (account) => present(account.email) && present(account.password),
   )
-  const saved = complete ?? icimsAccounts[0]
+  return complete ?? icimsAccounts[0]
+}
+
+// Portal `icims` only. The legacy accountEmail / accountPassword pair is a Workday
+// leftover and is not an iCIMS login.
+export function getIcimsAccount(personalInfo: Partial<PersonalInfo> | null | undefined): {
+  email: string
+  password: string
+} {
+  const saved = resolveIcimsAccount(personalInfo)
   return {
     email: present(saved?.email).trim(),
     password: present(saved?.password),
   }
+}
+
+// The account editor labels this "Ask before entering this password". Workday account
+// creation never reads the flag and writes the password as soon as the field exists.
+// iCIMS gate fill follows that: a complete row still types the password.
+export function icimsAccountRequiresConfirmation(
+  personalInfo: Partial<PersonalInfo> | null | undefined,
+): boolean {
+  return resolveIcimsAccount(personalInfo)?.requireConfirmation === true
 }
 
 export function hasIcimsAccountCredentials(
