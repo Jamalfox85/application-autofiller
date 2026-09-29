@@ -46,15 +46,79 @@ export type IcimsPageSignals = {
   hostname: string
   pathname: string
   search?: string
+  /** Email-first apply gate ("Enter Your Information" + an email field). No password yet. */
+  hasEmailGate?: boolean
   hasPasswordField?: boolean
 }
 
-// URL login/create-account routes, or a password field on a candidate portal (the login
-// widget is sometimes injected onto the job page without a /login navigation).
+// Candidate host plus any of:
+// - `/jobs/{id}/…/login` (including when that document is the iframe, `?in_iframe=1`)
+// - the email-first gate ("Enter Your Information" / Email + Next), even with no password
+// - a password field
+// Application fields sit behind this gate, so they are not part of the check.
 export function isIcimsLoginSurface(page: IcimsPageSignals): boolean {
   if (!isIcimsCandidateHost(page.hostname)) return false
-  if (isIcimsLoginPath(page.pathname, page.search ?? '')) return true
-  return page.hasPasswordField === true
+  if (page.hasEmailGate === true || page.hasPasswordField === true) return true
+  return isIcimsLoginPath(page.pathname, page.search ?? '')
+}
+
+type GateElement = {
+  textContent?: string | null
+  getAttribute?: (name: string) => string | null
+}
+
+type GateDocument = {
+  querySelector?: (selector: string) => unknown
+  querySelectorAll?: (selector: string) => ArrayLike<GateElement>
+}
+
+const SKIP_INPUT_TYPES = new Set([
+  'hidden',
+  'password',
+  'checkbox',
+  'radio',
+  'submit',
+  'button',
+  'file',
+  'image',
+])
+
+// IC-1/2/3: after Apply, the first screen is "Enter Your Information" with Email + Next.
+// IC-2/IC-3 also show an EU/UK resident checkbox and hCaptcha. Those extras are not
+// required — the heading plus an email field is the gate, before any application fields.
+export function pageHasEmailGate(doc: GateDocument | null | undefined): boolean {
+  if (!doc?.querySelectorAll) return false
+  const nodes = doc.querySelectorAll('h1, h2, h3, h4, legend, [role="heading"]')
+  let heading = false
+  for (let i = 0; i < nodes.length; i++) {
+    const text = (nodes[i]?.textContent || '').replace(/\s+/g, ' ').trim()
+    if (text.length === 0 || text.length > 160) continue
+    if (/enter your information/i.test(text)) {
+      heading = true
+      break
+    }
+  }
+  if (!heading) return false
+
+  const inputs = doc.querySelectorAll('input')
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i]
+    if (!input?.getAttribute) continue
+    const type = (input.getAttribute('type') || 'text').toLowerCase()
+    if (SKIP_INPUT_TYPES.has(type)) continue
+    const hint = [
+      type,
+      input.getAttribute('name'),
+      input.getAttribute('id'),
+      input.getAttribute('placeholder'),
+      input.getAttribute('aria-label'),
+      input.getAttribute('autocomplete'),
+    ]
+      .join(' ')
+      .toLowerCase()
+    if (type === 'email' || hint.includes('email')) return true
+  }
+  return false
 }
 
 type PasswordQueryRoot = {

@@ -2,7 +2,9 @@ import type { PersonalInfo, SiteRule } from '../../types/index.ts'
 import {
   hasIcimsAccountCredentials,
   isIcimsCandidateHost,
+  isIcimsLoginPath,
   isIcimsLoginSurface,
+  pageHasEmailGate,
   pageHasPasswordField,
   type IcimsPageSignals,
 } from './icimsAccount.ts'
@@ -12,16 +14,23 @@ import {
 } from './icimsAccountNotice.ts'
 
 function readIcimsPage(): IcimsPageSignals {
-  return {
+  const page: IcimsPageSignals = {
     hostname: window.location.hostname,
     pathname: window.location.pathname,
     search: window.location.search,
     hasPasswordField: pageHasPasswordField(document),
   }
+  // `/login` already decides the in-document gate. Scan for "Enter Your Information"
+  // only when the path is not enough (the email gate mounted under another URL).
+  if (!isIcimsLoginPath(page.pathname, page.search ?? '') && !page.hasPasswordField) {
+    page.hasEmailGate = pageHasEmailGate(document)
+  }
+  return page
 }
 
-// Login/create-account surfaces only. Job search and the job description share the
-// career-portal host and must stay quiet.
+// Login/create-account and the email-first apply gate. Job search and the job
+// description share the career-portal host and must stay quiet. Application fields
+// are not reachable until the candidate continues past this gate.
 export async function maybeWarnMissingIcimsAccount(
   personalInfo: PersonalInfo | null | undefined,
   page: IcimsPageSignals,

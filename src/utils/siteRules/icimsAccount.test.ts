@@ -7,6 +7,7 @@ import {
   isIcimsCandidateHost,
   isIcimsLoginPath,
   isIcimsLoginSurface,
+  pageHasEmailGate,
 } from './icimsAccount.ts'
 import {
   ICIMS_ACCOUNT_MISSING_MESSAGE,
@@ -56,8 +57,30 @@ test('login paths match sign-in routes and skip job descriptions', () => {
   assert.equal(isIcimsLoginPath('/jobs/intro'), false)
 })
 
-test('login surface requires a candidate host plus a login route or password field', () => {
+test('login surface is the /login path or the email gate, before any application fields', () => {
   assert.equal(isIcimsLoginSurface(loginPage), true)
+  // After Apply the top window (and the embedded frame) is …/jobs/{id}/…/login.
+  // The first screen is email + Next, with no password and no application fields.
+  assert.equal(
+    isIcimsLoginSurface({
+      hostname: 'careers-acme.icims.com',
+      pathname: '/jobs/4821/warehouse-associate/login',
+      search: '?in_iframe=1',
+      hasPasswordField: false,
+      hasEmailGate: false,
+    }),
+    true,
+  )
+  assert.equal(
+    isIcimsLoginSurface({
+      hostname: 'careers-acme.icims.com',
+      pathname: '/jobs/4821/warehouse-associate/job',
+      search: '?in_iframe=1',
+      hasPasswordField: false,
+      hasEmailGate: true,
+    }),
+    true,
+  )
   assert.equal(
     isIcimsLoginSurface({
       hostname: 'careers-acme.icims.com',
@@ -71,6 +94,7 @@ test('login surface requires a candidate host plus a login route or password fie
       hostname: 'careers-acme.icims.com',
       pathname: '/jobs/123/role/job',
       hasPasswordField: false,
+      hasEmailGate: false,
     }),
     false,
   )
@@ -87,6 +111,45 @@ test('login surface requires a candidate host plus a login route or password fie
       pathname: '/login',
       hasPasswordField: true,
     }),
+    false,
+  )
+})
+
+const gateDocument = (headings: string[], inputs: Array<{ type?: string; name?: string; autocomplete?: string }>) => ({
+  querySelectorAll(selector: string) {
+    if (selector === 'input') {
+      return inputs.map((input) => ({
+        textContent: '',
+        getAttribute: (name: string) => {
+          if (name === 'type') return input.type ?? null
+          if (name === 'name') return input.name ?? null
+          if (name === 'autocomplete') return input.autocomplete ?? null
+          return null
+        },
+      }))
+    }
+    return headings.map((text) => ({ textContent: text, getAttribute: () => null }))
+  },
+})
+
+test('email-first gate matches Enter Your Information plus an email field', () => {
+  assert.equal(
+    pageHasEmailGate(
+      gateDocument(['Enter Your Information'], [{ type: 'email', name: 'email', autocomplete: 'email' }]),
+    ),
+    true,
+  )
+  // IC-1 has no EU/UK checkbox. IC-2/IC-3 add that checkbox and hCaptcha. Neither is required.
+  assert.equal(
+    pageHasEmailGate(gateDocument(['Enter Your Information'], [{ type: 'text', autocomplete: 'email' }])),
+    true,
+  )
+  assert.equal(
+    pageHasEmailGate(gateDocument(['Enter Your Information'], [{ type: 'checkbox', name: 'euResident' }])),
+    false,
+  )
+  assert.equal(
+    pageHasEmailGate(gateDocument(['Warehouse Associate'], [{ type: 'email', name: 'email' }])),
     false,
   )
 })
@@ -309,9 +372,48 @@ test('maybeWarn publishes only on a login surface with incomplete iCIMS credenti
     )
     assert.equal(messages.length, 0)
 
-    assert.equal(await maybeWarnMissingIcimsAccount(null, loginPage), true)
+    assert.equal(
+      await maybeWarnMissingIcimsAccount(null, {
+        hostname: 'careers-acme.icims.com',
+        pathname: '/jobs/4821/warehouse-associate/login',
+        search: '?in_iframe=1',
+        hasPasswordField: false,
+      }),
+      true,
+    )
+    assert.equal(await maybeWarnMissingIcimsAccount(null, loginPage), false)
     assert.equal(await maybeWarnMissingIcimsAccount(null, loginPage), false)
     assert.equal(messages.length, 1)
+    assert.equal((messages[0] as { action: string }).action, 'icimsAccountRequired')
+  } finally {
+    resetIcimsAccountNoticeState()
+  }
+})
+
+test('maybeWarn publishes for the email gate with no password and no application fields', async () => {
+  resetIcimsAccountNoticeState()
+  const messages: unknown[] = []
+  configureIcimsAccountNotice({
+    storage: {
+      get: async () => ({ personalInfo: {} }),
+      set: async () => undefined,
+    },
+    sendMessage: async (message) => {
+      messages.push(message)
+    },
+    showOnPage: () => undefined,
+  })
+  try {
+    assert.equal(
+      await maybeWarnMissingIcimsAccount(null, {
+        hostname: 'acme.icims.com',
+        pathname: '/jobs/4821/warehouse-associate/job',
+        search: '?in_iframe=1',
+        hasPasswordField: false,
+        hasEmailGate: true,
+      }),
+      true,
+    )
     assert.equal((messages[0] as { action: string }).action, 'icimsAccountRequired')
   } finally {
     resetIcimsAccountNoticeState()
