@@ -375,6 +375,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true })
   }
 
+  // Content script publishes a storage notice when a Workday page needs a candidate
+  // account and Application Accounts has no Workday login. Badge the toolbar so the
+  // gap is visible even while the popup is closed.
+  if (request.action === 'workdayAccountRequired') {
+    const notice = request.notice
+    if (notice && notice.portal === 'Workday' && typeof notice.message === 'string') {
+      updateBadge('!', '#b05454')
+    }
+    sendResponse({ ok: true })
+    return true
+  }
+
   if (request.action === 'uploadResume') {
     // Detached on purpose — the in-flight fetch keeps the worker alive; the popup watches
     // chrome.storage.local for the result rather than waiting on this response.

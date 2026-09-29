@@ -1,19 +1,25 @@
-import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
+import type { SiteRule, FieldMatch, FieldHandler, PersonalInfo } from '../../types/index.ts'
 import { fillWorkdayInput } from '../inputHandlers.ts'
-import { PersonalInfo } from '../../types/index.ts'
+import { getWorkdayAccount, hasWorkdayAccountCredentials, isWorkdayApplyHost } from './workdayAccount.ts'
+import {
+  publishMissingWorkdayAccountNotice,
+  readPersonalInfoForWorkday,
+} from './workdayAccountNotice.ts'
 
 var lastFormSignature = ''
 
 export default function workdayConfig(): SiteRule {
   return {
-    detect: () => window.location.hostname.includes('myworkday'),
+    detect: () => isWorkdayApplyHost(window.location.hostname),
     // In your onMount:
     onMount: (personalInfo) => {
       console.log('PING - Plugin initialized')
+      void announceMissingWorkdayAccount(personalInfo)
       let applyManuallyClicked = false
       let signInWithEmailClicked = false
       let createAccountClicked = false
       let accountInputHandled = false
+      let accountCredentialsMissing = false
       let formStarted = false
       let phoneTypeHandled = false
       let stateHandled = false
@@ -68,18 +74,26 @@ export default function workdayConfig(): SiteRule {
             }
           }
 
-          // Step 4: Fill in account information
-          if (!accountInputHandled) {
+          // Step 4: Fill in account information. Never write empty credentials or click
+          // the account submit control when the vault has no Workday login — tell the
+          // user instead, and keep walking the rest of the form.
+          if (!accountInputHandled && !accountCredentialsMissing) {
             const accountEmailInput = document.querySelector(
               '[data-automation-id="email"]',
             ) as HTMLInputElement
 
             if (accountEmailInput) {
-              accountInputHandled = true
-              console.log('✓ Account form loaded, filling account details')
-              await handleAccountInput(personalInfo)
-              await new Promise((resolve) => setTimeout(resolve, 2000))
-              return
+              const latest = await readPersonalInfoForWorkday(personalInfo)
+              if (!hasWorkdayAccountCredentials(latest)) {
+                accountCredentialsMissing = true
+                await publishMissingWorkdayAccountNotice()
+              } else {
+                accountInputHandled = true
+                console.log('✓ Account form loaded, filling account details')
+                await handleAccountInput(latest)
+                await new Promise((resolve) => setTimeout(resolve, 2000))
+                return
+              }
             }
           }
 
@@ -305,7 +319,32 @@ export default function workdayConfig(): SiteRule {
       })
 
       observer.observe(document.body, { childList: true, subtree: true })
-      return () => observer.disconnect()
+
+      // If the user adds a Workday login in the popup while this page is open, fill the
+      // account form on the next profile write instead of staying stuck on the notice.
+      const onStoredProfile = (
+        changes: { [key: string]: chrome.storage.StorageChange },
+        areaName: chrome.storage.AreaName,
+      ) => {
+        if (areaName !== 'local' || accountInputHandled || !changes.personalInfo) return
+        const next = changes.personalInfo.newValue as PersonalInfo | undefined
+        if (!hasWorkdayAccountCredentials(next)) return
+        if (!document.querySelector('[data-automation-id="email"]')) return
+        accountCredentialsMissing = false
+        accountInputHandled = true
+        void handleAccountInput(next)
+      }
+
+      let removeProfileListener = () => {}
+      if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+        chrome.storage.onChanged.addListener(onStoredProfile)
+        removeProfileListener = () => chrome.storage.onChanged.removeListener(onStoredProfile)
+      }
+
+      return () => {
+        observer.disconnect()
+        removeProfileListener()
+      }
     },
     apply: (input, fieldText, personalInfo) => {
       for (const { match, handle } of fieldHandlers) {
@@ -492,6 +531,23 @@ const fieldHandlers: Array<{
 
 // helpers
 
+// Top frame only. An embedded myworkday iframe would otherwise toast again; the frame that
+// actually renders the account form still notifies from the account-fill step.
+const announceMissingWorkdayAccount = async (personalInfo: PersonalInfo | null | undefined) => {
+  let topFrame = true
+  try {
+    topFrame = window.top === window
+  } catch {
+    topFrame = false
+  }
+  if (!topFrame) return
+
+  const latest = await readPersonalInfoForWorkday(personalInfo)
+  if (!hasWorkdayAccountCredentials(latest)) {
+    await publishMissingWorkdayAccountNotice()
+  }
+}
+
 const fillWorkdayDate = (section: Element, fieldAutomationId: string, value: string) => {
   // value expected as YYYY-MM or MM/YYYY
   let month: string, year: string
@@ -512,23 +568,15 @@ const fillWorkdayDate = (section: Element, fieldAutomationId: string, value: str
   if (yearInput) fillWorkdayInput(yearInput, year)
 }
 
-// Prefers the per-portal entry in applicationAccounts (added when accounts became one-per-portal
-// rather than a single global pair) and falls back to the legacy flat fields for profiles saved
-// before that migration.
-const getWorkdayAccount = (personalInfo: PersonalInfo) => {
-  const saved = personalInfo.applicationAccounts?.find(
-    (account) => account.portal.toLowerCase() === 'workday',
-  )
-  return {
-    email: saved?.email || personalInfo.accountEmail || '',
-    password: saved?.password || personalInfo.accountPassword || '',
-  }
-}
-
-const handleAccountInput = async (personalInfo: PersonalInfo) => {
+const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined) => {
   try {
     console.log('Starting account input fill...')
-    const workdayAccount = getWorkdayAccount(personalInfo)
+    const latest = await readPersonalInfoForWorkday(personalInfo)
+    if (!hasWorkdayAccountCredentials(latest)) {
+      await publishMissingWorkdayAccountNotice()
+      return
+    }
+    const workdayAccount = getWorkdayAccount(latest)
 
     // Wait longer for the form to fully render
     await new Promise((resolve) => setTimeout(resolve, 2000))

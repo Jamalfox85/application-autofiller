@@ -9,6 +9,7 @@ import SectionSheet from './SectionSheet.vue'
 const props = defineProps<{
   show: boolean
   personalInfo: PersonalInfo
+  attentionMessage?: string
 }>()
 
 const emit = defineEmits<{
@@ -99,6 +100,10 @@ const handleClose = () => {
         <span>Stored encrypted on this device. GoFillr fills the login form — it never submits it for you.</span>
       </div>
 
+      <div v-if="attentionMessage" class="aa-alert" role="status">
+        {{ attentionMessage }}
+      </div>
+
       <div v-if="accounts.length === 0" class="aa-empty">
         No accounts saved yet. Add one for each job portal you apply through.
       </div>
@@ -176,6 +181,17 @@ const handleClose = () => {
   font-size: 11px;
   color: #8f8f99;
   line-height: 1.5;
+}
+
+.aa-alert {
+  border: 1px solid #5c4a2a;
+  background: #231d14;
+  border-radius: 10px;
+  padding: 10px 11px;
+  font-size: 12px;
+  color: #f0d7a4;
+  line-height: 1.45;
+  flex-shrink: 0;
 }
 
 .aa-empty {
