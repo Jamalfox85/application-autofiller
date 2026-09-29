@@ -7,7 +7,10 @@ import {
   WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  workdayAccountAgreementCheckbox,
+  workdayCreateAccountLink,
   workdayJobApplyButton,
+  workdaySignInWithEmailButton,
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
@@ -93,11 +96,51 @@ test('account creation requires verify password and ignores a stray click filter
     <input data-automation-id="password" />
     <input data-automation-id="verifyPassword" />
     <div data-automation-id="click_filter" id="account-filter">
-      <button data-automation-id="createAccountSubmitButton" aria-hidden="true">Create Account</button>
+      <button data-automation-id="createAccountSubmitButton" id="create-submit" aria-hidden="true">Create Account</button>
     </div>
   `
   assert.equal(isWorkdayAccountCreationForm(doc), true)
+  assert.equal(workdayAccountSubmitControl(doc)?.id, 'create-submit')
+})
+
+test('Cisco create-account skips sign-in and the agreement checkbox and clicks the submit button', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button data-automation-id="click_filter" id="next">Next</button>
+    <input data-automation-id="email" />
+    <input data-automation-id="password" />
+    <input data-automation-id="verifyPassword" />
+    <button data-automation-id="createAccountSubmitButton" id="create-submit">Create Account</button>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(isWorkdayAccountCreationForm(doc), true)
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayCreateAccountLink(doc), null)
+  assert.equal(workdayAccountAgreementCheckbox(doc), null)
+  assert.equal(workdayAccountSubmitControl(doc)?.id, 'create-submit')
+})
+
+test('click_filter is the account submit fallback only inside the account card', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button data-automation-id="click_filter" id="next">Next</button>
+    <form id="account">
+      <input data-automation-id="email" />
+      <input data-automation-id="password" />
+      <input data-automation-id="verifyPassword" />
+      <div data-automation-id="click_filter" id="account-filter">Create Account</div>
+    </form>
+  </body>`)
+  const doc = dom.window.document
   assert.equal(workdayAccountSubmitControl(doc)?.id, 'account-filter')
+
+  doc.body.innerHTML = `
+    <div id="card">
+      <input data-automation-id="email" />
+      <input data-automation-id="password" />
+      <input data-automation-id="verifyPassword" />
+    </div>
+    <button data-automation-id="click_filter" id="next">Next</button>
+  `
+  assert.equal(workdayAccountSubmitControl(doc), null)
 })
 
 test('sign-in and create-account selectors match the current and older controls', () => {
@@ -107,8 +150,24 @@ test('sign-in and create-account selectors match the current and older controls'
   </body>`)
   const doc = dom.window.document
   assert.equal(doc.querySelector(WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR)?.id, 'old-sign-in')
+  assert.equal(workdaySignInWithEmailButton(doc)?.id, 'old-sign-in')
+  assert.equal(workdayCreateAccountLink(doc)?.id, 'create')
   doc.body.innerHTML = `<button data-automation-id="SignInWithEmailButton" id="new-sign-in"></button>`
   assert.equal(doc.querySelector(WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR)?.id, 'new-sign-in')
+  assert.equal(workdaySignInWithEmailButton(doc)?.id, 'new-sign-in')
+  doc.body.innerHTML = `
+    <button data-automation-id="SignInWithEmailButton" id="new-sign-in"></button>
+    <a data-automation-id="createAccountLink" id="create"></a>
+    <input data-automation-id="email" />
+    <input data-automation-id="password" />
+    <input data-automation-id="verifyPassword" />
+    <input data-automation-id="createAccountCheckbox" id="agree" type="checkbox" />
+  `
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayCreateAccountLink(doc), null)
+  assert.equal(workdayAccountAgreementCheckbox(doc)?.id, 'agree')
+  doc.body.innerHTML = `<div data-automation-id="createAccountCheckbox" id="not-input"></div>`
+  assert.equal(workdayAccountAgreementCheckbox(doc), null)
   doc.body.innerHTML = `<a data-automation-id="createAccountLink" id="create"></a>`
   assert.equal(doc.querySelector(WORKDAY_CREATE_ACCOUNT_SELECTOR)?.id, 'create')
 })

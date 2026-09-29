@@ -7,11 +7,12 @@ import {
   readPersonalInfoForWorkday,
 } from './workdayAccountNotice.ts'
 import {
-  WORKDAY_CREATE_ACCOUNT_SELECTOR,
-  WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  workdayAccountAgreementCheckbox,
+  workdayCreateAccountLink,
   workdayJobApplyButton,
+  workdaySignInWithEmailButton,
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
@@ -82,13 +83,10 @@ export default function workdayConfig(): SiteRule {
             }
           }
 
-          // Step 2: Click "Sign in with email" button. Current CX uses
-          // SignInWithEmailButton; older tenants used a lowercase automation id.
+          // Step 2: Sign in with email. Cisco skips this and opens Create Account
+          // directly. Absent means continue; do not wait on it.
           if (!signInWithEmailClicked) {
-            const signInWithEmailBtn = document.querySelector(
-              WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
-            ) as HTMLElement | null
-
+            const signInWithEmailBtn = workdaySignInWithEmailButton(document)
             if (signInWithEmailBtn) {
               signInWithEmailClicked = true
               console.log('✓ Found and clicking Sign in with email button')
@@ -96,14 +94,13 @@ export default function workdayConfig(): SiteRule {
               await new Promise((resolve) => setTimeout(resolve, 2000))
               return
             }
+            if (isWorkdayAccountCreationForm(document)) signInWithEmailClicked = true
           }
 
-          // Step 3: Click "Create Account". The control is a button today and was
-          // an anchor on older tenants, so match the automation id only.
+          // Step 3: Click "Create Account" only when that link is showing and the
+          // account form is not already open.
           if (!createAccountClicked) {
-            const createAccountBtn = document.querySelector(
-              WORKDAY_CREATE_ACCOUNT_SELECTOR,
-            ) as HTMLElement | null
+            const createAccountBtn = workdayCreateAccountLink(document)
 
             if (createAccountBtn) {
               createAccountClicked = true
@@ -553,9 +550,7 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
     const verifyPasswordInput = document.querySelector(
       '[data-automation-id="verifyPassword"]',
     ) as HTMLInputElement
-    const createAccountCheckbox = document.querySelector(
-      '[data-automation-id="createAccountCheckbox"]',
-    ) as HTMLInputElement
+    const createAccountCheckbox = workdayAccountAgreementCheckbox(document)
 
     console.log('Email input found:', !!emailInput)
     console.log('Password input found:', !!passwordInput)
@@ -574,7 +569,7 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
     verifyPasswordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
     await new Promise((resolve) => setTimeout(resolve, 300))
 
-    // Check the agreement checkbox
+    // Cisco has no agreement checkbox. Only click one when the tenant renders it.
     if (createAccountCheckbox && !createAccountCheckbox.checked) {
       createAccountCheckbox.click()
       console.log('✓ Checked account agreement')
@@ -584,8 +579,8 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
     // Wait for form to stabilize after all inputs are filled
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Only the Create Account control. A page-level click_filter is also used
-    // by Next and other buttons, and clicking that would advance the application.
+    // Prefer createAccountSubmitButton. click_filter is only the fallback when
+    // that button is absent, and only inside the account card — never job-application Submit.
     if (!isWorkdayAccountCreationForm(document)) return
     const submitControl = workdayAccountSubmitControl(document)
     if (submitControl && document.body.contains(submitControl)) {

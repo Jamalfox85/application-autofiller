@@ -6,6 +6,8 @@ Postings below were checked **2026-09-29 ET** (`isExternal` / `postingAvailable`
 
 These are external job URLs on `*.myworkdayjobs.com` (Cisco and Zillow on `wd5`, Salesforce on `wd12`). The apply chooser opens from **Apply** on that page, then **Apply Manually**. Host families `*.myworkday.com` and `*.myworkdaysite.com` are covered by unit tests.
 
+**Cisco inspection (2026-09-29, no account created, no application submitted).** Apply opens a modal (Autofill with Resume / Apply Manually / Use My Last Application). Apply Manually goes straight to Create Account: there is no Sign-in-with-email step. The form has `email`, `password`, and `verifyPassword`. `createAccountCheckbox` and `click_filter` are absent. The account control is `createAccountSubmitButton`. No captcha, SSO, or geo wall through that boundary. Salesforce and Zillow have not had this same browser pass. The extension skips a missing sign-in button, clicks the agreement checkbox only when it is present, and prefers `createAccountSubmitButton` over a card-local `click_filter`. It still does not click application Submit.
+
 ## Tenants
 
 1. **Cisco** — Software Engineering Technical Leader - Cisco IQ (`2019787`)
@@ -33,7 +35,7 @@ These are external job URLs on `*.myworkdayjobs.com` (Cisco and Zillow on `wd5`,
 ## Steps
 
 1. Open the job URL. The extension clicks the **Apply** button whose label is Apply, then **Apply Manually**. If those controls are not clicked, click them yourself. Do not click **Autofill with Resume**, **Use My Last Application**, or **Submit**. If auto-detect is on, let fill run; otherwise trigger fill once.
-2. **Account.** With no Workday login saved: the Application Accounts notice appears, email/password stay empty, and Create Account is not clicked. With a login saved: email, password, and verify password fill, and only the Create Account control is clicked — not a Next button that happens to use the same click target.
+2. **Account.** On Cisco, Apply Manually opens Create Account immediately (no Sign-in-with-email, no agreement checkbox, no `click_filter`). With no Workday login saved: the Application Accounts notice appears, email/password stay empty, and `createAccountSubmitButton` is not clicked. With a login saved: email, password, and verify password fill; an agreement checkbox is clicked only when the tenant renders one; the click target is `createAccountSubmitButton` when that button exists, otherwise a `click_filter` inside the account card. A page-level Next control is not the account submit. This click creates the candidate account. It is not application Submit.
 3. **My Information.** First and last name, address line 1, city, postal code, phone, and email match the profile. Address line 2 fills only when the profile has one. Middle name stays blank. Country and state show a **selected** option (a full state name when the profile has an abbreviation), not text typed into the closed button. Phone device type is Mobile or Cell, selected from the list.
 4. **Source / how did you hear.** Left blank. No "Indeed" or other option is chosen.
 5. **Resume.** The file input is still empty until you attach a file.

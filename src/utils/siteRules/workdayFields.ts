@@ -127,20 +127,65 @@ export function isWorkdayAccountCreationForm(root: ParentNode): boolean {
   )
 }
 
-// Create Account's visible target is often a click_filter wrapping
-// createAccountSubmitButton. Other Workday buttons use click_filter too
-// (including Next). Only the filter tied to this submit control is safe.
+// Cisco Apply Manually lands on Create Account with no SignInWithEmailButton.
+// Skip the sign-in click when that control is absent, and also once the account
+// form is already on the page so a later sign-in control cannot pull us off it.
+export function workdaySignInWithEmailButton(root: ParentNode): HTMLElement | null {
+  if (isWorkdayAccountCreationForm(root)) return null
+  return root.querySelector(WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR) as HTMLElement | null
+}
+
+export function workdayCreateAccountLink(root: ParentNode): HTMLElement | null {
+  if (isWorkdayAccountCreationForm(root)) return null
+  return root.querySelector(WORKDAY_CREATE_ACCOUNT_SELECTOR) as HTMLElement | null
+}
+
+// Cisco does not render createAccountCheckbox. Callers click it only when present.
+export function workdayAccountAgreementCheckbox(root: ParentNode): HTMLInputElement | null {
+  const box = root.querySelector('[data-automation-id="createAccountCheckbox"]')
+  if (!box || box.tagName !== 'INPUT') return null
+  return box as HTMLInputElement
+}
+
+function smallestAccountCard(password: Element): Element | null {
+  let node: Element | null = password.parentElement
+  while (node) {
+    if (node.querySelector('[data-automation-id="verifyPassword"]')) return node
+    node = node.parentElement
+  }
+  return null
+}
+
+function isPageNavigationLabel(el: Element): boolean {
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  return text === 'next' || text === 'continue' || text === 'back' || text === 'save and continue'
+}
+
+// Cisco's Create Account control is createAccountSubmitButton, with no click_filter.
+// Older widgets omit that id and put the handler on a click_filter inside the
+// account card. A page-level click_filter (Next) is not a fallback.
 export function workdayAccountSubmitControl(root: ParentNode): HTMLElement | null {
   const submit = root.querySelector('[data-automation-id="createAccountSubmitButton"]')
-  if (!submit) return null
-  const wrapping = submit.closest('[data-automation-id="click_filter"]')
-  if (wrapping) return wrapping as HTMLElement
-  const nested = submit.querySelector('[data-automation-id="click_filter"]')
-  if (nested) return nested as HTMLElement
-  const parent = submit.parentElement
-  const sibling = parent?.querySelector(':scope > [data-automation-id="click_filter"]')
-  if (sibling) return sibling as HTMLElement
-  return submit as HTMLElement
+  if (submit) return submit as HTMLElement
+  if (!isWorkdayAccountCreationForm(root)) return null
+  const password = root.querySelector('[data-automation-id="password"]')
+  if (!password) return null
+  const card = smallestAccountCard(password)
+  if (!card) return null
+  const filters: HTMLElement[] = []
+  if (card.getAttribute('data-automation-id') === 'click_filter') filters.push(card as HTMLElement)
+  for (const el of Array.from(card.querySelectorAll('[data-automation-id="click_filter"]'))) {
+    filters.push(el as HTMLElement)
+  }
+  const local = filters.filter((el) => !isPageNavigationLabel(el))
+  const labeled = local.find((el) => /create account|sign up/i.test(el.textContent || ''))
+  if (labeled) return labeled
+  const doc = card.ownerDocument
+  const pageRoot = card === doc?.body || card === doc?.documentElement
+  if (pageRoot) {
+    return local.find((el) => el.contains(password)) || null
+  }
+  return local[0] || null
 }
 
 export function workdaySectionKindFromLabel(label: string): WorkdaySectionKind | null {
