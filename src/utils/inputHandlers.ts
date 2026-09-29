@@ -53,18 +53,12 @@ export async function fillWorkdayInput(
   value: string,
 ) {
   try {
-    // Focus the input
     input.focus()
-
-    // Directly set the value
-    input.value = value
-
-    // Dispatch events to notify React/listeners
-    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+    // Workday apply fields are React controlled inputs. A plain value write
+    // never reaches the component unless the value tracker is reset first.
+    setReactInputValue(input, value)
     input.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
     input.dispatchEvent(new Event('blur', { bubbles: true, composed: true }))
-
-    console.log(`Filled input with value: ${value}`)
   } catch (error) {
     console.error('Error filling input:', error)
   }

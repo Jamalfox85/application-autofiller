@@ -27,8 +27,13 @@ const account = (overrides: Partial<ApplicationAccount> = {}): ApplicationAccoun
 
 test('Workday apply hosts match career sites and skip the corporate site', () => {
   assert.equal(isWorkdayApplyHost('company.wd5.myworkdayjobs.com'), true)
+  assert.equal(isWorkdayApplyHost('Company.WD5.MyWorkdayJobs.com'), true)
+  assert.equal(isWorkdayApplyHost('cisco.wd5.myworkdayjobs.com'), true)
+  assert.equal(isWorkdayApplyHost('salesforce.wd12.myworkdayjobs.com'), true)
+  assert.equal(isWorkdayApplyHost('zillow.wd5.myworkdayjobs.com'), true)
   assert.equal(isWorkdayApplyHost('acme.wd1.myworkday.com'), true)
   assert.equal(isWorkdayApplyHost('acme.wd3.myworkdaysite.com'), true)
+  assert.equal(isWorkdayApplyHost('tenant.wd12.myworkdaysite.com'), true)
   // jobSitePatterns / ats.ts list workday.com for telemetry. It is not an apply host.
   assert.equal(isWorkdayApplyHost('www.workday.com'), false)
   assert.equal(isWorkdayApplyHost('jobs.lever.co'), false)
