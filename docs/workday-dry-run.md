@@ -2,18 +2,18 @@
 
 Engineering checklist for the three live-tenant prove-outs. This is not a success-rate report. A pass is what a person sees on the form before Submit.
 
-Postings below were open on **2026-09-29** (`canApply: true` on Workday's public CXS job endpoint). Re-open each URL before the run. If the posting is closed, or the only path is SSO with no "Sign in with email" / "Create Account", stop and pick another external posting. Do not use a password-manager or company SSO.
+Postings below were checked **2026-09-29 ET** (`isExternal` / `postingAvailable` true). Re-open each URL before the run. If the posting is closed, or the only path is SSO with no "Sign in with email" / "Create Account", stop and pick another external posting. Do not use a password-manager or company SSO.
 
-Host families `*.myworkday.com` and `*.myworkdaysite.com` are covered by unit tests. The public apply flows found for this pass are on `*.myworkdayjobs.com`.
+These are external job URLs on `*.myworkdayjobs.com` (Cisco and Zillow on `wd5`, Salesforce on `wd12`). The apply chooser opens from **Apply** on that page, then **Apply Manually**. Host families `*.myworkday.com` and `*.myworkdaysite.com` are covered by unit tests.
 
 ## Tenants
 
-1. **NVIDIA** — NVIDIA 2027 Internships: Software Engineering (`JR2023495`)
-   - https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/NVIDIA-2027-Internships--Software-Engineering_JR2023495/apply
-2. **Adobe** — 2027 University Graduate - Software Engineer (`R172083`, San Jose, posting end 2026-12-31)
-   - https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced/job/San-Jose/XMLNAME-2027-University-Graduate---Software-Engineer_R172083/apply
-3. **Vanguard** — Entry Level Application Engineer - 2027 Start Date (`180412`, Charlotte, NC, posting end 2026-12-31)
-   - https://vanguard.wd5.myworkdayjobs.com/en-US/vanguard_external/job/Charlotte-NC/Entry-Level-Application-Engineer----2027-Start-Date_180412/apply
+1. **Cisco** — Software Engineering Technical Leader - Cisco IQ (`2019787`)
+   - https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Software-Engineering-Technical-Leader---Cisco-IQ_2019787
+2. **Salesforce** — Lead Software Engineer - Enterprise Agents (`JR355645`, California - San Francisco)
+   - https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/California---San-Francisco/Lead-Software-Engineer---Enterprise-Agents_JR355645
+3. **Zillow** — Senior Software Engineer (`P751275-1`)
+   - https://zillow.wd5.myworkdayjobs.com/en-US/Zillow_Group_External/job/Senior-Software-Engineer_P751275-1
 
 ## Do not
 
@@ -32,7 +32,7 @@ Host families `*.myworkday.com` and `*.myworkdaysite.com` are covered by unit te
 
 ## Steps
 
-1. Open the apply URL. If the extension is set to auto-detect, let it run. Otherwise trigger fill once.
+1. Open the job URL. The extension clicks the **Apply** button whose label is Apply, then **Apply Manually**. If those controls are not clicked, click them yourself. Do not click **Autofill with Resume**, **Use My Last Application**, or **Submit**. If auto-detect is on, let fill run; otherwise trigger fill once.
 2. **Account.** With no Workday login saved: the Application Accounts notice appears, email/password stay empty, and Create Account is not clicked. With a login saved: email, password, and verify password fill, and only the Create Account control is clicked — not a Next button that happens to use the same click target.
 3. **My Information.** First and last name, address line 1, city, postal code, phone, and email match the profile. Address line 2 fills only when the profile has one. Middle name stays blank. Country and state show a **selected** option (a full state name when the profile has an abbreviation), not text typed into the closed button. Phone device type is Mobile or Cell, selected from the list.
 4. **Source / how did you hear.** Left blank. No "Indeed" or other option is chosen.

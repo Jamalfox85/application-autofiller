@@ -11,6 +11,10 @@ import { RELATIVE_MATCHES } from '../relativeMatches.ts'
 export const WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR =
   '[data-automation-id="SignInWithEmailButton"], [data-automation-id="signInWithEmailButton"]'
 
+// Job postings use adventureButton for the Apply control that opens the method
+// chooser. Other adventure buttons (search, banners) share that id, so the
+// visible label has to be Apply. This is not Submit.
+
 export const WORKDAY_CREATE_ACCOUNT_SELECTOR = '[data-automation-id="createAccountLink"]'
 
 export const WORKDAY_APPLY_FLOW_PAGE = 'applyFlowPage'
@@ -105,6 +109,16 @@ export function workdayIsCustomSourceField(input: WorkdayFieldProbe): boolean {
 
 // Account creation renders email + password + verifyPassword together.
 // My Information's email control is emailAddress and must not count.
+export function workdayJobApplyButton(root: ParentNode): HTMLElement | null {
+  if (root.querySelector('[data-automation-id="applyManually"]')) return null
+  const buttons = root.querySelectorAll('[data-automation-id="adventureButton"]')
+  for (const button of Array.from(buttons)) {
+    const text = (button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    if (text === 'apply') return button as HTMLElement
+  }
+  return null
+}
+
 export function isWorkdayAccountCreationForm(root: ParentNode): boolean {
   return !!(
     root.querySelector('[data-automation-id="email"]') &&

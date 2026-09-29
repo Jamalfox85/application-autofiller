@@ -7,6 +7,7 @@ import {
   WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  workdayJobApplyButton,
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
@@ -60,6 +61,21 @@ test('custom source fields are recognized and left for the user', () => {
     true,
   )
   assert.equal(workdayIsCustomSourceField(probe({ id: 'name--legalName--firstName' })), false)
+})
+
+test('job-page Apply is the adventure button labeled Apply, not search or Apply Manually', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button data-automation-id="adventureButton" id="search">Search</button>
+    <a data-automation-id="adventureButton" id="apply">Apply</a>
+    <button data-automation-id="adventureButton" id="submit">Submit</button>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(workdayJobApplyButton(doc)?.id, 'apply')
+  doc.body.insertAdjacentHTML(
+    'beforeend',
+    '<a data-automation-id="applyManually" id="manual">Apply Manually</a>',
+  )
+  assert.equal(workdayJobApplyButton(doc), null)
 })
 
 test('account creation requires verify password and ignores a stray click filter', () => {

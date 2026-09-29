@@ -11,6 +11,7 @@ import {
   WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  workdayJobApplyButton,
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
@@ -35,6 +36,7 @@ export default function workdayConfig(): SiteRule {
     onMount: (personalInfo) => {
       console.log('PING - Plugin initialized')
       void announceMissingWorkdayAccount(personalInfo)
+      let jobApplyClicked = false
       let applyManuallyClicked = false
       let signInWithEmailClicked = false
       let createAccountClicked = false
@@ -51,7 +53,21 @@ export default function workdayConfig(): SiteRule {
 
       const observer = new MutationObserver(async () => {
         try {
-          // Step 1: Click "Apply Manually" link
+          // Step 1a: Job postings (Cisco, Salesforce, Zillow, and the same external
+          // careers page) show Apply before the method chooser. Clicking it opens
+          // Apply Manually. It is not Submit.
+          if (!jobApplyClicked && !applyManuallyClicked) {
+            const jobApply = workdayJobApplyButton(document)
+            if (jobApply) {
+              jobApplyClicked = true
+              console.log('✓ Found and clicking Apply')
+              jobApply.click()
+              await new Promise((resolve) => setTimeout(resolve, 1500))
+              return
+            }
+          }
+
+          // Step 1b: Click "Apply Manually"
           if (!applyManuallyClicked) {
             const applyManuallyLink = document.querySelector(
               '[data-automation-id="applyManually"]',
