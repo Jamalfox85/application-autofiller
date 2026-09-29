@@ -15,6 +15,7 @@ const emit = defineEmits<{
   delete: [id: number]
 }>()
 
+// Saved as the portal label. icimsAccount.ts matches "iCIMS" case-insensitively as `icims`.
 const PORTAL_OPTIONS = ['Workday', 'Greenhouse', 'iCIMS', 'Taleo', 'Other']
 
 const portal = ref(PORTAL_OPTIONS[0])
