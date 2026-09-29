@@ -4,11 +4,14 @@ import { JSDOM } from 'jsdom'
 import type { PersonalInfo } from '../../types/index.ts'
 import {
   WORKDAY_CREATE_ACCOUNT_SELECTOR,
+  WORKDAY_SIGN_IN_LINK_SELECTOR,
   WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
   workdayAccountAgreementCheckbox,
+  workdayAccountInputs,
   workdayCreateAccountLink,
+  workdayFieldControl,
   workdayJobApplyButton,
   workdaySignInWithEmailButton,
   listWorkdayPanels,
@@ -141,6 +144,133 @@ test('click_filter is the account submit fallback only inside the account card',
     <button data-automation-id="click_filter" id="next">Next</button>
   `
   assert.equal(workdayAccountSubmitControl(doc), null)
+})
+
+test('Zillow create-account uses bare inputs, the checkbox, and a click_filter submit', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <a data-automation-id="signInLink" id="sign-in">Sign In</a>
+    <button data-automation-id="utilityButtonSignIn" id="utility-sign-in">Sign In</button>
+    <button data-automation-id="click_filter" id="next">Next</button>
+    <form id="account">
+      <input data-automation-id="email" id="email-input" />
+      <input data-automation-id="password" id="password-input" type="password" />
+      <input data-automation-id="verifyPassword" id="verify-input" type="password" />
+      <input data-automation-id="createAccountCheckbox" id="agree" type="checkbox" />
+      <button data-automation-id="click_filter" id="account-filter">Create Account</button>
+    </form>
+  </body>`)
+  const doc = dom.window.document
+  const fields = workdayAccountInputs(doc)
+  assert.equal(isWorkdayAccountCreationForm(doc), true)
+  assert.equal(fields.email?.id, 'email-input')
+  assert.equal(fields.password?.id, 'password-input')
+  assert.equal(fields.verifyPassword?.id, 'verify-input')
+  assert.equal(doc.querySelector('[data-automation-id="createAccountSubmitButton"]'), null)
+  assert.equal(workdayAccountAgreementCheckbox(doc)?.id, 'agree')
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayAccountSubmitControl(doc)?.id, 'account-filter')
+})
+
+test('Salesforce formField wrappers are the account form and the fill targets', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <a data-automation-id="signInLink" id="sign-in">Sign In</a>
+    <button data-automation-id="click_filter" id="next">Next</button>
+    <div data-automation-id="formField-emailAddress"><input id="info-email" /></div>
+    <div data-automation-id="formField-email"><input id="email-input" /></div>
+    <input data-automation-id="email" id="bare-email" />
+    <div data-automation-id="formField-password"><input id="password-input" type="password" /></div>
+    <div data-automation-id="formField-verifyPassword"><input id="verify-input" type="password" /></div>
+    <input data-automation-id="createAccountCheckbox" id="agree" type="checkbox" />
+    <button data-automation-id="createAccountSubmitButton" id="create-submit">Create Account</button>
+  </body>`)
+  const doc = dom.window.document
+  const fields = workdayAccountInputs(doc)
+  assert.equal(isWorkdayAccountCreationForm(doc), true)
+  assert.equal(fields.email?.id, 'email-input')
+  assert.equal(fields.password?.id, 'password-input')
+  assert.equal(fields.verifyPassword?.id, 'verify-input')
+  assert.equal(workdayFieldControl(doc, 'emailAddress')?.id, 'info-email')
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayCreateAccountLink(doc), null)
+  assert.equal(workdayAccountAgreementCheckbox(doc)?.id, 'agree')
+  assert.equal(workdayAccountSubmitControl(doc)?.id, 'create-submit')
+})
+
+test('a later formField wrapper wins over an empty one', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-email"></div>
+    <div data-automation-id="formField-email"><input id="real-email" /></div>
+    <input data-automation-id="email" id="bare-email" />
+    <div data-automation-id="formField-password"><input id="password-input" /></div>
+    <div data-automation-id="formField-verifyPassword"><input id="verify-input" /></div>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(workdayAccountInputs(doc).email?.id, 'real-email')
+  assert.equal(isWorkdayAccountCreationForm(doc), true)
+})
+
+test('empty formField wrappers fall back to bare account inputs', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-email"></div>
+    <div data-automation-id="formField-password"></div>
+    <div data-automation-id="formField-verifyPassword"></div>
+    <input data-automation-id="email" id="bare-email" />
+    <input data-automation-id="password" id="bare-password" />
+    <input data-automation-id="verifyPassword" id="bare-verify" />
+  </body>`)
+  const doc = dom.window.document
+  const fields = workdayAccountInputs(doc)
+  assert.equal(isWorkdayAccountCreationForm(doc), true)
+  assert.equal(fields.email?.id, 'bare-email')
+  assert.equal(fields.password?.id, 'bare-password')
+  assert.equal(fields.verifyPassword?.id, 'bare-verify')
+})
+
+test('formField account wrappers without inputs are not the create-account form', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-email"></div>
+    <div data-automation-id="formField-password"></div>
+    <div data-automation-id="formField-verifyPassword"></div>
+    <div data-automation-id="formField-emailAddress"><input id="info-email" /></div>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(isWorkdayAccountCreationForm(doc), false)
+  assert.equal(workdayAccountInputs(doc).email, null)
+  assert.equal(workdayAccountSubmitControl(doc), null)
+})
+
+test('Salesforce click_filter fallback stays inside the formField account card', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button data-automation-id="click_filter" id="next">Next</button>
+    <div id="card">
+      <div data-automation-id="formField-email"><input id="email-input" /></div>
+      <div data-automation-id="formField-password"><input id="password-input" type="password" /></div>
+      <div data-automation-id="formField-verifyPassword"><input id="verify-input" type="password" /></div>
+      <div data-automation-id="click_filter" id="account-filter">Create Account</div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(isWorkdayAccountCreationForm(doc), true)
+  assert.equal(workdayAccountSubmitControl(doc)?.id, 'account-filter')
+})
+
+test('signInLink is a sign-in control only off the create-account form', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <a data-automation-id="signInLink" id="sign-in">Sign In</a>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(doc.querySelector(WORKDAY_SIGN_IN_LINK_SELECTOR)?.id, 'sign-in')
+  assert.equal(isWorkdayAccountCreationForm(doc), false)
+  assert.equal(workdaySignInWithEmailButton(doc)?.id, 'sign-in')
+
+  doc.body.insertAdjacentHTML(
+    'beforeend',
+    `<div data-automation-id="formField-email"><input id="email-input" /></div>
+     <div data-automation-id="formField-password"><input id="password-input" /></div>
+     <div data-automation-id="formField-verifyPassword"><input id="verify-input" /></div>`,
+  )
+  assert.equal(isWorkdayAccountCreationForm(doc), true)
+  assert.equal(workdaySignInWithEmailButton(doc), null)
 })
 
 test('sign-in and create-account selectors match the current and older controls', () => {

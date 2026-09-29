@@ -16,6 +16,7 @@ import {
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
+  workdayAccountInputs,
   workdayAccountSubmitControl,
   workdayContactKeyFromElement,
   workdayDatePartInput,
@@ -542,14 +543,12 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
     // Wait longer for the form to fully render
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Get the form inputs
-    const emailInput = document.querySelector('[data-automation-id="email"]') as HTMLInputElement
-    const passwordInput = document.querySelector(
-      '[data-automation-id="password"]',
-    ) as HTMLInputElement
-    const verifyPasswordInput = document.querySelector(
-      '[data-automation-id="verifyPassword"]',
-    ) as HTMLInputElement
+    // Salesforce nests these under formField-*; Cisco puts the automation id on the input.
+    const {
+      email: emailInput,
+      password: passwordInput,
+      verifyPassword: verifyPasswordInput,
+    } = workdayAccountInputs(document)
     const createAccountCheckbox = workdayAccountAgreementCheckbox(document)
 
     console.log('Email input found:', !!emailInput)
