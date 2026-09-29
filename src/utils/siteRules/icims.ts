@@ -12,18 +12,28 @@ import {
   publishMissingIcimsAccountNotice,
   readPersonalInfoForIcims,
 } from './icimsAccountNotice.ts'
+import {
+  applyIcimsPlan,
+  consumeIcimsHcaptchaStop,
+  controlFromElement,
+  fillIcimsLoginGate,
+  icimsFormSignature,
+  planIcimsFill,
+} from './icimsFields.ts'
 
 function readIcimsPage(): IcimsPageSignals {
+  const location = typeof window === 'undefined' ? undefined : window.location
+  const root = typeof document === 'undefined' ? undefined : document
   const page: IcimsPageSignals = {
-    hostname: window.location.hostname,
-    pathname: window.location.pathname,
-    search: window.location.search,
-    hasPasswordField: pageHasPasswordField(document),
+    hostname: location?.hostname || '',
+    pathname: location?.pathname || '',
+    search: location?.search || '',
+    hasPasswordField: pageHasPasswordField(root),
   }
   // `/login` already decides the in-document gate. Scan for "Enter Your Information"
   // only when the path is not enough (the email gate mounted under another URL).
   if (!isIcimsLoginPath(page.pathname, page.search ?? '') && !page.hasPasswordField) {
-    page.hasEmailGate = pageHasEmailGate(document)
+    page.hasEmailGate = pageHasEmailGate(root)
   }
   return page
 }
@@ -41,19 +51,55 @@ export async function maybeWarnMissingIcimsAccount(
   return publishMissingIcimsAccountNotice()
 }
 
-function watchForIcimsLoginSurface(personalInfo: PersonalInfo | null | undefined) {
+let lastFormSignature = ''
+
+function syncIcimsLogin(personalInfo: PersonalInfo | null | undefined) {
+  const page = readIcimsPage()
+  if (!isIcimsCandidateHost(page.hostname) || !isIcimsLoginSurface(page)) return
+  void (async () => {
+    const latest = await readPersonalInfoForIcims(personalInfo)
+    if (!hasIcimsAccountCredentials(latest)) {
+      await maybeWarnMissingIcimsAccount(latest, page)
+      return
+    }
+    // Email and password only. hCaptcha, the EU/UK checkbox, and every advance
+    // button stay untouched so a person can finish the gate and never auto-submit.
+    fillIcimsLoginGate(document, latest, page)
+    consumeIcimsHcaptchaStop(document)
+  })()
+}
+
+function watchIcimsLogin(personalInfo: PersonalInfo | null | undefined) {
   if (typeof MutationObserver === 'undefined') return
   const root = document.documentElement ?? document.body
   if (!root) return
 
-  const observer = new MutationObserver(() => {
-    const page = readIcimsPage()
-    if (!isIcimsLoginSurface(page)) return
-    observer.disconnect()
-    void maybeWarnMissingIcimsAccount(personalInfo, page)
-  })
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const schedule = () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => syncIcimsLogin(personalInfo), 200)
+  }
+  const observer = new MutationObserver(() => schedule())
   observer.observe(root, { childList: true, subtree: true })
-  return () => observer.disconnect()
+
+  const onStoredProfile = (
+    changes: { [key: string]: chrome.storage.StorageChange },
+    areaName: string,
+  ) => {
+    if (areaName !== 'local' || !changes.personalInfo) return
+    syncIcimsLogin(changes.personalInfo.newValue as PersonalInfo | undefined)
+  }
+  let removeProfileListener = () => {}
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener(onStoredProfile)
+    removeProfileListener = () => chrome.storage.onChanged.removeListener(onStoredProfile)
+  }
+
+  return () => {
+    if (timer) clearTimeout(timer)
+    observer.disconnect()
+    removeProfileListener()
+  }
 }
 
 export default function icimsConfig(): SiteRule {
@@ -62,23 +108,30 @@ export default function icimsConfig(): SiteRule {
     onMount: (personalInfo) => {
       const page = readIcimsPage()
       if (!isIcimsCandidateHost(page.hostname)) return
-      if (isIcimsLoginSurface(page)) {
-        void maybeWarnMissingIcimsAccount(personalInfo, page)
-        return
-      }
-      // The login form is sometimes injected after the job page loads, without a
-      // navigation the content script would see as a new document.
-      return watchForIcimsLoginSurface(personalInfo)
+      // Job search and the job description share the career-portal host. The gate
+      // watcher stays quiet there, and fills email/password once /login or the
+      // email-first step is on screen. A missing login still warns.
+      syncIcimsLogin(personalInfo)
+      return watchIcimsLogin(personalInfo)
     },
     apply: (input, fieldText, personalInfo) => {
-      if (input.getAttribute('autocomplete') == 'email') {
-        input.value = personalInfo.email || ''
-        return true
-      } else if (fieldText.includes('AddressStreet2')) {
-        // disable inputting
-        return true
+      const page = readIcimsPage()
+      const plan = planIcimsFill(controlFromElement(input, fieldText), personalInfo, {
+        loginSurface: isIcimsCandidateHost(page.hostname) && isIcimsLoginSurface(page),
+      })
+      return applyIcimsPlan(input, plan)
+    },
+    formChanged: () => {
+      if (typeof document === 'undefined') return false
+      const next = icimsFormSignature(document)
+      if (!next) return false
+      if (!lastFormSignature) {
+        lastFormSignature = next
+        return false
       }
-      return false
+      if (next === lastFormSignature) return false
+      lastFormSignature = next
+      return true
     },
   }
 }
