@@ -11,6 +11,10 @@ import { RELATIVE_MATCHES } from '../relativeMatches.ts'
 export const WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR =
   '[data-automation-id="SignInWithEmailButton"], [data-automation-id="signInWithEmailButton"]'
 
+// Salesforce's chooser uses signInLink instead of SignInWithEmailButton.
+// It is a sign-in control only when the Create Account form is not already open.
+export const WORKDAY_SIGN_IN_LINK_SELECTOR = '[data-automation-id="signInLink"]'
+
 // Job postings use adventureButton for the Apply control that opens the method
 // chooser. Other adventure buttons (search, banners) share that id, so the
 // visible label has to be Apply. This is not Submit.
@@ -107,8 +111,6 @@ export function workdayIsCustomSourceField(input: WorkdayFieldProbe): boolean {
   })
 }
 
-// Account creation renders email + password + verifyPassword together.
-// My Information's email control is emailAddress and must not count.
 export function workdayJobApplyButton(root: ParentNode): HTMLElement | null {
   if (root.querySelector('[data-automation-id="applyManually"]')) return null
   const buttons = root.querySelectorAll('[data-automation-id="adventureButton"]')
@@ -119,20 +121,24 @@ export function workdayJobApplyButton(root: ParentNode): HTMLElement | null {
   return null
 }
 
+// Account creation renders email + password + verifyPassword together.
+// Cisco puts those automation ids on the inputs. Salesforce puts formField-*
+// wrappers around the inputs and may omit the bare ids. My Information's
+// email control is emailAddress and must not count.
 export function isWorkdayAccountCreationForm(root: ParentNode): boolean {
-  return !!(
-    root.querySelector('[data-automation-id="email"]') &&
-    root.querySelector('[data-automation-id="password"]') &&
-    root.querySelector('[data-automation-id="verifyPassword"]')
-  )
+  const fields = workdayAccountInputs(root)
+  return !!(fields.email && fields.password && fields.verifyPassword)
 }
 
 // Cisco Apply Manually lands on Create Account with no SignInWithEmailButton.
 // Skip the sign-in click when that control is absent, and also once the account
-// form is already on the page so a later sign-in control cannot pull us off it.
+// form is already on the page so a later sign-in control (including signInLink)
+// cannot pull us off it.
 export function workdaySignInWithEmailButton(root: ParentNode): HTMLElement | null {
   if (isWorkdayAccountCreationForm(root)) return null
-  return root.querySelector(WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR) as HTMLElement | null
+  return root.querySelector(
+    `${WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR}, ${WORKDAY_SIGN_IN_LINK_SELECTOR}`,
+  ) as HTMLElement | null
 }
 
 export function workdayCreateAccountLink(root: ParentNode): HTMLElement | null {
@@ -150,7 +156,8 @@ export function workdayAccountAgreementCheckbox(root: ParentNode): HTMLInputElem
 function smallestAccountCard(password: Element): Element | null {
   let node: Element | null = password.parentElement
   while (node) {
-    if (node.querySelector('[data-automation-id="verifyPassword"]')) return node
+    const verify = workdayFieldControl(node, 'verifyPassword')
+    if (verify && verify !== password) return node
     node = node.parentElement
   }
   return null
@@ -168,7 +175,7 @@ export function workdayAccountSubmitControl(root: ParentNode): HTMLElement | nul
   const submit = root.querySelector('[data-automation-id="createAccountSubmitButton"]')
   if (submit) return submit as HTMLElement
   if (!isWorkdayAccountCreationForm(root)) return null
-  const password = root.querySelector('[data-automation-id="password"]')
+  const password = workdayAccountInputs(root).password
   if (!password) return null
   const card = smallestAccountCard(password)
   if (!card) return null
@@ -229,17 +236,48 @@ export function listWorkdayPanels(root: ParentNode, kind: WorkdaySectionKind): E
   })
 }
 
+function isWorkdayTextControl(el: Element): boolean {
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+}
+
+// Prefer a formField-* control: the wrapper itself when it is an input or
+// textarea, otherwise the nested control. An empty wrapper does not hide a
+// later one. Otherwise fall back to the bare automation id on the input
+// (Cisco account fields) and then the form-kit path.
 export function workdayFieldControl(root: ParentNode, metadataId: string): Element | null {
-  const wrapped = root.querySelector(
-    `[data-automation-id="formField-${metadataId}"] input, [data-automation-id="formField-${metadataId}"] textarea`,
-  )
-  if (wrapped) return wrapped
+  const wrappedNodes = root.querySelectorAll(`[data-automation-id="formField-${metadataId}"]`)
+  for (const wrapped of Array.from(wrappedNodes)) {
+    if (isWorkdayTextControl(wrapped)) return wrapped
+    const nested = wrapped.querySelector('input, textarea')
+    if (nested) return nested
+  }
   const direct = root.querySelector(`[data-automation-id="${metadataId}"]`)
-  if (direct && (direct.tagName === 'INPUT' || direct.tagName === 'TEXTAREA')) return direct
+  if (direct && isWorkdayTextControl(direct)) return direct
   const byPath = root.querySelector(`[data-fkit-id$="--${metadataId}"], [data-fkit-id="${metadataId}"]`)
   if (!byPath) return null
-  if (byPath.tagName === 'INPUT' || byPath.tagName === 'TEXTAREA') return byPath
+  if (isWorkdayTextControl(byPath)) return byPath
   return byPath.querySelector('input, textarea')
+}
+
+export type WorkdayAccountInputs = {
+  email: HTMLInputElement | null
+  password: HTMLInputElement | null
+  verifyPassword: HTMLInputElement | null
+}
+
+function workdayAccountInput(root: ParentNode, metadataId: string): HTMLInputElement | null {
+  const control = workdayFieldControl(root, metadataId)
+  if (!control || control.tagName !== 'INPUT') return null
+  return control as HTMLInputElement
+}
+
+// Fill targets for Create Account. Same resolution as other Workday fields.
+export function workdayAccountInputs(root: ParentNode): WorkdayAccountInputs {
+  return {
+    email: workdayAccountInput(root, 'email'),
+    password: workdayAccountInput(root, 'password'),
+    verifyPassword: workdayAccountInput(root, 'verifyPassword'),
+  }
 }
 
 export function workdayListboxButton(root: ParentNode, metadataId: string): HTMLButtonElement | null {
