@@ -122,9 +122,9 @@ export function workdayJobApplyButton(root: ParentNode): HTMLElement | null {
 }
 
 // Account creation renders email + password + verifyPassword together.
-// Cisco puts those automation ids on the inputs. Salesforce puts formField-*
-// wrappers around the inputs and may omit the bare ids. My Information's
-// email control is emailAddress and must not count.
+// Cisco and Zillow put those automation ids on the inputs. Salesforce puts
+// formField-* wrappers around the inputs and may omit the bare ids. My
+// Information's email control is emailAddress and must not count.
 export function isWorkdayAccountCreationForm(root: ParentNode): boolean {
   const fields = workdayAccountInputs(root)
   return !!(fields.email && fields.password && fields.verifyPassword)
@@ -132,8 +132,8 @@ export function isWorkdayAccountCreationForm(root: ParentNode): boolean {
 
 // Cisco Apply Manually lands on Create Account with no SignInWithEmailButton.
 // Skip the sign-in click when that control is absent, and also once the account
-// form is already on the page so a later sign-in control (including signInLink)
-// cannot pull us off it.
+// form is already on the page. Salesforce's signInLink and Zillow's signInLink
+// plus utilityButtonSignIn must not pull us off Create Account.
 export function workdaySignInWithEmailButton(root: ParentNode): HTMLElement | null {
   if (isWorkdayAccountCreationForm(root)) return null
   return root.querySelector(
@@ -168,9 +168,9 @@ function isPageNavigationLabel(el: Element): boolean {
   return text === 'next' || text === 'continue' || text === 'back' || text === 'save and continue'
 }
 
-// Cisco's Create Account control is createAccountSubmitButton, with no click_filter.
-// Older widgets omit that id and put the handler on a click_filter inside the
-// account card. A page-level click_filter (Next) is not a fallback.
+// Cisco and Salesforce use createAccountSubmitButton. Zillow omits it and puts
+// the handler on a click_filter inside the account card. A page-level
+// click_filter (Next) is not a fallback. Sign-in controls are not this button.
 export function workdayAccountSubmitControl(root: ParentNode): HTMLElement | null {
   const submit = root.querySelector('[data-automation-id="createAccountSubmitButton"]')
   if (submit) return submit as HTMLElement
