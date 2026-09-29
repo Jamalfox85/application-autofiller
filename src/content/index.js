@@ -20,8 +20,17 @@ import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
 import { detectAts } from '../utils/ats.ts'
+import { configureWorkdayAccountNotice } from '../utils/siteRules/workdayAccountNotice.ts'
 
 const CONTENT_SCRIPT_INSTALLED = '__gofillrContentScript'
+
+// Workday account creation calls this when Application Accounts has no Workday login.
+// The page toast is immediate; the service worker badges the toolbar; the popup opens
+// Application Accounts when the user opens GoFillr.
+configureWorkdayAccountNotice({
+  showOnPage: (message) => showErrorNotification(message),
+  sendMessage: (message) => chrome.runtime.sendMessage(message),
+})
 
 function isTopFrame() {
   try {

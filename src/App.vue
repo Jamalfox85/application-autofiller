@@ -29,6 +29,10 @@ import ResumeAiDialog from './components/ResumeAiDialog.vue'
 import ProfileRosterDialog from './components/ProfileRosterDialog.vue'
 import { fetchBillingState, type BillingState } from '@/services/billing/client'
 import { rememberActiveProfile } from '@/services/billing/profileRoster'
+import {
+  WORKDAY_ACCOUNT_NOTICE_KEY,
+  parseWorkdayAccountNotice,
+} from '@/utils/siteRules/workdayAccountNotice.ts'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -86,6 +90,10 @@ const dialogs: Record<string, any> = {
   customResponses: ref(false),
   applicationAccount: ref(false),
 }
+
+const workdayAccountAttention = ref('')
+let presentedWorkdayNoticeAt = -1
+let workdayNoticeQueue: Promise<void> = Promise.resolve()
 
 const lastFillLabel = computed(() => {
   const mostRecent = fillHistory.value[0]
@@ -233,6 +241,61 @@ const closeDialog = (key: string) => {
   if (dialogs[key]) {
     dialogs[key].value = false
   }
+  if (key === 'applicationAccount') {
+    workdayAccountAttention.value = ''
+  }
+}
+
+// Content script writes WORKDAY_ACCOUNT_NOTICE_KEY when a Workday page needs a candidate
+// account and the vault has no Workday login. Show the popup banner, and once the profile
+// is loaded open Application Accounts so the user can fix it. Signed-out opens keep the
+// stored notice until sign-in.
+const presentWorkdayAccountNotice = (openAccounts: boolean) => {
+  const run = workdayNoticeQueue.then(() => presentWorkdayAccountNoticeOnce(openAccounts))
+  workdayNoticeQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+const presentWorkdayAccountNoticeOnce = async (openAccounts: boolean) => {
+  let stored: Record<string, unknown>
+  try {
+    stored = await chrome.storage.local.get(WORKDAY_ACCOUNT_NOTICE_KEY)
+  } catch {
+    return
+  }
+  const notice = parseWorkdayAccountNotice(stored[WORKDAY_ACCOUNT_NOTICE_KEY])
+  if (!notice) return
+
+  if (presentedWorkdayNoticeAt !== notice.at) {
+    presentedWorkdayNoticeAt = notice.at
+    showNotification(notice.message, 'warning')
+  }
+
+  if (!openAccounts || authStatus.value !== 'signed-in') return
+
+  workdayAccountAttention.value = notice.message
+  openDialog('applicationAccount')
+  try {
+    await chrome.action.setBadgeText({ text: '' })
+  } catch (error) {
+    console.error('Failed to clear Workday account badge', error)
+  }
+  try {
+    await chrome.storage.local.remove(WORKDAY_ACCOUNT_NOTICE_KEY)
+  } catch (error) {
+    console.error('Failed to clear Workday account notice', error)
+  }
+}
+
+const onWorkdayNoticeStored = (
+  changes: { [key: string]: chrome.storage.StorageChange },
+  areaName: string,
+) => {
+  if (areaName !== 'local' || !changes[WORKDAY_ACCOUNT_NOTICE_KEY]?.newValue) return
+  void presentWorkdayAccountNotice(authStatus.value === 'signed-in')
 }
 
 const handleSignOut = async () => {
@@ -260,14 +323,18 @@ const loadAppState = async () => {
   if (activeView.value === 'main') {
     await detectApplication()
   }
+  await presentWorkdayAccountNotice(true)
 }
 
 // Lifecycle
 onMounted(async () => {
+  chrome.storage.onChanged.addListener(onWorkdayNoticeStored)
   if (supabaseConfigError) return
   await initAuth()
   if (authStatus.value === 'signed-in') {
     await loadAppState()
+  } else if (authStatus.value === 'signed-out') {
+    await presentWorkdayAccountNotice(false)
   }
 })
 
@@ -465,6 +532,7 @@ watch(authStatus, (next, previous) => {
     <ApplicationAccountDialog
       :show="dialogs.applicationAccount.value"
       :personalInfo="personalInfo"
+      :attention-message="workdayAccountAttention"
       @close="closeDialog('applicationAccount')"
       @save="saveProfile"
     />
