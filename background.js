@@ -387,6 +387,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  // Same badge as Workday when an iCIMS login/create-account page has no iCIMS
+  // Application Accounts login. The popup reads icimsAccountNotice for the banner.
+  if (request.action === 'icimsAccountRequired') {
+    const notice = request.notice
+    if (notice && notice.portal === 'iCIMS' && typeof notice.message === 'string') {
+      updateBadge('!', '#b05454')
+    }
+    sendResponse({ ok: true })
+    return true
+  }
+
   if (request.action === 'uploadResume') {
     // Detached on purpose — the in-flight fetch keeps the worker alive; the popup watches
     // chrome.storage.local for the result rather than waiting on this response.

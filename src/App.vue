@@ -33,6 +33,10 @@ import {
   WORKDAY_ACCOUNT_NOTICE_KEY,
   parseWorkdayAccountNotice,
 } from '@/utils/siteRules/workdayAccountNotice.ts'
+import {
+  ICIMS_ACCOUNT_NOTICE_KEY,
+  parseIcimsAccountNotice,
+} from '@/utils/siteRules/icimsAccountNotice.ts'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -92,8 +96,15 @@ const dialogs: Record<string, any> = {
 }
 
 const workdayAccountAttention = ref('')
+const icimsAccountAttention = ref('')
 let presentedWorkdayNoticeAt = -1
+let presentedIcimsNoticeAt = -1
 let workdayNoticeQueue: Promise<void> = Promise.resolve()
+let icimsNoticeQueue: Promise<void> = Promise.resolve()
+
+const applicationAccountAttention = computed(() =>
+  [workdayAccountAttention.value, icimsAccountAttention.value].filter((message) => message).join(' '),
+)
 
 const lastFillLabel = computed(() => {
   const mostRecent = fillHistory.value[0]
@@ -243,6 +254,7 @@ const closeDialog = (key: string) => {
   }
   if (key === 'applicationAccount') {
     workdayAccountAttention.value = ''
+    icimsAccountAttention.value = ''
   }
 }
 
@@ -298,6 +310,57 @@ const onWorkdayNoticeStored = (
   void presentWorkdayAccountNotice(authStatus.value === 'signed-in')
 }
 
+// Content script writes ICIMS_ACCOUNT_NOTICE_KEY when an iCIMS login/create-account page
+// needs a candidate login and the vault has no iCIMS account. Same sheet and badge path
+// as Workday, with its own storage key so the two notices do not clobber each other.
+const presentIcimsAccountNotice = (openAccounts: boolean) => {
+  const run = icimsNoticeQueue.then(() => presentIcimsAccountNoticeOnce(openAccounts))
+  icimsNoticeQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+const presentIcimsAccountNoticeOnce = async (openAccounts: boolean) => {
+  let stored: Record<string, unknown>
+  try {
+    stored = await chrome.storage.local.get(ICIMS_ACCOUNT_NOTICE_KEY)
+  } catch {
+    return
+  }
+  const notice = parseIcimsAccountNotice(stored[ICIMS_ACCOUNT_NOTICE_KEY])
+  if (!notice) return
+
+  if (presentedIcimsNoticeAt !== notice.at) {
+    presentedIcimsNoticeAt = notice.at
+    showNotification(notice.message, 'warning')
+  }
+
+  if (!openAccounts || authStatus.value !== 'signed-in') return
+
+  icimsAccountAttention.value = notice.message
+  openDialog('applicationAccount')
+  try {
+    await chrome.action.setBadgeText({ text: '' })
+  } catch (error) {
+    console.error('Failed to clear iCIMS account badge', error)
+  }
+  try {
+    await chrome.storage.local.remove(ICIMS_ACCOUNT_NOTICE_KEY)
+  } catch (error) {
+    console.error('Failed to clear iCIMS account notice', error)
+  }
+}
+
+const onIcimsNoticeStored = (
+  changes: { [key: string]: chrome.storage.StorageChange },
+  areaName: string,
+) => {
+  if (areaName !== 'local' || !changes[ICIMS_ACCOUNT_NOTICE_KEY]?.newValue) return
+  void presentIcimsAccountNotice(authStatus.value === 'signed-in')
+}
+
 const handleSignOut = async () => {
   await signOut()
   activeView.value = 'welcome'
@@ -324,17 +387,20 @@ const loadAppState = async () => {
     await detectApplication()
   }
   await presentWorkdayAccountNotice(true)
+  await presentIcimsAccountNotice(true)
 }
 
 // Lifecycle
 onMounted(async () => {
   chrome.storage.onChanged.addListener(onWorkdayNoticeStored)
+  chrome.storage.onChanged.addListener(onIcimsNoticeStored)
   if (supabaseConfigError) return
   await initAuth()
   if (authStatus.value === 'signed-in') {
     await loadAppState()
   } else if (authStatus.value === 'signed-out') {
     await presentWorkdayAccountNotice(false)
+    await presentIcimsAccountNotice(false)
   }
 })
 
@@ -532,7 +598,7 @@ watch(authStatus, (next, previous) => {
     <ApplicationAccountDialog
       :show="dialogs.applicationAccount.value"
       :personalInfo="personalInfo"
-      :attention-message="workdayAccountAttention"
+      :attention-message="applicationAccountAttention"
       @close="closeDialog('applicationAccount')"
       @save="saveProfile"
     />

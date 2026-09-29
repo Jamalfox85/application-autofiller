@@ -21,6 +21,7 @@ import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
 import { detectAts } from '../utils/ats.ts'
 import { configureWorkdayAccountNotice } from '../utils/siteRules/workdayAccountNotice.ts'
+import { configureIcimsAccountNotice } from '../utils/siteRules/icimsAccountNotice.ts'
 
 const CONTENT_SCRIPT_INSTALLED = '__gofillrContentScript'
 
@@ -28,6 +29,13 @@ const CONTENT_SCRIPT_INSTALLED = '__gofillrContentScript'
 // The page toast is immediate; the service worker badges the toolbar; the popup opens
 // Application Accounts when the user opens GoFillr.
 configureWorkdayAccountNotice({
+  showOnPage: (message) => showErrorNotification(message),
+  sendMessage: (message) => chrome.runtime.sendMessage(message),
+})
+
+// iCIMS login/create-account calls this when Application Accounts has no iCIMS login.
+// Same three channels as Workday: page toast, toolbar badge, popup Application Accounts.
+configureIcimsAccountNotice({
   showOnPage: (message) => showErrorNotification(message),
   sendMessage: (message) => chrome.runtime.sendMessage(message),
 })
