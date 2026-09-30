@@ -18,15 +18,25 @@ import {
   nextWorkdayFormSignature,
   workdayAccountInputs,
   workdayAccountSubmitControl,
+  workdayActivePrompt,
   workdayContactKeyFromElement,
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
   workdayExperienceLocation,
   workdayFieldControl,
   workdayIsCustomSourceField,
+  workdayIsFormerEmployeeQuestion,
   workdayListboxButton,
+  workdayListboxValue,
+  workdayListedSearchText,
   workdayListedValueMatches,
+  workdayOptionElement,
+  workdayOptionLabels,
+  workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
+  workdayPromptSearchInput,
+  workdaySelectKind,
+  workdaySelectValue,
 } from './workdayFields.ts'
 
 var lastFormSignature = ''
@@ -49,6 +59,7 @@ export default function workdayConfig(): SiteRule {
       let phoneTypeHandled = false
       let countryHandled = false
       let stateHandled = false
+      let listboxBusy = false
       let disabilityHandled = false
       let selfIdNameHandled = false
       let selfIdDateHandled = false
@@ -160,69 +171,74 @@ export default function workdayConfig(): SiteRule {
             }
           }
 
-          // Step 6: Phone device type. Select Mobile or Cell from the list.
-          if (!phoneTypeHandled) {
-            const phoneTypeButton = workdayListboxButton(document, 'phoneType')
-            if (phoneTypeButton) {
-              const already = workdayPhoneTypeOption([phoneTypeButton.textContent || ''])
-              if (already) {
-                phoneTypeHandled = true
-              } else {
-                phoneTypeHandled = true
-                phoneTypeButton.click()
-                await new Promise((resolve) => setTimeout(resolve, 1000))
-                const optionText = workdayPhoneTypeOption(openListboxLabels())
-                const mobileOption = optionText ? openListboxOption(optionText) : null
-                if (mobileOption) {
-                  mobileOption.click()
-                  console.log('✓ Selected phone type:', optionText)
-                  await new Promise((resolve) => setTimeout(resolve, 500))
-                } else {
-                  console.error('Mobile phone type option not found')
+          // Steps 6–8 share one pass. A mutation while a menu is open used to start
+          // the state click against the still-open country list, and Georgia (the
+          // country) was selected for a Georgia address.
+          if (!listboxBusy) {
+            listboxBusy = true
+            try {
+              // Step 6: Phone device type. No profile field; Mobile or Cell is the default.
+              if (!phoneTypeHandled) {
+                const phoneTypeButton = workdayPhoneDeviceTypeButton(document)
+                if (phoneTypeButton) {
+                  const already = workdayPhoneTypeOption([workdayListboxValue(phoneTypeButton)])
+                  phoneTypeHandled = true
+                  if (!already) {
+                    const optionText = await chooseWorkdayListOption(phoneTypeButton, workdayPhoneTypeOption, '')
+                    if (optionText) {
+                      console.log('✓ Selected phone type:', optionText)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('Mobile phone type option not found')
+                    }
+                  }
                 }
               }
-            }
-          }
 
-          // Step 7: Country before state. The region list is empty until a country is chosen.
-          if (!countryHandled && personalInfo.country) {
-            const countryButton = workdayListboxButton(document, 'country')
-            if (countryButton) {
-              countryHandled = true
-              if (!workdayListedValueMatches(countryButton.textContent || '', personalInfo.country, 'country')) {
-                countryButton.click()
-                await new Promise((resolve) => setTimeout(resolve, 1000))
-                const label = matchingOptionText(openListboxLabels(), personalInfo.country, 'country')
-                const countryOption = label ? openListboxOption(label) : null
-                if (countryOption) {
-                  countryOption.click()
-                  console.log('✓ Selected country:', label)
-                  await new Promise((resolve) => setTimeout(resolve, 500))
-                } else {
-                  console.error('Country option not found for:', personalInfo.country)
+              // Step 7: Country before state. The region list is empty until a country is chosen.
+              // Profile values are slugs ("united_states"); the option label is not.
+              if (!countryHandled && personalInfo.country) {
+                const countryButton = workdayListboxButton(document, 'country')
+                if (countryButton) {
+                  countryHandled = true
+                  if (!workdayListedValueMatches(workdayListboxValue(countryButton), personalInfo.country, 'country')) {
+                    const label = await chooseWorkdayListOption(
+                      countryButton,
+                      (labels) => matchingOptionText(labels, personalInfo.country, 'country'),
+                      workdayListedSearchText(personalInfo.country, 'country'),
+                    )
+                    if (label) {
+                      console.log('✓ Selected country:', label)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('Country option not found for:', personalInfo.country)
+                    }
+                  }
                 }
               }
-            }
-          }
 
-          // Step 8: State / region. Match the full name when the profile stores an abbreviation.
-          if (!stateHandled && personalInfo.state) {
-            const stateButton = workdayListboxButton(document, 'countryRegion')
-            if (stateButton) {
-              stateHandled = true
-              if (!workdayListedValueMatches(stateButton.textContent || '', personalInfo.state, 'state')) {
-                stateButton.click()
-                await new Promise((resolve) => setTimeout(resolve, 1000))
-                const label = matchingOptionText(openListboxLabels(), personalInfo.state, 'state')
-                const stateOption = label ? openListboxOption(label) : null
-                if (stateOption) {
-                  stateOption.click()
-                  console.log('✓ Selected state:', label)
-                  await new Promise((resolve) => setTimeout(resolve, 500))
-                } else {
-                  console.error('State option not found for:', personalInfo.state)
+              // Step 8: State / region. Match the full name when the profile stores an abbreviation or slug.
+              if (!stateHandled && personalInfo.state) {
+                const stateButton = workdayListboxButton(document, 'countryRegion')
+                if (stateButton) {
+                  stateHandled = true
+                  if (!workdayListedValueMatches(workdayListboxValue(stateButton), personalInfo.state, 'state')) {
+                    const label = await chooseWorkdayListOption(
+                      stateButton,
+                      (labels) => matchingOptionText(labels, personalInfo.state, 'state'),
+                      workdayListedSearchText(personalInfo.state, 'state'),
+                    )
+                    if (label) {
+                      console.log('✓ Selected state:', label)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('State option not found for:', personalInfo.state)
+                    }
+                  }
                 }
               }
+            } finally {
+              listboxBusy = false
             }
           }
 
@@ -357,12 +373,33 @@ const fieldHandlers: Array<{
   handle: FieldHandler
 }> = [
   {
-    // Source / "How did you hear about us" is a tenant custom. Claiming it
-    // keeps the generic matcher from typing into it. v1 does not pick an option.
+    // Source / "How did you hear about us" and former-employee / email-id Yes/No
+    // are tenant customs. The vault has neither answer. Claiming them keeps the
+    // generic matcher from inventing Job Board, LinkedIn, Yes, or No.
     match: (input, fieldText) => {
-      return fieldText.includes('howdidyouhearaboutus') || workdayIsCustomSourceField(input)
+      return (
+        fieldText.includes('howdidyouhearaboutus') ||
+        workdayIsCustomSourceField(input) ||
+        workdayIsFormerEmployeeQuestion(fieldText)
+      )
     },
     handle: async () => true,
+  },
+  {
+    match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'country',
+    handle: async (input, _, personalInfo) => {
+      return chooseWorkdaySelect(input, personalInfo.country || '', 'country')
+    },
+  },
+  {
+    match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'state',
+    handle: async (input, _, personalInfo) => {
+      return chooseWorkdaySelect(input, personalInfo.state || '', 'state')
+    },
+  },
+  {
+    match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'phone',
+    handle: async (input) => chooseWorkdaySelect(input, '', 'phone'),
   },
   {
     match: (input) => workdayContactKeyFromElement(input) === 'firstName',
@@ -446,17 +483,93 @@ const announceMissingWorkdayAccount = async (personalInfo: PersonalInfo | null |
   }
 }
 
-function openListboxLabels(): string[] {
-  return Array.from(document.querySelectorAll('[role="option"]'))
-    .map((el) => (el.textContent || '').trim())
-    .filter(Boolean)
+let openListbox: HTMLButtonElement | null = null
+
+function collapseOpenListbox() {
+  const button = openListbox
+  openListbox = null
+  if (!button?.isConnected) return
+  if (button.getAttribute('aria-expanded') === 'true') {
+    button.click()
+    return
+  }
+  button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
 }
 
-function openListboxOption(label: string): HTMLElement | null {
-  const match = Array.from(document.querySelectorAll('[role="option"]')).find(
-    (el) => (el.textContent || '').trim() === label,
+// Open one prompt, optionally filter it, and click the picked label inside that
+// prompt only. Escape closes a miss so the next field cannot click a leftover option.
+async function chooseWorkdayListOption(
+  button: HTMLButtonElement,
+  pick: (labels: string[]) => string | null,
+  searchText: string,
+): Promise<string | null> {
+  collapseOpenListbox()
+  openListbox = button
+  button.click()
+  const started = Date.now()
+  let typed = false
+  let missesAfterType = 0
+  while (Date.now() - started < 1500) {
+    const prompt = workdayActivePrompt(button)
+    if (!prompt) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      continue
+    }
+    if (searchText && !typed) {
+      const search = workdayPromptSearchInput(prompt)
+      if (search) {
+        await fillWorkdayInput(search, searchText)
+        typed = true
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        continue
+      }
+    }
+    const labels = workdayOptionLabels(prompt)
+    const label = labels.length > 0 ? pick(labels) : null
+    if (label) {
+      const option = workdayOptionElement(prompt, label)
+      if (option) {
+        option.click()
+        openListbox = null
+        return label
+      }
+    }
+    // A visible slice that does not contain the target is not a click. After a
+    // search, give the filtered rows a moment to replace that slice.
+    if (labels.length > 0 && (!searchText || typed)) {
+      if (typed && missesAfterType < 3) {
+        missesAfterType++
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        continue
+      }
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  collapseOpenListbox()
+  return null
+}
+
+function chooseWorkdaySelect(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  desired: string,
+  kind: 'country' | 'state' | 'phone',
+): boolean {
+  // tagName, not instanceof: the element can come from a frame whose
+  // HTMLSelectElement is not this window's constructor.
+  if (input.tagName !== 'SELECT') return true
+  const select = input as HTMLSelectElement
+  const value = workdaySelectValue(
+    Array.from(select.options).map((option) => ({ value: option.value, text: option.text })),
+    desired,
+    kind,
   )
-  return (match as HTMLElement) || null
+  if (!value || select.value === value) return true
+  select.value = value
+  const EventCtor = select.ownerDocument.defaultView?.Event ?? Event
+  select.dispatchEvent(new EventCtor('input', { bubbles: true }))
+  select.dispatchEvent(new EventCtor('change', { bubbles: true }))
+  return true
 }
 
 function checkboxLabel(input: HTMLInputElement): string {

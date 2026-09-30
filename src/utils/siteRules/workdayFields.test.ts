@@ -18,13 +18,24 @@ import {
   matchingOptionText,
   nextWorkdayFormSignature,
   workdayAccountSubmitControl,
+  workdayActivePrompt,
   workdayContactKey,
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
   workdayExperienceLocation,
   workdayIsCustomSourceField,
+  workdayIsFormerEmployeeQuestion,
+  workdayListboxButton,
+  workdayListboxValue,
+  workdayListedSearchText,
+  workdayListedValueMatches,
+  workdayOptionElement,
+  workdayOptionLabels,
+  workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
   workdaySectionKindFromLabel,
+  workdaySelectKind,
+  workdaySelectValue,
 } from './workdayFields.ts'
 
 const probe = (attrs: Record<string, string>) => ({
@@ -375,13 +386,49 @@ test('date parts accept the canvas -input suffix and the short automation id', (
 
 test('dropdown labels match state abbreviations and phone device types', () => {
   assert.equal(matchingOptionText(['Select One', 'California', 'Colorado'], 'CA', 'state'), 'California')
+  assert.equal(matchingOptionText(['New York', 'New Jersey'], 'New_York', 'state'), 'New York')
   assert.equal(
     matchingOptionText(['United States of America', 'Canada'], 'United States', 'country'),
     'United States of America',
   )
   assert.equal(workdayPhoneTypeOption(['Work', 'Home', 'Mobile']), 'Mobile')
   assert.equal(workdayPhoneTypeOption(['Landline', 'Cell Phone']), 'Cell Phone')
+  assert.equal(workdayPhoneTypeOption(['Landline', 'Cellular Phone']), 'Cellular Phone')
   assert.equal(workdayPhoneTypeOption(['Work', 'Fax']), null)
+  assert.equal(workdayPhoneTypeOption(['Georgia', 'United States of America']), null)
+})
+
+test('united_states selects United States of America and not the country Georgia', () => {
+  const options = ['Select One', 'Georgia', 'Germany', 'United States of America', 'Canada']
+  assert.equal(matchingOptionText(options, 'united_states', 'country'), 'United States of America')
+  assert.equal(matchingOptionText(options, 'USA', 'country'), 'United States of America')
+  assert.equal(matchingOptionText(['Georgia', 'Germany', 'Canada'], 'united_states', 'country'), null)
+  assert.equal(workdayListedValueMatches('Georgia', 'united_states', 'country'), false)
+  assert.equal(workdayListedValueMatches('United States of America', 'united_states', 'country'), true)
+  assert.equal(workdayListedSearchText('united_states', 'country'), 'united states')
+  assert.equal(workdayListedSearchText('CA', 'state'), 'california')
+  assert.equal(
+    workdaySelectValue(
+      [
+        { value: 'GE', text: 'Georgia' },
+        { value: 'US', text: 'United States of America' },
+      ],
+      'united_states',
+      'country',
+    ),
+    'US',
+  )
+  assert.equal(
+    workdaySelectValue(
+      [
+        { value: 'land', text: 'Landline' },
+        { value: 'mob', text: 'Mobile' },
+      ],
+      '',
+      'phone',
+    ),
+    'mob',
+  )
 })
 
 test('disability options match labels instead of a fixed index', () => {
@@ -399,6 +446,63 @@ test('experience location skips missing city or state', () => {
   assert.equal(workdayExperienceLocation('Austin', 'TX'), 'Austin, TX')
   assert.equal(workdayExperienceLocation('Austin', ''), 'Austin')
   assert.equal(workdayExperienceLocation(undefined, undefined), '')
+})
+
+test('Cisco prompts expose country and phone device options without role=option', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button id="country" name="country" aria-haspopup="listbox" aria-controls="country-list">
+      <span data-automation-id="promptSelectionLabel">Georgia</span>
+    </button>
+    <div id="country-list" role="listbox">
+      <div data-automation-id="promptOption" data-automation-label="Georgia">Georgia</div>
+      <div data-automation-id="promptOption" data-automation-label="United States of America">United States of America</div>
+    </div>
+    <button id="state" name="countryRegion" aria-haspopup="listbox" aria-controls="state-list"></button>
+    <div id="state-list" role="listbox">
+      <div role="option">Georgia</div>
+      <div role="option">California</div>
+    </div>
+    <button data-automation-id="phone-device-type" id="device">Select One</button>
+    <div data-automation-id="responsiveMonikerPrompt" id="phone-menu">
+      <div data-automation-id="promptOption" data-automation-label="Landline">Landline</div>
+      <div data-automation-id="promptOption" data-automation-label="Mobile">Mobile</div>
+      <div data-automation-id="promptOption" data-automation-label="Fax">Fax</div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const countryButton = doc.getElementById('country') as HTMLButtonElement
+  const stateButton = doc.getElementById('state') as HTMLButtonElement
+  assert.equal(workdayListboxValue(countryButton), 'Georgia')
+  assert.equal(workdayListedValueMatches(workdayListboxValue(countryButton), 'united_states', 'country'), false)
+  const countryPrompt = workdayActivePrompt(countryButton)!
+  assert.equal(
+    matchingOptionText(workdayOptionLabels(countryPrompt), 'united_states', 'country'),
+    'United States of America',
+  )
+  assert.equal(workdayOptionElement(countryPrompt, 'United States of America')?.parentElement?.id, 'country-list')
+  const statePrompt = workdayActivePrompt(stateButton)!
+  assert.equal(statePrompt, doc.getElementById('state-list'))
+  assert.equal(matchingOptionText(workdayOptionLabels(statePrompt), 'Georgia', 'state'), 'Georgia')
+  assert.equal(workdayOptionElement(statePrompt, 'Georgia')?.parentElement?.id, 'state-list')
+  assert.equal(workdayPhoneDeviceTypeButton(doc)?.id, 'device')
+  assert.equal(workdayPhoneTypeOption(workdayOptionLabels(doc.getElementById('phone-menu')!)), 'Mobile')
+  assert.equal(workdayListboxButton(doc, 'countryRegion')?.id, 'state')
+})
+
+test('address selects are country, state, and phone device type', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <select id="address--country"></select>
+    <select id="addressSection_countryRegion"></select>
+    <select id="phone-device-type"></select>
+    <select id="countryPhoneCode"></select>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(workdaySelectKind(doc.getElementById('address--country')!), 'country')
+  assert.equal(workdaySelectKind(doc.getElementById('addressSection_countryRegion')!), 'state')
+  assert.equal(workdaySelectKind(doc.getElementById('phone-device-type')!), 'phone')
+  assert.equal(workdaySelectKind(doc.getElementById('countryPhoneCode')!), null)
+  assert.equal(workdayIsFormerEmployeeQuestion('have you ever been a cisco employee or do you have an email id'), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('emailaddress'), false)
 })
 
 test('source apply handler does not click an Indeed option', async () => {
@@ -419,4 +523,43 @@ test('source apply handler does not click an Indeed option', async () => {
   const handled = await rule.apply(input, 'howdidyouhearaboutus', {} as PersonalInfo)
   assert.equal(handled, true)
   assert.equal(clicked, false)
+})
+
+test('country select maps united_states to United States and former-employee stays unanswered', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <select id="address--country">
+        <option value="">Select One</option>
+        <option value="GE">Georgia</option>
+        <option value="US">United States of America</option>
+      </select>
+      <select id="former-employee">
+        <option value="">Select One</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+      <select id="phone-device-type">
+        <option value="">Select One</option>
+        <option value="land">Landline</option>
+        <option value="mob">Mobile</option>
+      </select>
+    </body>`,
+    { url: 'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/apply' },
+  )
+  const doc = dom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const country = doc.getElementById('address--country') as HTMLSelectElement
+  const former = doc.getElementById('former-employee') as HTMLSelectElement
+  const phone = doc.getElementById('phone-device-type') as HTMLSelectElement
+  const info = { country: 'united_states', state: 'Georgia', email: 'ada@example.com' } as PersonalInfo
+  assert.equal(await rule.apply(country, 'country', info), true)
+  assert.equal(country.value, 'US')
+  assert.equal(
+    await rule.apply(former, 'haveyoueverbeenaciscoemployeeordoyouhaveanemailid', info),
+    true,
+  )
+  assert.equal(former.value, '')
+  assert.equal(await rule.apply(phone, 'phonedevicetype', info), true)
+  assert.equal(phone.value, 'mob')
 })

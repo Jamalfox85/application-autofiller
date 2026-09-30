@@ -281,17 +281,112 @@ export function workdayAccountInputs(root: ParentNode): WorkdayAccountInputs {
 }
 
 export function workdayListboxButton(root: ParentNode, metadataId: string): HTMLButtonElement | null {
-  const button = root.querySelector(
-    [
-      `button[name="${metadataId}"]`,
-      `[data-automation-id="formField-${metadataId}"] button[aria-haspopup="listbox"]`,
-      `[data-fkit-id="${metadataId}"] button[aria-haspopup="listbox"]`,
-      `[data-fkit-id$="--${metadataId}"] button[aria-haspopup="listbox"]`,
-      `button[id$="${metadataId}"][aria-haspopup="listbox"]`,
-    ].join(', '),
+  const buttons = Array.from(
+    root.querySelectorAll(
+      [
+        `button[name="${metadataId}"]`,
+        `button[data-automation-id="${metadataId}"]`,
+        `button[data-automation-id="addressSection_${metadataId}"]`,
+        `[data-automation-id="formField-${metadataId}"] button[aria-haspopup="listbox"]`,
+        `[data-automation-id="${metadataId}"] button[aria-haspopup="listbox"]`,
+        `[data-automation-id="addressSection_${metadataId}"] button[aria-haspopup="listbox"]`,
+        `[data-fkit-id="${metadataId}"] button[aria-haspopup="listbox"]`,
+        `[data-fkit-id$="--${metadataId}"] button[aria-haspopup="listbox"]`,
+        `button[id$="${metadataId}"][aria-haspopup="listbox"]`,
+      ].join(', '),
+    ),
+  ).filter((node): node is HTMLButtonElement => node.tagName === 'BUTTON')
+  if (buttons.length === 0) return null
+  return buttons.find((button) => button.getAttribute('aria-haspopup') === 'listbox') || buttons[0]
+}
+
+// Cisco's My Information prompt uses phone-device-type. Newer form-kit builds use
+// phoneType. There is no device-type field on the profile; Mobile / Cell is the default.
+const PHONE_DEVICE_TYPE_IDS = ['phone-device-type', 'phoneDeviceType', 'phoneType']
+
+export function workdayPhoneDeviceTypeButton(root: ParentNode): HTMLButtonElement | null {
+  for (const id of PHONE_DEVICE_TYPE_IDS) {
+    const button = workdayListboxButton(root, id)
+    if (button) return button
+  }
+  const buttons = root.querySelectorAll('button')
+  for (const button of Array.from(buttons)) {
+    const name = `${button.getAttribute('aria-label') || ''} ${button.textContent || ''}`.replace(/\s+/g, ' ').toLowerCase()
+    if (name.includes('phone device type') || name.includes('device type')) return button as HTMLButtonElement
+  }
+  return null
+}
+
+export function workdayListboxValue(button: HTMLElement): string {
+  const selected = button.querySelector(
+    '[data-automation-id="promptSelectionLabel"], [data-automation-id="selectedItemLabel"]',
   )
-  if (!button || button.tagName !== 'BUTTON') return null
-  return button as HTMLButtonElement
+  const raw = selected?.textContent || button.textContent || ''
+  return raw.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+// The open menu. aria-controls wins so a state click cannot land on a country
+// option that is still in the document (Georgia is both).
+export function workdayActivePrompt(button: HTMLElement): ParentNode | null {
+  const doc = button.ownerDocument
+  if (!doc) return null
+  const controls = button.getAttribute('aria-controls')
+  if (controls) {
+    const owned = doc.getElementById(controls)
+    if (owned) return owned
+  }
+  const prompts = Array.from(
+    doc.querySelectorAll(
+      '[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"], [role="listbox"]',
+    ),
+  ).filter((node) => !button.contains(node))
+  if (prompts.length === 1) return prompts[0] as ParentNode
+  if (prompts.length > 1 && button.getAttribute('aria-expanded') === 'true') {
+    return prompts[prompts.length - 1] as ParentNode
+  }
+  return null
+}
+
+const PROMPT_OPTION_SELECTOR = [
+  '[role="option"]',
+  '[data-automation-id="promptOption"]',
+  '[data-automation-id="promptLeafNode"]',
+  '[data-automation-id="menuItem"]',
+].join(', ')
+
+function promptOptionLabel(node: Element): string {
+  const raw = node.getAttribute('data-automation-label') || node.textContent || ''
+  return raw.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+export function workdayOptionElements(root: ParentNode): Array<{ label: string; element: HTMLElement }> {
+  const nodes = Array.from(root.querySelectorAll(PROMPT_OPTION_SELECTOR))
+  const choices: Array<{ label: string; element: HTMLElement }> = []
+  for (const node of nodes) {
+    if (node.querySelector(PROMPT_OPTION_SELECTOR)) continue
+    const label = promptOptionLabel(node)
+    if (!label) continue
+    choices.push({ label, element: node as HTMLElement })
+  }
+  return choices
+}
+
+export function workdayOptionLabels(root: ParentNode): string[] {
+  return workdayOptionElements(root).map((choice) => choice.label)
+}
+
+export function workdayOptionElement(root: ParentNode, label: string): HTMLElement | null {
+  const want = normalizeListedKey(label)
+  if (!want) return null
+  return workdayOptionElements(root).find((choice) => normalizeListedKey(choice.label) === want)?.element || null
+}
+
+export function workdayPromptSearchInput(root: ParentNode): HTMLInputElement | null {
+  const input = root.querySelector(
+    'input[data-automation-id="searchBox"], input[data-automation-id="promptSearchInput"], input[data-automation-id="monikerSearchBox"]',
+  )
+  if (!input || input.tagName !== 'INPUT') return null
+  return input as HTMLInputElement
 }
 
 const DATE_PART_IDS: Record<'month' | 'day' | 'year', string[]> = {
@@ -334,23 +429,60 @@ export function nextWorkdayFormSignature(root: ParentNode): string | null {
   return `${pageId}:[${inputSignature}]`
 }
 
+// Profile country and state values are snake_case slugs ("united_states", "New_York").
+// Workday options are display labels ("United States of America", "New York").
+// Underscores become spaces before alias lookup. Short codes stay exact, so "us"
+// does not match Georgia or Australia.
+function normalizeListedKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\./g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function matchingOptionText(
   optionTexts: string[],
   desired: string,
   kind: 'state' | 'country',
 ): string | null {
-  const want = desired.trim().toLowerCase()
+  const want = normalizeListedKey(desired)
   if (!want) return null
-  const exact = optionTexts.find((text) => text.trim().toLowerCase() === want)
-  if (exact) return exact
-  const group = RELATIVE_MATCHES[kind].find((aliases) => aliases.some((alias) => alias.toLowerCase() === want))
-  if (!group) return null
-  const hits = optionTexts.filter((text) =>
-    group.some((alias) => alias.toLowerCase() === text.trim().toLowerCase()),
+  const options = optionTexts
+    .map((text) => ({ raw: text, key: normalizeListedKey(text) }))
+    .filter((option) => option.key)
+  const exact = options.find((option) => option.key === want)
+  if (exact) return exact.raw
+  const group = RELATIVE_MATCHES[kind].find((aliases) =>
+    aliases.some((alias) => normalizeListedKey(alias) === want),
   )
+  if (!group) return null
+  const aliasKeys = group.map((alias) => normalizeListedKey(alias))
+  const hits = options.filter((option) => aliasKeys.includes(option.key))
   if (hits.length === 0) return null
-  hits.sort((a, b) => b.trim().length - a.trim().length)
-  return hits[0]
+  hits.sort((a, b) => b.key.length - a.key.length)
+  return hits[0].raw
+}
+
+// Text to type into a Workday prompt search. The shortest multi-word alias
+// ("united states") still matches "United States of America". A bare code
+// ("ca") does not — use the longest name instead.
+export function workdayListedSearchText(desired: string, kind: 'state' | 'country'): string {
+  const want = normalizeListedKey(desired)
+  if (!want) return ''
+  const group = RELATIVE_MATCHES[kind].find((aliases) =>
+    aliases.some((alias) => normalizeListedKey(alias) === want),
+  )
+  if (!group) return want
+  const keys = group.map((alias) => normalizeListedKey(alias)).filter(Boolean)
+  const phrases = keys.filter((alias) => alias.includes(' '))
+  if (phrases.length > 0) {
+    phrases.sort((a, b) => a.length - b.length)
+    return phrases[0]
+  }
+  keys.sort((a, b) => b.length - a.length)
+  return keys[0] || want
 }
 
 export function workdayListedValueMatches(
@@ -363,15 +495,105 @@ export function workdayListedValueMatches(
   return matchingOptionText([current], desired, kind) != null
 }
 
+function phoneTypeRank(text: string): number {
+  const key = text.toLowerCase().replace(/[^a-z]/g, '')
+  if (!key || key.includes('fax')) return 0
+  if (key === 'mobile' || key === 'cell' || key === 'cellular') return 3
+  if (key === 'mobilephone' || key === 'cellphone' || key === 'cellularphone') return 2
+  if (key.includes('mobile') || (key.includes('cell') && !key.includes('cancel'))) return 1
+  return 0
+}
+
+// No profile field stores device type. Mobile, then Cell, is the default already
+// used on My Information. Landline, fax, and country names are not a fallback.
 export function workdayPhoneTypeOption(optionTexts: string[]): string | null {
-  const options = optionTexts.map((text) => text.trim()).filter(Boolean)
-  for (const want of ['mobile', 'cell', 'cellular']) {
-    const exact = options.find((text) => text.toLowerCase() === want)
-    if (exact) return exact
+  const options = optionTexts
+    .map((text) => text.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  let best: string | null = null
+  let bestRank = 0
+  for (const text of options) {
+    const rank = phoneTypeRank(text)
+    if (rank > bestRank) {
+      best = text
+      bestRank = rank
+    }
   }
-  return (
-    options.find((text) => /mobile|cell/i.test(text) && !/work|home|fax/i.test(text)) || null
-  )
+  return best
+}
+
+export type WorkdaySelectKind = 'country' | 'state' | 'phone'
+
+export function workdaySelectKind(input: Element, fieldText = ''): WorkdaySelectKind | null {
+  if (input.tagName !== 'SELECT') return null
+  const wrapperAutomation = input.closest('[data-automation-id]')?.getAttribute('data-automation-id') || ''
+  const wrapperPath = input.closest('[data-fkit-id]')?.getAttribute('data-fkit-id') || ''
+  const compact = [
+    input.id,
+    input.getAttribute('name') || '',
+    input.getAttribute('data-automation-id') || '',
+    wrapperAutomation,
+    wrapperPath,
+    fieldText,
+  ]
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '')
+
+  if (
+    compact.includes('phonedevicetype') ||
+    compact.includes('phonetype') ||
+    compact.includes('devicetype')
+  ) {
+    return 'phone'
+  }
+  if (compact.includes('countryregion')) return 'state'
+  if (compact.includes('phonecode') || compact.includes('countrycode') || compact.includes('dialing')) return null
+  if (compact.includes('country')) return 'country'
+  if (
+    compact.includes('state') &&
+    !compact.includes('statement') &&
+    !compact.includes('estate') &&
+    !compact.includes('unitedstates')
+  ) {
+    return 'state'
+  }
+  return null
+}
+
+export function workdaySelectValue(
+  options: Array<{ value: string; text: string }>,
+  desired: string,
+  kind: WorkdaySelectKind,
+): string | null {
+  const label =
+    kind === 'phone'
+      ? workdayPhoneTypeOption(options.map((option) => option.text))
+      : matchingOptionText(
+          options.map((option) => option.text),
+          desired,
+          kind,
+        )
+  if (!label) return null
+  const want = normalizeListedKey(label)
+  const match = options.find((option) => normalizeListedKey(option.text) === want)
+  return match ? match.value : null
+}
+
+// "How did you hear" and former-employee / email-id questions have no vault field.
+// Claim them so generic fill cannot invent Job Board, LinkedIn, Yes, or No.
+export function workdayIsFormerEmployeeQuestion(fieldText: string): boolean {
+  const compact = fieldText.toLowerCase().replace(/[^a-z]/g, '')
+  if (!compact) return false
+  if (
+    compact.includes('formeremployee') ||
+    compact.includes('previouslyemployed') ||
+    compact.includes('previousemployee') ||
+    compact.includes('ciscoemployee')
+  ) {
+    return true
+  }
+  return compact.includes('employee') && compact.includes('emailid')
 }
 
 export function workdayDisabilityOptionIndex(labels: string[], status: string): number {
