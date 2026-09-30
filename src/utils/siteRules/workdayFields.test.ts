@@ -8,11 +8,14 @@ import {
   WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  isWorkdaySignInForm,
   workdayAccountAgreementCheckbox,
+  workdayAccountCredentialKind,
   workdayAccountInputs,
   workdayCreateAccountLink,
   workdayFieldControl,
   workdayJobApplyButton,
+  workdaySignInInputs,
   workdaySignInWithEmailButton,
   listWorkdayPanels,
   matchingOptionText,
@@ -263,6 +266,36 @@ test('Salesforce click_filter fallback stays inside the formField account card',
   const doc = dom.window.document
   assert.equal(isWorkdayAccountCreationForm(doc), true)
   assert.equal(workdayAccountSubmitControl(doc)?.id, 'account-filter')
+})
+
+test('Salesforce /login fills the visible password and does not navigate away', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <a data-automation-id="signInLink" id="sign-in">Sign In</a>
+    <a data-automation-id="createAccountLink" id="create">Create Account</a>
+    <button data-automation-id="signInSubmitButton" id="submit-sign-in">Sign In</button>
+    <div data-automation-id="formField-email"><input id="email-input" type="text" /></div>
+    <input data-automation-id="password" id="decoy" type="text" aria-hidden="true" tabindex="-1" />
+    <div data-automation-id="formField-password">
+      <input id="hidden-password" type="password" aria-hidden="true" />
+      <input id="password-input" type="password" aria-label="Password" />
+    </div>
+    <div data-automation-id="formField-emailAddress"><input id="info-email" type="email" /></div>
+  </body>`)
+  const doc = dom.window.document
+  const fields = workdayAccountInputs(doc)
+  assert.equal(isWorkdayAccountCreationForm(doc), false)
+  assert.equal(isWorkdaySignInForm(doc), true)
+  assert.equal(fields.email?.id, 'email-input')
+  assert.equal(fields.password?.id, 'password-input')
+  assert.equal(fields.verifyPassword, null)
+  assert.equal(workdaySignInInputs(doc).password?.id, 'password-input')
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayCreateAccountLink(doc), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('password-input')!), 'password')
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('decoy')!), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('info-email')!), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('email-input')!), 'email')
+  assert.equal(doc.getElementById('submit-sign-in')?.id, 'submit-sign-in')
 })
 
 test('signInLink is a sign-in control only off the create-account form', () => {
@@ -523,6 +556,42 @@ test('source apply handler does not click an Indeed option', async () => {
   const handled = await rule.apply(input, 'howdidyouhearaboutus', {} as PersonalInfo)
   assert.equal(handled, true)
   assert.equal(clicked, false)
+})
+
+test('sign-in password comes from the Workday application account, not the legacy field', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-email"><input id="email-input" type="text" value="" /></div>
+      <input data-automation-id="password" id="decoy" type="password" style="display:none" />
+      <input id="password-input" type="password" aria-label="Password" value="" />
+    </body>`,
+    { url: 'https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/login' },
+  )
+  const doc = dom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const email = doc.getElementById('email-input') as HTMLInputElement
+  const password = doc.getElementById('password-input') as HTMLInputElement
+  const decoy = doc.getElementById('decoy') as HTMLInputElement
+  const info = {
+    email: 'person@example.com',
+    accountPassword: '',
+    applicationAccounts: [
+      {
+        id: 1,
+        portal: 'Workday',
+        email: 'acct@example.com',
+        password: 'salesforce-secret',
+        requireConfirmation: false,
+      },
+    ],
+  } as PersonalInfo
+  assert.equal(await rule.apply(email, 'email', info), true)
+  assert.equal(email.value, 'acct@example.com')
+  assert.equal(await rule.apply(password, 'password', info), true)
+  assert.equal(password.value, 'salesforce-secret')
+  assert.equal(decoy.value, '')
+  assert.equal(await rule.apply(decoy, 'password', info), false)
 })
 
 test('country select maps united_states to United States and former-employee stays unanswered', async () => {

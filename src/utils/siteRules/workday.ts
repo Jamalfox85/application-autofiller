@@ -9,6 +9,7 @@ import {
 import {
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  isWorkdaySignInForm,
   workdayAccountAgreementCheckbox,
   workdayCreateAccountLink,
   workdayJobApplyButton,
@@ -16,6 +17,7 @@ import {
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
+  workdayAccountCredentialKind,
   workdayAccountInputs,
   workdayAccountSubmitControl,
   workdayActivePrompt,
@@ -106,13 +108,17 @@ export default function workdayConfig(): SiteRule {
               await new Promise((resolve) => setTimeout(resolve, 2000))
               return
             }
-            if (isWorkdayAccountCreationForm(document)) signInWithEmailClicked = true
+            if (isWorkdayAccountCreationForm(document) || isWorkdaySignInForm(document)) {
+              signInWithEmailClicked = true
+            }
           }
 
           // Step 3: Click "Create Account" only when that link is showing and the
-          // account form is not already open.
+          // account form is not already open. /login is a sign-in form; do not
+          // click Create Account again after that redirect.
           if (!createAccountClicked) {
-            const createAccountBtn = workdayCreateAccountLink(document)
+            if (isWorkdaySignInForm(document)) createAccountClicked = true
+            const createAccountBtn = createAccountClicked ? null : workdayCreateAccountLink(document)
 
             if (createAccountBtn) {
               createAccountClicked = true
@@ -127,7 +133,11 @@ export default function workdayConfig(): SiteRule {
           // the account submit control when the vault has no Workday login — tell the
           // user instead, and keep walking the rest of the form. My Information email
           // is a different control and must not be treated as this form.
-          if (!accountInputHandled && !accountCredentialsMissing && isWorkdayAccountCreationForm(document)) {
+          if (
+            !accountInputHandled &&
+            !accountCredentialsMissing &&
+            (isWorkdayAccountCreationForm(document) || isWorkdaySignInForm(document))
+          ) {
             const latest = await readPersonalInfoForWorkday(personalInfo)
             if (!hasWorkdayAccountCredentials(latest)) {
               accountCredentialsMissing = true
@@ -331,7 +341,7 @@ export default function workdayConfig(): SiteRule {
         if (areaName !== 'local' || accountInputHandled || !changes.personalInfo) return
         const next = changes.personalInfo.newValue as PersonalInfo | undefined
         if (!hasWorkdayAccountCredentials(next)) return
-        if (!isWorkdayAccountCreationForm(document)) return
+        if (!isWorkdayAccountCreationForm(document) && !isWorkdaySignInForm(document)) return
         accountCredentialsMissing = false
         accountInputHandled = true
         void handleAccountInput(next)
@@ -400,6 +410,32 @@ const fieldHandlers: Array<{
   {
     match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'phone',
     handle: async (input) => chooseWorkdaySelect(input, '', 'phone'),
+  },
+  {
+    // Create Account and /login. The password lives on the Workday Application
+    // Accounts row, not the legacy accountPassword field the generic matcher reads.
+    match: (input) => workdayAccountCredentialKind(input) != null,
+    handle: async (input, _, personalInfo) => {
+      const kind = workdayAccountCredentialKind(input)
+      if (!kind || input.tagName !== 'INPUT') return false
+      const latest = await readPersonalInfoForWorkday(personalInfo)
+      if (!hasWorkdayAccountCredentials(latest)) {
+        await publishMissingWorkdayAccountNotice()
+        return true
+      }
+      const account = getWorkdayAccount(latest)
+      const value = kind === 'email' ? account.email : account.password
+      if (!value) return true
+      const field = input as HTMLInputElement
+      if (kind === 'email') {
+        await fillWorkdayInput(field, value)
+      } else {
+        setReactInputValue(field, value)
+        const EventCtor = field.ownerDocument?.defaultView?.Event ?? Event
+        field.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+      }
+      return true
+    },
   },
   {
     match: (input) => workdayContactKeyFromElement(input) === 'firstName',
@@ -657,29 +693,41 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
     // Salesforce nests these under formField-*; Cisco puts the automation id on the input.
+    // /login has email + password and no verifyPassword. A hidden decoy password
+    // input must not win over the visible type=password field.
+    const creating = isWorkdayAccountCreationForm(document)
     const {
       email: emailInput,
       password: passwordInput,
       verifyPassword: verifyPasswordInput,
     } = workdayAccountInputs(document)
-    const createAccountCheckbox = workdayAccountAgreementCheckbox(document)
+    const createAccountCheckbox = creating ? workdayAccountAgreementCheckbox(document) : null
 
     console.log('Email input found:', !!emailInput)
     console.log('Password input found:', !!passwordInput)
     console.log('Verify password input found:', !!verifyPasswordInput)
     console.log('Checkbox found:', !!createAccountCheckbox)
 
-    if (!emailInput || !passwordInput || !verifyPasswordInput) {
+    if (!emailInput || !passwordInput || (creating && !verifyPasswordInput)) {
       console.error('Account form inputs missing; not submitting')
       return
     }
 
     await fillWorkdayInput(emailInput, workdayAccount.email)
+    const EventCtor = passwordInput.ownerDocument?.defaultView?.Event ?? Event
     setReactInputValue(passwordInput, workdayAccount.password)
-    passwordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
-    setReactInputValue(verifyPasswordInput, workdayAccount.password)
-    verifyPasswordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+    passwordInput.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+    if (verifyPasswordInput) {
+      setReactInputValue(verifyPasswordInput, workdayAccount.password)
+      verifyPasswordInput.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+    }
     await new Promise((resolve) => setTimeout(resolve, 300))
+
+    if (!creating) {
+      // Sign-in password is filled. Do not click Sign In; that is the candidate's click.
+      console.log('✓ Filled sign-in email and password')
+      return
+    }
 
     // Cisco has no agreement checkbox. Only click one when the tenant renders it.
     if (createAccountCheckbox && !createAccountCheckbox.checked) {

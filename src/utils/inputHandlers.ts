@@ -10,16 +10,16 @@ type ReactTrackedField = (HTMLInputElement | HTMLTextAreaElement) & {
 // Greenhouse text fields and react-select search boxes are controlled inputs, so a
 // plain `input.value = …` plus an input event never reaches the component.
 export function setReactInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const view = input.ownerDocument?.defaultView ?? window
   const proto =
-    input instanceof HTMLTextAreaElement
-      ? window.HTMLTextAreaElement.prototype
-      : window.HTMLInputElement.prototype
+    input.tagName === 'TEXTAREA' ? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype
   const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
   const previous = input.value
   setter?.call(input, value)
   const tracker = (input as ReactTrackedField)._valueTracker
   if (tracker) tracker.setValue(previous)
-  input.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' }))
+  const InputEventCtor = view.InputEvent ?? InputEvent
+  input.dispatchEvent(new InputEventCtor('input', { bubbles: true, data: value, inputType: 'insertText' }))
 }
 
 export async function fillNativeInput(
@@ -57,8 +57,10 @@ export async function fillWorkdayInput(
     // Workday apply fields are React controlled inputs. A plain value write
     // never reaches the component unless the value tracker is reset first.
     setReactInputValue(input, value)
-    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
-    input.dispatchEvent(new Event('blur', { bubbles: true, composed: true }))
+    // JSDOM nodes live in a different realm than the Node Event constructor.
+    const EventCtor = input.ownerDocument?.defaultView?.Event ?? Event
+    input.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+    input.dispatchEvent(new EventCtor('blur', { bubbles: true, composed: true }))
   } catch (error) {
     console.error('Error filling input:', error)
   }

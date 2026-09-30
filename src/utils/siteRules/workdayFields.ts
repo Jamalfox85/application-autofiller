@@ -130,19 +130,36 @@ export function isWorkdayAccountCreationForm(root: ParentNode): boolean {
   return !!(fields.email && fields.password && fields.verifyPassword)
 }
 
+// Salesforce Create Account can redirect to /login: email + password, no
+// verifyPassword. That page is sign-in, not My Information and not Create Account.
+export function isWorkdaySignInForm(root: ParentNode): boolean {
+  if (isWorkdayAccountCreationForm(root)) return false
+  const fields = workdayAccountInputs(root)
+  return !!(fields.email && fields.password && !fields.verifyPassword)
+}
+
+export function workdaySignInInputs(root: ParentNode): {
+  email: HTMLInputElement | null
+  password: HTMLInputElement | null
+} {
+  if (!isWorkdaySignInForm(root)) return { email: null, password: null }
+  const fields = workdayAccountInputs(root)
+  return { email: fields.email, password: fields.password }
+}
+
 // Cisco Apply Manually lands on Create Account with no SignInWithEmailButton.
 // Skip the sign-in click when that control is absent, and also once the account
-// form is already on the page. Salesforce's signInLink and Zillow's signInLink
-// plus utilityButtonSignIn must not pull us off Create Account.
+// form or the /login form is already on the page. Salesforce's signInLink and
+// Zillow's signInLink plus utilityButtonSignIn must not pull us off Create Account.
 export function workdaySignInWithEmailButton(root: ParentNode): HTMLElement | null {
-  if (isWorkdayAccountCreationForm(root)) return null
+  if (isWorkdayAccountCreationForm(root) || isWorkdaySignInForm(root)) return null
   return root.querySelector(
     `${WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR}, ${WORKDAY_SIGN_IN_LINK_SELECTOR}`,
   ) as HTMLElement | null
 }
 
 export function workdayCreateAccountLink(root: ParentNode): HTMLElement | null {
-  if (isWorkdayAccountCreationForm(root)) return null
+  if (isWorkdayAccountCreationForm(root) || isWorkdaySignInForm(root)) return null
   return root.querySelector(WORKDAY_CREATE_ACCOUNT_SELECTOR) as HTMLElement | null
 }
 
@@ -265,10 +282,104 @@ export type WorkdayAccountInputs = {
   verifyPassword: HTMLInputElement | null
 }
 
+function isAccountDecoy(el: Element): boolean {
+  const type = (el.getAttribute('type') || '').toLowerCase()
+  if (type === 'hidden') return true
+  if (el.getAttribute('aria-hidden') === 'true') return true
+  const auto = (el.getAttribute('data-automation-id') || '').toLowerCase()
+  if (auto.includes('beecatcher') || auto.includes('honeypot')) return true
+  const style = (el.getAttribute('style') || '').toLowerCase().replace(/\s+/g, '')
+  return style.includes('display:none') || style.includes('visibility:hidden')
+}
+
+function isVerifyPasswordInput(el: Element): boolean {
+  const wrapperId = el.closest('[data-automation-id]')?.getAttribute('data-automation-id') || ''
+  const path = el.closest('[data-fkit-id]')?.getAttribute('data-fkit-id') || ''
+  const blob = `${el.id} ${el.getAttribute('name') || ''} ${el.getAttribute('data-automation-id') || ''} ${wrapperId} ${path}`
+  return blob.toLowerCase().replace(/[^a-z]/g, '').includes('verifypassword')
+}
+
+function isMyInformationEmail(el: Element): boolean {
+  const wrapperId = el.closest('[data-automation-id]')?.getAttribute('data-automation-id') || ''
+  const path = el.closest('[data-fkit-id]')?.getAttribute('data-fkit-id') || ''
+  const blob = `${el.id} ${el.getAttribute('name') || ''} ${el.getAttribute('data-automation-id') || ''} ${wrapperId} ${path}`
+  return blob.toLowerCase().replace(/[^a-z]/g, '').includes('emailaddress')
+}
+
+function addAccountCandidate(found: HTMLInputElement[], el: Element | null) {
+  if (!el || el.tagName !== 'INPUT') return
+  const input = el as HTMLInputElement
+  if (found.includes(input) || isAccountDecoy(input)) return
+  found.push(input)
+}
+
+function workdayAccountCandidates(root: ParentNode, metadataId: string): HTMLInputElement[] {
+  const found: HTMLInputElement[] = []
+  for (const wrapped of Array.from(root.querySelectorAll(`[data-automation-id="formField-${metadataId}"]`))) {
+    if (isWorkdayTextControl(wrapped)) addAccountCandidate(found, wrapped)
+    for (const nested of Array.from(wrapped.querySelectorAll('input'))) addAccountCandidate(found, nested)
+  }
+  for (const direct of Array.from(root.querySelectorAll(`[data-automation-id="${metadataId}"]`))) {
+    if (isWorkdayTextControl(direct)) addAccountCandidate(found, direct)
+  }
+  for (const byPath of Array.from(
+    root.querySelectorAll(`[data-fkit-id$="--${metadataId}"], [data-fkit-id="${metadataId}"]`),
+  )) {
+    if (isWorkdayTextControl(byPath)) addAccountCandidate(found, byPath)
+    else for (const nested of Array.from(byPath.querySelectorAll('input'))) addAccountCandidate(found, nested)
+  }
+  if (metadataId === 'password') {
+    for (const input of Array.from(root.querySelectorAll('input[type="password"]'))) {
+      if (!isVerifyPasswordInput(input)) addAccountCandidate(found, input)
+    }
+  }
+  if (metadataId === 'email') {
+    for (const input of Array.from(
+      root.querySelectorAll('input[type="email"], input[autocomplete="username"]'),
+    )) {
+      if (!isMyInformationEmail(input)) addAccountCandidate(found, input)
+    }
+  }
+  return found
+}
+
 function workdayAccountInput(root: ParentNode, metadataId: string): HTMLInputElement | null {
-  const control = workdayFieldControl(root, metadataId)
-  if (!control || control.tagName !== 'INPUT') return null
-  return control as HTMLInputElement
+  let candidates = workdayAccountCandidates(root, metadataId)
+  if (metadataId === 'password') candidates = candidates.filter((el) => !isVerifyPasswordInput(el))
+  if (metadataId === 'verifyPassword') candidates = candidates.filter((el) => isVerifyPasswordInput(el))
+  if (metadataId === 'password') {
+    const typed = candidates.find((el) => (el.getAttribute('type') || '').toLowerCase() === 'password')
+    if (typed) return typed
+  }
+  return candidates[0] || null
+}
+
+// Account email / password / verify on Create Account or /login. My Information's
+// emailAddress control is not an account field.
+export function workdayAccountCredentialKind(
+  input: Element,
+): 'email' | 'password' | 'verifyPassword' | null {
+  if (input.tagName !== 'INPUT' || isAccountDecoy(input)) return null
+  if (isMyInformationEmail(input)) return null
+  if (isVerifyPasswordInput(input)) return 'verifyPassword'
+  const type = (input.getAttribute('type') || '').toLowerCase()
+  const auto = (input.getAttribute('data-automation-id') || '').toLowerCase()
+  const wrapper = (input.closest('[data-automation-id]')?.getAttribute('data-automation-id') || '').toLowerCase()
+  const compact = `${input.id} ${input.getAttribute('name') || ''} ${auto} ${wrapper}`
+    .toLowerCase()
+    .replace(/[^a-z]/g, '')
+  if (type === 'password' || compact.includes('password')) return 'password'
+  if (
+    auto === 'email' ||
+    wrapper === 'formfield-email' ||
+    type === 'email' ||
+    (input.getAttribute('autocomplete') || '').toLowerCase() === 'username' ||
+    compact === 'email' ||
+    compact.endsWith('email')
+  ) {
+    return 'email'
+  }
+  return null
 }
 
 // Fill targets for Create Account. Same resolution as other Workday fields.
