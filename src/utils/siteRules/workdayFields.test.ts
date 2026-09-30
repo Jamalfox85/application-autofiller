@@ -298,6 +298,75 @@ test('Salesforce /login fills the visible password and does not navigate away', 
   assert.equal(doc.getElementById('submit-sign-in')?.id, 'submit-sign-in')
 })
 
+test('Zillow /login uses the shared sign-in form and ignores a hidden create-account block', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <a data-automation-id="signInLink" id="sign-in-link">Sign In</a>
+      <button data-automation-id="utilityButtonSignIn" id="utility-sign-in">Sign In</button>
+      <a data-automation-id="createAccountLink" id="create">Create Account</a>
+      <div hidden id="register">
+        <input data-automation-id="email" id="reg-email" type="text" />
+        <input data-automation-id="password" id="reg-password" type="password" />
+        <input data-automation-id="verifyPassword" id="reg-verify" type="password" />
+        <button data-automation-id="click_filter" id="reg-submit">Create Account</button>
+      </div>
+      <form id="login">
+        <div data-automation-id="email"><input id="email-input" type="text" autocomplete="username" /></div>
+        <div data-automation-id="password">
+          <input id="password-input" type="password" autocomplete="current-password" />
+        </div>
+        <div data-automation-id="click_filter" id="sign-in-click" role="button" aria-label="Sign In">Sign In</div>
+        <button data-automation-id="signInSubmitButton" id="sign-in-submit" aria-hidden="true">Sign In</button>
+      </form>
+    </body>`,
+    { url: 'https://zillow.wd5.myworkdayjobs.com/en-US/Zillow_Group_External/login' },
+  )
+  const doc = dom.window.document
+  let signInClicks = 0
+  for (const id of ['sign-in-link', 'utility-sign-in', 'sign-in-click', 'sign-in-submit', 'create', 'reg-submit']) {
+    doc.getElementById(id)?.addEventListener('click', () => {
+      signInClicks += 1
+    })
+  }
+  const fields = workdayAccountInputs(doc)
+  assert.equal(isWorkdayAccountCreationForm(doc), false)
+  assert.equal(isWorkdaySignInForm(doc), true)
+  assert.equal(fields.email?.id, 'email-input')
+  assert.equal(fields.password?.id, 'password-input')
+  assert.equal(fields.verifyPassword, null)
+  assert.equal(workdaySignInInputs(doc).password?.id, 'password-input')
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayCreateAccountLink(doc), null)
+  assert.equal(workdayAccountSubmitControl(doc), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('password-input')!), 'password')
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('reg-password')!), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('email-input')!), 'email')
+
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const email = doc.getElementById('email-input') as HTMLInputElement
+  const password = doc.getElementById('password-input') as HTMLInputElement
+  const info = {
+    email: 'person@example.com',
+    accountPassword: '',
+    applicationAccounts: [
+      {
+        id: 1,
+        portal: 'Workday',
+        email: 'acct@example.com',
+        password: 'zillow-secret',
+        requireConfirmation: false,
+      },
+    ],
+  } as PersonalInfo
+  assert.equal(await rule.apply(email, 'email', info), true)
+  assert.equal(email.value, 'acct@example.com')
+  assert.equal(await rule.apply(password, 'password', info), true)
+  assert.equal(password.value, 'zillow-secret')
+  assert.equal((doc.getElementById('reg-password') as HTMLInputElement).value, '')
+  assert.equal(signInClicks, 0)
+})
+
 test('signInLink is a sign-in control only off the create-account form', () => {
   const dom = new JSDOM(`<!doctype html><body>
     <a data-automation-id="signInLink" id="sign-in">Sign In</a>

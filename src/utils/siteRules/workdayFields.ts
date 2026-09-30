@@ -130,8 +130,9 @@ export function isWorkdayAccountCreationForm(root: ParentNode): boolean {
   return !!(fields.email && fields.password && fields.verifyPassword)
 }
 
-// Salesforce Create Account can redirect to /login: email + password, no
-// verifyPassword. That page is sign-in, not My Information and not Create Account.
+// Salesforce and Zillow Create Account can redirect to the same Workday /login:
+// email + password, no visible verifyPassword. A hidden create-account block on
+// that page is not the sign-in form. It is not My Information either.
 export function isWorkdaySignInForm(root: ParentNode): boolean {
   if (isWorkdayAccountCreationForm(root)) return false
   const fields = workdayAccountInputs(root)
@@ -283,13 +284,20 @@ export type WorkdayAccountInputs = {
 }
 
 function isAccountDecoy(el: Element): boolean {
-  const type = (el.getAttribute('type') || '').toLowerCase()
-  if (type === 'hidden') return true
-  if (el.getAttribute('aria-hidden') === 'true') return true
-  const auto = (el.getAttribute('data-automation-id') || '').toLowerCase()
-  if (auto.includes('beecatcher') || auto.includes('honeypot')) return true
-  const style = (el.getAttribute('style') || '').toLowerCase().replace(/\s+/g, '')
-  return style.includes('display:none') || style.includes('visibility:hidden')
+  let node: Element | null = el
+  while (node) {
+    if (node === el) {
+      const type = (node.getAttribute('type') || '').toLowerCase()
+      if (type === 'hidden') return true
+      const auto = (node.getAttribute('data-automation-id') || '').toLowerCase()
+      if (auto.includes('beecatcher') || auto.includes('honeypot')) return true
+    }
+    if (node.getAttribute('aria-hidden') === 'true' || node.hasAttribute('hidden')) return true
+    const style = (node.getAttribute('style') || '').toLowerCase().replace(/\s+/g, '')
+    if (style.includes('display:none') || style.includes('visibility:hidden')) return true
+    node = node.parentElement
+  }
+  return false
 }
 
 function isVerifyPasswordInput(el: Element): boolean {
@@ -321,6 +329,7 @@ function workdayAccountCandidates(root: ParentNode, metadataId: string): HTMLInp
   }
   for (const direct of Array.from(root.querySelectorAll(`[data-automation-id="${metadataId}"]`))) {
     if (isWorkdayTextControl(direct)) addAccountCandidate(found, direct)
+    else for (const nested of Array.from(direct.querySelectorAll('input'))) addAccountCandidate(found, nested)
   }
   for (const byPath of Array.from(
     root.querySelectorAll(`[data-fkit-id$="--${metadataId}"], [data-fkit-id="${metadataId}"]`),

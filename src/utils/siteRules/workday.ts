@@ -55,6 +55,7 @@ export default function workdayConfig(): SiteRule {
       let signInWithEmailClicked = false
       let createAccountClicked = false
       let accountInputHandled = false
+      let accountFormMode = ''
       let accountCredentialsMissing = false
       let formStarted = false
       let educationStarted = false
@@ -133,6 +134,16 @@ export default function workdayConfig(): SiteRule {
           // the account submit control when the vault has no Workday login — tell the
           // user instead, and keep walking the rest of the form. My Information email
           // is a different control and must not be treated as this form.
+          // Create Account can client-route to /login without remounting. Salesforce
+          // and Zillow share that sign-in form, so fill its password even after the
+          // create form was already handled.
+          const accountMode = isWorkdayAccountCreationForm(document)
+            ? 'create'
+            : isWorkdaySignInForm(document)
+              ? 'sign-in'
+              : ''
+          if (accountMode === 'sign-in' && accountFormMode !== 'sign-in') accountInputHandled = false
+          if (accountMode) accountFormMode = accountMode
           if (
             !accountInputHandled &&
             !accountCredentialsMissing &&
