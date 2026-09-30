@@ -1,11 +1,7 @@
 import { ref } from 'vue'
 import type { Session, User } from '@supabase/supabase-js'
-import {
-  getStoredSession,
-  onAuthStateChanged,
-  signInWithGoogle,
-  signOut as signOutOfSupabase,
-} from '@/lib/auth'
+import { getStoredSession, onAuthStateChanged, signOut as signOutOfSupabase } from '@/lib/auth'
+import { isSupabaseAuthStorageKey } from '@/lib/googleAuth'
 import { USER_ID_KEY } from '@/services/billing/entitlementStore'
 import { flushPendingProfilePlan } from '@/services/billing/profilePlan'
 
@@ -37,21 +33,49 @@ function applySession(next: Session | null) {
   }
 }
 
+// The worker writes the Supabase session after this popup may already have
+// initialized as signed-out. onAuthStateChange does not cross extension
+// contexts, so a storage write is what flips an open popup to signed-in.
+function onStoredSessionChanged(
+  changes: Record<string, chrome.storage.StorageChange>,
+  areaName: chrome.storage.AreaName,
+) {
+  if (areaName !== 'local') return
+  if (status.value === 'signed-in') return
+  const wroteSession = Object.entries(changes).some(
+    ([key, change]) => isSupabaseAuthStorageKey(key) && change.newValue != null,
+  )
+  if (!wroteSession) return
+  void getStoredSession().then(applySession)
+}
+
 export function useAuth() {
   // Safe to call from every component that mounts useAuth — subscribes once per popup load.
   const initAuth = async () => {
     if (!unsubscribe) {
       unsubscribe = onAuthStateChanged(applySession)
+      chrome.storage.onChanged.addListener(onStoredSessionChanged)
     }
     applySession(await getStoredSession())
   }
 
+  // launchWebAuthFlow runs in the service worker. Calling it here opens the
+  // Google window, Chrome closes this popup, and the callback is cancelled
+  // before a session can be stored. If this document is still alive when the
+  // worker finishes, read the session it persisted; if the popup was torn
+  // down, the next open loads that session in initAuth.
   const signIn = async () => {
     isSigningIn.value = true
     signInError.value = ''
     try {
-      const { session: newSession } = await signInWithGoogle()
-      applySession(newSession)
+      const response = (await chrome.runtime.sendMessage({ action: 'signInWithGoogle' })) as
+        | { ok?: boolean; error?: string }
+        | undefined
+      if (!response?.ok) {
+        signInError.value = response?.error || 'Sign-in failed. Please try again.'
+        return
+      }
+      applySession(await getStoredSession())
     } catch (error) {
       signInError.value = error instanceof Error ? error.message : 'Sign-in failed. Please try again.'
     } finally {

@@ -52,6 +52,15 @@ await esbuild.build({
 })
 
 await esbuild.build({
+  entryPoints: ['src/services/googleSignInWorker.ts'],
+  outfile: 'dist/src/services/googleSignInWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})
+
+await esbuild.build({
   entryPoints: ['src/services/extensionPayContent.ts'],
   outfile: 'dist/extensionPayContent.js',
   format: 'iife',

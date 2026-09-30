@@ -13,6 +13,7 @@ import {
   mergeInstallSource,
 } from './src/services/installAttribution.js'
 import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
+import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 
 startExtensionPay()
@@ -395,6 +396,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       updateBadge('!', '#b05454')
     }
     sendResponse({ ok: true })
+    return true
+  }
+
+  if (request.action === 'signInWithGoogle') {
+    // Same reason as resume upload: the popup is destroyed when the Google
+    // account window takes focus, which cancels launchWebAuthFlow if it was
+    // started there. This worker outlives that and writes the Supabase session
+    // to chrome.storage.local. The popup re-reads it when the message returns,
+    // or on the next open if the popup already closed.
+    const reply = (payload) => {
+      try {
+        sendResponse(payload)
+      } catch (error) {
+        // The popup is already gone. A saved session is still in storage.
+        console.error('[google-sign-in] could not deliver the result to the popup', error)
+      }
+    }
+    signInWithGoogleInWorker()
+      .then(reply)
+      .catch((error) =>
+        reply({
+          ok: false,
+          error: error instanceof Error ? error.message : 'Sign-in failed. Please try again.',
+        }),
+      )
     return true
   }
 
