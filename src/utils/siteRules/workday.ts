@@ -9,6 +9,7 @@ import {
 import {
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  isWorkdaySignInForm,
   workdayAccountAgreementCheckbox,
   workdayCreateAccountLink,
   workdayJobApplyButton,
@@ -16,17 +17,28 @@ import {
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
+  workdayAccountCredentialKind,
   workdayAccountInputs,
   workdayAccountSubmitControl,
+  workdayActivePrompt,
   workdayContactKeyFromElement,
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
   workdayExperienceLocation,
   workdayFieldControl,
   workdayIsCustomSourceField,
+  workdayIsFormerEmployeeQuestion,
   workdayListboxButton,
+  workdayListboxValue,
+  workdayListedSearchText,
   workdayListedValueMatches,
+  workdayOptionElement,
+  workdayOptionLabels,
+  workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
+  workdayPromptSearchInput,
+  workdaySelectKind,
+  workdaySelectValue,
 } from './workdayFields.ts'
 
 var lastFormSignature = ''
@@ -43,12 +55,14 @@ export default function workdayConfig(): SiteRule {
       let signInWithEmailClicked = false
       let createAccountClicked = false
       let accountInputHandled = false
+      let accountFormMode = ''
       let accountCredentialsMissing = false
       let formStarted = false
       let educationStarted = false
       let phoneTypeHandled = false
       let countryHandled = false
       let stateHandled = false
+      let listboxBusy = false
       let disabilityHandled = false
       let selfIdNameHandled = false
       let selfIdDateHandled = false
@@ -95,13 +109,17 @@ export default function workdayConfig(): SiteRule {
               await new Promise((resolve) => setTimeout(resolve, 2000))
               return
             }
-            if (isWorkdayAccountCreationForm(document)) signInWithEmailClicked = true
+            if (isWorkdayAccountCreationForm(document) || isWorkdaySignInForm(document)) {
+              signInWithEmailClicked = true
+            }
           }
 
           // Step 3: Click "Create Account" only when that link is showing and the
-          // account form is not already open.
+          // account form is not already open. /login is a sign-in form; do not
+          // click Create Account again after that redirect.
           if (!createAccountClicked) {
-            const createAccountBtn = workdayCreateAccountLink(document)
+            if (isWorkdaySignInForm(document)) createAccountClicked = true
+            const createAccountBtn = createAccountClicked ? null : workdayCreateAccountLink(document)
 
             if (createAccountBtn) {
               createAccountClicked = true
@@ -116,7 +134,21 @@ export default function workdayConfig(): SiteRule {
           // the account submit control when the vault has no Workday login — tell the
           // user instead, and keep walking the rest of the form. My Information email
           // is a different control and must not be treated as this form.
-          if (!accountInputHandled && !accountCredentialsMissing && isWorkdayAccountCreationForm(document)) {
+          // Create Account can client-route to /login without remounting. Salesforce
+          // and Zillow share that sign-in form, so fill its password even after the
+          // create form was already handled.
+          const accountMode = isWorkdayAccountCreationForm(document)
+            ? 'create'
+            : isWorkdaySignInForm(document)
+              ? 'sign-in'
+              : ''
+          if (accountMode === 'sign-in' && accountFormMode !== 'sign-in') accountInputHandled = false
+          if (accountMode) accountFormMode = accountMode
+          if (
+            !accountInputHandled &&
+            !accountCredentialsMissing &&
+            (isWorkdayAccountCreationForm(document) || isWorkdaySignInForm(document))
+          ) {
             const latest = await readPersonalInfoForWorkday(personalInfo)
             if (!hasWorkdayAccountCredentials(latest)) {
               accountCredentialsMissing = true
@@ -160,69 +192,74 @@ export default function workdayConfig(): SiteRule {
             }
           }
 
-          // Step 6: Phone device type. Select Mobile or Cell from the list.
-          if (!phoneTypeHandled) {
-            const phoneTypeButton = workdayListboxButton(document, 'phoneType')
-            if (phoneTypeButton) {
-              const already = workdayPhoneTypeOption([phoneTypeButton.textContent || ''])
-              if (already) {
-                phoneTypeHandled = true
-              } else {
-                phoneTypeHandled = true
-                phoneTypeButton.click()
-                await new Promise((resolve) => setTimeout(resolve, 1000))
-                const optionText = workdayPhoneTypeOption(openListboxLabels())
-                const mobileOption = optionText ? openListboxOption(optionText) : null
-                if (mobileOption) {
-                  mobileOption.click()
-                  console.log('✓ Selected phone type:', optionText)
-                  await new Promise((resolve) => setTimeout(resolve, 500))
-                } else {
-                  console.error('Mobile phone type option not found')
+          // Steps 6–8 share one pass. A mutation while a menu is open used to start
+          // the state click against the still-open country list, and Georgia (the
+          // country) was selected for a Georgia address.
+          if (!listboxBusy) {
+            listboxBusy = true
+            try {
+              // Step 6: Phone device type. No profile field; Mobile or Cell is the default.
+              if (!phoneTypeHandled) {
+                const phoneTypeButton = workdayPhoneDeviceTypeButton(document)
+                if (phoneTypeButton) {
+                  const already = workdayPhoneTypeOption([workdayListboxValue(phoneTypeButton)])
+                  phoneTypeHandled = true
+                  if (!already) {
+                    const optionText = await chooseWorkdayListOption(phoneTypeButton, workdayPhoneTypeOption, '')
+                    if (optionText) {
+                      console.log('✓ Selected phone type:', optionText)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('Mobile phone type option not found')
+                    }
+                  }
                 }
               }
-            }
-          }
 
-          // Step 7: Country before state. The region list is empty until a country is chosen.
-          if (!countryHandled && personalInfo.country) {
-            const countryButton = workdayListboxButton(document, 'country')
-            if (countryButton) {
-              countryHandled = true
-              if (!workdayListedValueMatches(countryButton.textContent || '', personalInfo.country, 'country')) {
-                countryButton.click()
-                await new Promise((resolve) => setTimeout(resolve, 1000))
-                const label = matchingOptionText(openListboxLabels(), personalInfo.country, 'country')
-                const countryOption = label ? openListboxOption(label) : null
-                if (countryOption) {
-                  countryOption.click()
-                  console.log('✓ Selected country:', label)
-                  await new Promise((resolve) => setTimeout(resolve, 500))
-                } else {
-                  console.error('Country option not found for:', personalInfo.country)
+              // Step 7: Country before state. The region list is empty until a country is chosen.
+              // Profile values are slugs ("united_states"); the option label is not.
+              if (!countryHandled && personalInfo.country) {
+                const countryButton = workdayListboxButton(document, 'country')
+                if (countryButton) {
+                  countryHandled = true
+                  if (!workdayListedValueMatches(workdayListboxValue(countryButton), personalInfo.country, 'country')) {
+                    const label = await chooseWorkdayListOption(
+                      countryButton,
+                      (labels) => matchingOptionText(labels, personalInfo.country, 'country'),
+                      workdayListedSearchText(personalInfo.country, 'country'),
+                    )
+                    if (label) {
+                      console.log('✓ Selected country:', label)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('Country option not found for:', personalInfo.country)
+                    }
+                  }
                 }
               }
-            }
-          }
 
-          // Step 8: State / region. Match the full name when the profile stores an abbreviation.
-          if (!stateHandled && personalInfo.state) {
-            const stateButton = workdayListboxButton(document, 'countryRegion')
-            if (stateButton) {
-              stateHandled = true
-              if (!workdayListedValueMatches(stateButton.textContent || '', personalInfo.state, 'state')) {
-                stateButton.click()
-                await new Promise((resolve) => setTimeout(resolve, 1000))
-                const label = matchingOptionText(openListboxLabels(), personalInfo.state, 'state')
-                const stateOption = label ? openListboxOption(label) : null
-                if (stateOption) {
-                  stateOption.click()
-                  console.log('✓ Selected state:', label)
-                  await new Promise((resolve) => setTimeout(resolve, 500))
-                } else {
-                  console.error('State option not found for:', personalInfo.state)
+              // Step 8: State / region. Match the full name when the profile stores an abbreviation or slug.
+              if (!stateHandled && personalInfo.state) {
+                const stateButton = workdayListboxButton(document, 'countryRegion')
+                if (stateButton) {
+                  stateHandled = true
+                  if (!workdayListedValueMatches(workdayListboxValue(stateButton), personalInfo.state, 'state')) {
+                    const label = await chooseWorkdayListOption(
+                      stateButton,
+                      (labels) => matchingOptionText(labels, personalInfo.state, 'state'),
+                      workdayListedSearchText(personalInfo.state, 'state'),
+                    )
+                    if (label) {
+                      console.log('✓ Selected state:', label)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('State option not found for:', personalInfo.state)
+                    }
+                  }
                 }
               }
+            } finally {
+              listboxBusy = false
             }
           }
 
@@ -315,7 +352,7 @@ export default function workdayConfig(): SiteRule {
         if (areaName !== 'local' || accountInputHandled || !changes.personalInfo) return
         const next = changes.personalInfo.newValue as PersonalInfo | undefined
         if (!hasWorkdayAccountCredentials(next)) return
-        if (!isWorkdayAccountCreationForm(document)) return
+        if (!isWorkdayAccountCreationForm(document) && !isWorkdaySignInForm(document)) return
         accountCredentialsMissing = false
         accountInputHandled = true
         void handleAccountInput(next)
@@ -357,12 +394,59 @@ const fieldHandlers: Array<{
   handle: FieldHandler
 }> = [
   {
-    // Source / "How did you hear about us" is a tenant custom. Claiming it
-    // keeps the generic matcher from typing into it. v1 does not pick an option.
+    // Source / "How did you hear about us" and former-employee / email-id Yes/No
+    // are tenant customs. The vault has neither answer. Claiming them keeps the
+    // generic matcher from inventing Job Board, LinkedIn, Yes, or No.
     match: (input, fieldText) => {
-      return fieldText.includes('howdidyouhearaboutus') || workdayIsCustomSourceField(input)
+      return (
+        fieldText.includes('howdidyouhearaboutus') ||
+        workdayIsCustomSourceField(input) ||
+        workdayIsFormerEmployeeQuestion(fieldText)
+      )
     },
     handle: async () => true,
+  },
+  {
+    match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'country',
+    handle: async (input, _, personalInfo) => {
+      return chooseWorkdaySelect(input, personalInfo.country || '', 'country')
+    },
+  },
+  {
+    match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'state',
+    handle: async (input, _, personalInfo) => {
+      return chooseWorkdaySelect(input, personalInfo.state || '', 'state')
+    },
+  },
+  {
+    match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'phone',
+    handle: async (input) => chooseWorkdaySelect(input, '', 'phone'),
+  },
+  {
+    // Create Account and /login. The password lives on the Workday Application
+    // Accounts row, not the legacy accountPassword field the generic matcher reads.
+    match: (input) => workdayAccountCredentialKind(input) != null,
+    handle: async (input, _, personalInfo) => {
+      const kind = workdayAccountCredentialKind(input)
+      if (!kind || input.tagName !== 'INPUT') return false
+      const latest = await readPersonalInfoForWorkday(personalInfo)
+      if (!hasWorkdayAccountCredentials(latest)) {
+        await publishMissingWorkdayAccountNotice()
+        return true
+      }
+      const account = getWorkdayAccount(latest)
+      const value = kind === 'email' ? account.email : account.password
+      if (!value) return true
+      const field = input as HTMLInputElement
+      if (kind === 'email') {
+        await fillWorkdayInput(field, value)
+      } else {
+        setReactInputValue(field, value)
+        const EventCtor = field.ownerDocument?.defaultView?.Event ?? Event
+        field.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+      }
+      return true
+    },
   },
   {
     match: (input) => workdayContactKeyFromElement(input) === 'firstName',
@@ -446,17 +530,93 @@ const announceMissingWorkdayAccount = async (personalInfo: PersonalInfo | null |
   }
 }
 
-function openListboxLabels(): string[] {
-  return Array.from(document.querySelectorAll('[role="option"]'))
-    .map((el) => (el.textContent || '').trim())
-    .filter(Boolean)
+let openListbox: HTMLButtonElement | null = null
+
+function collapseOpenListbox() {
+  const button = openListbox
+  openListbox = null
+  if (!button?.isConnected) return
+  if (button.getAttribute('aria-expanded') === 'true') {
+    button.click()
+    return
+  }
+  button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
 }
 
-function openListboxOption(label: string): HTMLElement | null {
-  const match = Array.from(document.querySelectorAll('[role="option"]')).find(
-    (el) => (el.textContent || '').trim() === label,
+// Open one prompt, optionally filter it, and click the picked label inside that
+// prompt only. Escape closes a miss so the next field cannot click a leftover option.
+async function chooseWorkdayListOption(
+  button: HTMLButtonElement,
+  pick: (labels: string[]) => string | null,
+  searchText: string,
+): Promise<string | null> {
+  collapseOpenListbox()
+  openListbox = button
+  button.click()
+  const started = Date.now()
+  let typed = false
+  let missesAfterType = 0
+  while (Date.now() - started < 1500) {
+    const prompt = workdayActivePrompt(button)
+    if (!prompt) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      continue
+    }
+    if (searchText && !typed) {
+      const search = workdayPromptSearchInput(prompt)
+      if (search) {
+        await fillWorkdayInput(search, searchText)
+        typed = true
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        continue
+      }
+    }
+    const labels = workdayOptionLabels(prompt)
+    const label = labels.length > 0 ? pick(labels) : null
+    if (label) {
+      const option = workdayOptionElement(prompt, label)
+      if (option) {
+        option.click()
+        openListbox = null
+        return label
+      }
+    }
+    // A visible slice that does not contain the target is not a click. After a
+    // search, give the filtered rows a moment to replace that slice.
+    if (labels.length > 0 && (!searchText || typed)) {
+      if (typed && missesAfterType < 3) {
+        missesAfterType++
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        continue
+      }
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  collapseOpenListbox()
+  return null
+}
+
+function chooseWorkdaySelect(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  desired: string,
+  kind: 'country' | 'state' | 'phone',
+): boolean {
+  // tagName, not instanceof: the element can come from a frame whose
+  // HTMLSelectElement is not this window's constructor.
+  if (input.tagName !== 'SELECT') return true
+  const select = input as HTMLSelectElement
+  const value = workdaySelectValue(
+    Array.from(select.options).map((option) => ({ value: option.value, text: option.text })),
+    desired,
+    kind,
   )
-  return (match as HTMLElement) || null
+  if (!value || select.value === value) return true
+  select.value = value
+  const EventCtor = select.ownerDocument.defaultView?.Event ?? Event
+  select.dispatchEvent(new EventCtor('input', { bubbles: true }))
+  select.dispatchEvent(new EventCtor('change', { bubbles: true }))
+  return true
 }
 
 function checkboxLabel(input: HTMLInputElement): string {
@@ -544,29 +704,41 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
     // Salesforce nests these under formField-*; Cisco puts the automation id on the input.
+    // /login has email + password and no verifyPassword. A hidden decoy password
+    // input must not win over the visible type=password field.
+    const creating = isWorkdayAccountCreationForm(document)
     const {
       email: emailInput,
       password: passwordInput,
       verifyPassword: verifyPasswordInput,
     } = workdayAccountInputs(document)
-    const createAccountCheckbox = workdayAccountAgreementCheckbox(document)
+    const createAccountCheckbox = creating ? workdayAccountAgreementCheckbox(document) : null
 
     console.log('Email input found:', !!emailInput)
     console.log('Password input found:', !!passwordInput)
     console.log('Verify password input found:', !!verifyPasswordInput)
     console.log('Checkbox found:', !!createAccountCheckbox)
 
-    if (!emailInput || !passwordInput || !verifyPasswordInput) {
+    if (!emailInput || !passwordInput || (creating && !verifyPasswordInput)) {
       console.error('Account form inputs missing; not submitting')
       return
     }
 
     await fillWorkdayInput(emailInput, workdayAccount.email)
+    const EventCtor = passwordInput.ownerDocument?.defaultView?.Event ?? Event
     setReactInputValue(passwordInput, workdayAccount.password)
-    passwordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
-    setReactInputValue(verifyPasswordInput, workdayAccount.password)
-    verifyPasswordInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+    passwordInput.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+    if (verifyPasswordInput) {
+      setReactInputValue(verifyPasswordInput, workdayAccount.password)
+      verifyPasswordInput.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+    }
     await new Promise((resolve) => setTimeout(resolve, 300))
+
+    if (!creating) {
+      // Sign-in password is filled. Do not click Sign In; that is the candidate's click.
+      console.log('✓ Filled sign-in email and password')
+      return
+    }
 
     // Cisco has no agreement checkbox. Only click one when the tenant renders it.
     if (createAccountCheckbox && !createAccountCheckbox.checked) {

@@ -8,23 +8,37 @@ import {
   WORKDAY_SIGN_IN_WITH_EMAIL_SELECTOR,
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
+  isWorkdaySignInForm,
   workdayAccountAgreementCheckbox,
+  workdayAccountCredentialKind,
   workdayAccountInputs,
   workdayCreateAccountLink,
   workdayFieldControl,
   workdayJobApplyButton,
+  workdaySignInInputs,
   workdaySignInWithEmailButton,
   listWorkdayPanels,
   matchingOptionText,
   nextWorkdayFormSignature,
   workdayAccountSubmitControl,
+  workdayActivePrompt,
   workdayContactKey,
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
   workdayExperienceLocation,
   workdayIsCustomSourceField,
+  workdayIsFormerEmployeeQuestion,
+  workdayListboxButton,
+  workdayListboxValue,
+  workdayListedSearchText,
+  workdayListedValueMatches,
+  workdayOptionElement,
+  workdayOptionLabels,
+  workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
   workdaySectionKindFromLabel,
+  workdaySelectKind,
+  workdaySelectValue,
 } from './workdayFields.ts'
 
 const probe = (attrs: Record<string, string>) => ({
@@ -254,6 +268,105 @@ test('Salesforce click_filter fallback stays inside the formField account card',
   assert.equal(workdayAccountSubmitControl(doc)?.id, 'account-filter')
 })
 
+test('Salesforce /login fills the visible password and does not navigate away', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <a data-automation-id="signInLink" id="sign-in">Sign In</a>
+    <a data-automation-id="createAccountLink" id="create">Create Account</a>
+    <button data-automation-id="signInSubmitButton" id="submit-sign-in">Sign In</button>
+    <div data-automation-id="formField-email"><input id="email-input" type="text" /></div>
+    <input data-automation-id="password" id="decoy" type="text" aria-hidden="true" tabindex="-1" />
+    <div data-automation-id="formField-password">
+      <input id="hidden-password" type="password" aria-hidden="true" />
+      <input id="password-input" type="password" aria-label="Password" />
+    </div>
+    <div data-automation-id="formField-emailAddress"><input id="info-email" type="email" /></div>
+  </body>`)
+  const doc = dom.window.document
+  const fields = workdayAccountInputs(doc)
+  assert.equal(isWorkdayAccountCreationForm(doc), false)
+  assert.equal(isWorkdaySignInForm(doc), true)
+  assert.equal(fields.email?.id, 'email-input')
+  assert.equal(fields.password?.id, 'password-input')
+  assert.equal(fields.verifyPassword, null)
+  assert.equal(workdaySignInInputs(doc).password?.id, 'password-input')
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayCreateAccountLink(doc), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('password-input')!), 'password')
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('decoy')!), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('info-email')!), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('email-input')!), 'email')
+  assert.equal(doc.getElementById('submit-sign-in')?.id, 'submit-sign-in')
+})
+
+test('Zillow /login uses the shared sign-in form and ignores a hidden create-account block', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <a data-automation-id="signInLink" id="sign-in-link">Sign In</a>
+      <button data-automation-id="utilityButtonSignIn" id="utility-sign-in">Sign In</button>
+      <a data-automation-id="createAccountLink" id="create">Create Account</a>
+      <div hidden id="register">
+        <input data-automation-id="email" id="reg-email" type="text" />
+        <input data-automation-id="password" id="reg-password" type="password" />
+        <input data-automation-id="verifyPassword" id="reg-verify" type="password" />
+        <button data-automation-id="click_filter" id="reg-submit">Create Account</button>
+      </div>
+      <form id="login">
+        <div data-automation-id="email"><input id="email-input" type="text" autocomplete="username" /></div>
+        <div data-automation-id="password">
+          <input id="password-input" type="password" autocomplete="current-password" />
+        </div>
+        <div data-automation-id="click_filter" id="sign-in-click" role="button" aria-label="Sign In">Sign In</div>
+        <button data-automation-id="signInSubmitButton" id="sign-in-submit" aria-hidden="true">Sign In</button>
+      </form>
+    </body>`,
+    { url: 'https://zillow.wd5.myworkdayjobs.com/en-US/Zillow_Group_External/login' },
+  )
+  const doc = dom.window.document
+  let signInClicks = 0
+  for (const id of ['sign-in-link', 'utility-sign-in', 'sign-in-click', 'sign-in-submit', 'create', 'reg-submit']) {
+    doc.getElementById(id)?.addEventListener('click', () => {
+      signInClicks += 1
+    })
+  }
+  const fields = workdayAccountInputs(doc)
+  assert.equal(isWorkdayAccountCreationForm(doc), false)
+  assert.equal(isWorkdaySignInForm(doc), true)
+  assert.equal(fields.email?.id, 'email-input')
+  assert.equal(fields.password?.id, 'password-input')
+  assert.equal(fields.verifyPassword, null)
+  assert.equal(workdaySignInInputs(doc).password?.id, 'password-input')
+  assert.equal(workdaySignInWithEmailButton(doc), null)
+  assert.equal(workdayCreateAccountLink(doc), null)
+  assert.equal(workdayAccountSubmitControl(doc), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('password-input')!), 'password')
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('reg-password')!), null)
+  assert.equal(workdayAccountCredentialKind(doc.getElementById('email-input')!), 'email')
+
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const email = doc.getElementById('email-input') as HTMLInputElement
+  const password = doc.getElementById('password-input') as HTMLInputElement
+  const info = {
+    email: 'person@example.com',
+    accountPassword: '',
+    applicationAccounts: [
+      {
+        id: 1,
+        portal: 'Workday',
+        email: 'acct@example.com',
+        password: 'zillow-secret',
+        requireConfirmation: false,
+      },
+    ],
+  } as PersonalInfo
+  assert.equal(await rule.apply(email, 'email', info), true)
+  assert.equal(email.value, 'acct@example.com')
+  assert.equal(await rule.apply(password, 'password', info), true)
+  assert.equal(password.value, 'zillow-secret')
+  assert.equal((doc.getElementById('reg-password') as HTMLInputElement).value, '')
+  assert.equal(signInClicks, 0)
+})
+
 test('signInLink is a sign-in control only off the create-account form', () => {
   const dom = new JSDOM(`<!doctype html><body>
     <a data-automation-id="signInLink" id="sign-in">Sign In</a>
@@ -375,13 +488,49 @@ test('date parts accept the canvas -input suffix and the short automation id', (
 
 test('dropdown labels match state abbreviations and phone device types', () => {
   assert.equal(matchingOptionText(['Select One', 'California', 'Colorado'], 'CA', 'state'), 'California')
+  assert.equal(matchingOptionText(['New York', 'New Jersey'], 'New_York', 'state'), 'New York')
   assert.equal(
     matchingOptionText(['United States of America', 'Canada'], 'United States', 'country'),
     'United States of America',
   )
   assert.equal(workdayPhoneTypeOption(['Work', 'Home', 'Mobile']), 'Mobile')
   assert.equal(workdayPhoneTypeOption(['Landline', 'Cell Phone']), 'Cell Phone')
+  assert.equal(workdayPhoneTypeOption(['Landline', 'Cellular Phone']), 'Cellular Phone')
   assert.equal(workdayPhoneTypeOption(['Work', 'Fax']), null)
+  assert.equal(workdayPhoneTypeOption(['Georgia', 'United States of America']), null)
+})
+
+test('united_states selects United States of America and not the country Georgia', () => {
+  const options = ['Select One', 'Georgia', 'Germany', 'United States of America', 'Canada']
+  assert.equal(matchingOptionText(options, 'united_states', 'country'), 'United States of America')
+  assert.equal(matchingOptionText(options, 'USA', 'country'), 'United States of America')
+  assert.equal(matchingOptionText(['Georgia', 'Germany', 'Canada'], 'united_states', 'country'), null)
+  assert.equal(workdayListedValueMatches('Georgia', 'united_states', 'country'), false)
+  assert.equal(workdayListedValueMatches('United States of America', 'united_states', 'country'), true)
+  assert.equal(workdayListedSearchText('united_states', 'country'), 'united states')
+  assert.equal(workdayListedSearchText('CA', 'state'), 'california')
+  assert.equal(
+    workdaySelectValue(
+      [
+        { value: 'GE', text: 'Georgia' },
+        { value: 'US', text: 'United States of America' },
+      ],
+      'united_states',
+      'country',
+    ),
+    'US',
+  )
+  assert.equal(
+    workdaySelectValue(
+      [
+        { value: 'land', text: 'Landline' },
+        { value: 'mob', text: 'Mobile' },
+      ],
+      '',
+      'phone',
+    ),
+    'mob',
+  )
 })
 
 test('disability options match labels instead of a fixed index', () => {
@@ -399,6 +548,63 @@ test('experience location skips missing city or state', () => {
   assert.equal(workdayExperienceLocation('Austin', 'TX'), 'Austin, TX')
   assert.equal(workdayExperienceLocation('Austin', ''), 'Austin')
   assert.equal(workdayExperienceLocation(undefined, undefined), '')
+})
+
+test('Cisco prompts expose country and phone device options without role=option', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button id="country" name="country" aria-haspopup="listbox" aria-controls="country-list">
+      <span data-automation-id="promptSelectionLabel">Georgia</span>
+    </button>
+    <div id="country-list" role="listbox">
+      <div data-automation-id="promptOption" data-automation-label="Georgia">Georgia</div>
+      <div data-automation-id="promptOption" data-automation-label="United States of America">United States of America</div>
+    </div>
+    <button id="state" name="countryRegion" aria-haspopup="listbox" aria-controls="state-list"></button>
+    <div id="state-list" role="listbox">
+      <div role="option">Georgia</div>
+      <div role="option">California</div>
+    </div>
+    <button data-automation-id="phone-device-type" id="device">Select One</button>
+    <div data-automation-id="responsiveMonikerPrompt" id="phone-menu">
+      <div data-automation-id="promptOption" data-automation-label="Landline">Landline</div>
+      <div data-automation-id="promptOption" data-automation-label="Mobile">Mobile</div>
+      <div data-automation-id="promptOption" data-automation-label="Fax">Fax</div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const countryButton = doc.getElementById('country') as HTMLButtonElement
+  const stateButton = doc.getElementById('state') as HTMLButtonElement
+  assert.equal(workdayListboxValue(countryButton), 'Georgia')
+  assert.equal(workdayListedValueMatches(workdayListboxValue(countryButton), 'united_states', 'country'), false)
+  const countryPrompt = workdayActivePrompt(countryButton)!
+  assert.equal(
+    matchingOptionText(workdayOptionLabels(countryPrompt), 'united_states', 'country'),
+    'United States of America',
+  )
+  assert.equal(workdayOptionElement(countryPrompt, 'United States of America')?.parentElement?.id, 'country-list')
+  const statePrompt = workdayActivePrompt(stateButton)!
+  assert.equal(statePrompt, doc.getElementById('state-list'))
+  assert.equal(matchingOptionText(workdayOptionLabels(statePrompt), 'Georgia', 'state'), 'Georgia')
+  assert.equal(workdayOptionElement(statePrompt, 'Georgia')?.parentElement?.id, 'state-list')
+  assert.equal(workdayPhoneDeviceTypeButton(doc)?.id, 'device')
+  assert.equal(workdayPhoneTypeOption(workdayOptionLabels(doc.getElementById('phone-menu')!)), 'Mobile')
+  assert.equal(workdayListboxButton(doc, 'countryRegion')?.id, 'state')
+})
+
+test('address selects are country, state, and phone device type', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <select id="address--country"></select>
+    <select id="addressSection_countryRegion"></select>
+    <select id="phone-device-type"></select>
+    <select id="countryPhoneCode"></select>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(workdaySelectKind(doc.getElementById('address--country')!), 'country')
+  assert.equal(workdaySelectKind(doc.getElementById('addressSection_countryRegion')!), 'state')
+  assert.equal(workdaySelectKind(doc.getElementById('phone-device-type')!), 'phone')
+  assert.equal(workdaySelectKind(doc.getElementById('countryPhoneCode')!), null)
+  assert.equal(workdayIsFormerEmployeeQuestion('have you ever been a cisco employee or do you have an email id'), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('emailaddress'), false)
 })
 
 test('source apply handler does not click an Indeed option', async () => {
@@ -419,4 +625,79 @@ test('source apply handler does not click an Indeed option', async () => {
   const handled = await rule.apply(input, 'howdidyouhearaboutus', {} as PersonalInfo)
   assert.equal(handled, true)
   assert.equal(clicked, false)
+})
+
+test('sign-in password comes from the Workday application account, not the legacy field', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-email"><input id="email-input" type="text" value="" /></div>
+      <input data-automation-id="password" id="decoy" type="password" style="display:none" />
+      <input id="password-input" type="password" aria-label="Password" value="" />
+    </body>`,
+    { url: 'https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/login' },
+  )
+  const doc = dom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const email = doc.getElementById('email-input') as HTMLInputElement
+  const password = doc.getElementById('password-input') as HTMLInputElement
+  const decoy = doc.getElementById('decoy') as HTMLInputElement
+  const info = {
+    email: 'person@example.com',
+    accountPassword: '',
+    applicationAccounts: [
+      {
+        id: 1,
+        portal: 'Workday',
+        email: 'acct@example.com',
+        password: 'salesforce-secret',
+        requireConfirmation: false,
+      },
+    ],
+  } as PersonalInfo
+  assert.equal(await rule.apply(email, 'email', info), true)
+  assert.equal(email.value, 'acct@example.com')
+  assert.equal(await rule.apply(password, 'password', info), true)
+  assert.equal(password.value, 'salesforce-secret')
+  assert.equal(decoy.value, '')
+  assert.equal(await rule.apply(decoy, 'password', info), false)
+})
+
+test('country select maps united_states to United States and former-employee stays unanswered', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <select id="address--country">
+        <option value="">Select One</option>
+        <option value="GE">Georgia</option>
+        <option value="US">United States of America</option>
+      </select>
+      <select id="former-employee">
+        <option value="">Select One</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+      <select id="phone-device-type">
+        <option value="">Select One</option>
+        <option value="land">Landline</option>
+        <option value="mob">Mobile</option>
+      </select>
+    </body>`,
+    { url: 'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/apply' },
+  )
+  const doc = dom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const country = doc.getElementById('address--country') as HTMLSelectElement
+  const former = doc.getElementById('former-employee') as HTMLSelectElement
+  const phone = doc.getElementById('phone-device-type') as HTMLSelectElement
+  const info = { country: 'united_states', state: 'Georgia', email: 'ada@example.com' } as PersonalInfo
+  assert.equal(await rule.apply(country, 'country', info), true)
+  assert.equal(country.value, 'US')
+  assert.equal(
+    await rule.apply(former, 'haveyoueverbeenaciscoemployeeordoyouhaveanemailid', info),
+    true,
+  )
+  assert.equal(former.value, '')
+  assert.equal(await rule.apply(phone, 'phonedevicetype', info), true)
+  assert.equal(phone.value, 'mob')
 })
