@@ -1,6 +1,7 @@
 import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
 import { bestOptionIndex } from './optionMatch.ts'
 import { coerceFillText } from './fillValue.ts'
+import { bambooOwnedMenu, chooseBambooOptionText } from './siteRules/bamboohrFields.ts'
 
 type ReactTrackedField = (HTMLInputElement | HTMLTextAreaElement) & {
   _valueTracker?: { setValue: (value: string) => void }
@@ -509,10 +510,111 @@ export async function setDateValue(input: HTMLInputElement, matchedValue: string
 
   return true
 }
-// When set, chooses one visible menu label. The default path (state) is unchanged.
+// When set, chooses one visible menu label. Callers pass the country or state
+// picker. There is no first-row fallback: that clicked Uganda on the country list.
 export type BambooMenuPicker = (optionTexts: string[]) => string | null
 
+let bambooSelectChain: Promise<void> = Promise.resolve()
+
+function bambooDelay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function bambooKey(target: Element, type: string, key: string) {
+  const View = target.ownerDocument?.defaultView
+  const Ctor = View?.KeyboardEvent ?? KeyboardEvent
+  return new Ctor(type, {
+    key,
+    code: key === 'Enter' ? 'Enter' : key,
+    bubbles: true,
+    cancelable: true,
+  })
+}
+
+function bambooInputEvent(target: Element, type: string) {
+  const View = target.ownerDocument?.defaultView
+  const Ctor = View?.Event ?? Event
+  return new Ctor(type, { bubbles: true })
+}
+
+function bambooClick(target: Element) {
+  const View = target.ownerDocument?.defaultView
+  const Ctor = View?.MouseEvent ?? MouseEvent
+  target.dispatchEvent(new Ctor('click', { bubbles: true, cancelable: true }))
+}
+
+function dismissOtherBambooMenus(toggle: HTMLElement) {
+  const doc = toggle.ownerDocument
+  if (!doc) return
+  const open = doc.querySelectorAll('button.fab-SelectToggle[aria-expanded="true"]')
+  for (const button of Array.from(open)) {
+    if (button === toggle) continue
+    button.dispatchEvent(bambooKey(button, 'keydown', 'Escape'))
+  }
+}
+
+function bambooMenuReady(menu: HTMLElement): boolean {
+  return !!menu.querySelector('input.fab-MenuSearch__input, [role="menuitem"]')
+}
+
+async function openBambooMenu(toggle: HTMLButtonElement): Promise<HTMLElement | null> {
+  // Close any other Fabric menu first. The country list stays mounted at the
+  // top of the document, and a later state fill used to type into it.
+  dismissOtherBambooMenus(toggle)
+  const existing = bambooOwnedMenu(toggle)
+  if (existing) {
+    if (bambooMenuReady(existing)) return existing
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await bambooDelay(100)
+      const menu = bambooOwnedMenu(toggle)
+      if (menu && bambooMenuReady(menu)) return menu
+    }
+    return null
+  }
+
+  // Fabric opens this menu on a click. Enter leaves aria-expanded false, so the
+  // province and country toggles never reveal their options.
+  console.log('[fillBambooHRSelect] Focusing select button')
+  toggle.focus()
+  bambooClick(toggle)
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const menu = bambooOwnedMenu(toggle)
+    if (menu && bambooMenuReady(menu)) return menu
+    await bambooDelay(50)
+  }
+
+  console.log('[fillBambooHRSelect] Pressing Enter to open dropdown')
+  toggle.dispatchEvent(bambooKey(toggle, 'keydown', 'Enter'))
+  toggle.dispatchEvent(bambooKey(toggle, 'keyup', 'Enter'))
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const menu = bambooOwnedMenu(toggle)
+    if (
+      menu &&
+      (menu.querySelector('input.fab-MenuSearch__input') || menu.querySelector('[role="menuitem"]'))
+    ) {
+      return menu
+    }
+    await bambooDelay(100)
+  }
+  return null
+}
+
 export const fillBambooHRSelect = (
+  selectButton: HTMLButtonElement,
+  value: string | string[],
+  pick?: BambooMenuPicker,
+): Promise<void> => {
+  const job = bambooSelectChain.then(() => fillBambooHRSelectNow(selectButton, value, pick))
+  bambooSelectChain = job.then(
+    () => undefined,
+    () => undefined,
+  )
+  return job
+}
+
+const fillBambooHRSelectNow = (
   selectButton: HTMLButtonElement,
   value: string | string[],
   pick?: BambooMenuPicker,
@@ -538,82 +640,42 @@ export const fillBambooHRSelect = (
       console.log(`[fillBambooHRSelect] Attempting: "${currentValue}"`)
 
       try {
-        // Step 1: Focus the button
-        console.log('[fillBambooHRSelect] Focusing select button')
-        selectButton.focus()
-        await new Promise((r) => setTimeout(r, 100))
-
-        // Step 2: Press Enter or Space to open the dropdown
-        console.log('[fillBambooHRSelect] Pressing Enter to open dropdown')
-        selectButton.dispatchEvent(
-          new KeyboardEvent('keydown', {
-            key: 'Enter',
-            code: 'Enter',
-            bubbles: true,
-            cancelable: true,
-          }),
-        )
-        selectButton.dispatchEvent(
-          new KeyboardEvent('keyup', {
-            key: 'Enter',
-            code: 'Enter',
-            bubbles: true,
-            cancelable: true,
-          }),
-        )
-
-        // Wait for the dropdown to render
-        await new Promise((r) => setTimeout(r, 600))
-
-        // Step 3: Wait for the search input to appear
-        let searchInput: HTMLInputElement | null = null
-        let retries = 0
-        while (!searchInput && retries < 30) {
-          await new Promise((r) => setTimeout(r, 100))
-          searchInput = document.querySelector('.fab-MenuSearch__input') as HTMLInputElement
-          console.log(`[fillBambooHRSelect] Searching for input... attempt ${retries + 1}`)
-          retries++
-        }
-
-        if (!searchInput) {
+        const menu = await openBambooMenu(selectButton)
+        if (!menu) {
           console.log('[fillBambooHRSelect] Search input never appeared')
-          await new Promise((r) => setTimeout(r, 300))
+          await bambooDelay(300)
           tryNextValue()
           return
         }
 
-        console.log('[fillBambooHRSelect] Search input found, typing value')
+        const searchInput = menu.querySelector('input.fab-MenuSearch__input') as HTMLInputElement | null
+        if (searchInput) {
+          console.log('[fillBambooHRSelect] Search input found, typing value')
+          searchInput.focus()
+          searchInput.value = ''
+          searchInput.dispatchEvent(bambooInputEvent(searchInput, 'input'))
+          searchInput.dispatchEvent(bambooInputEvent(searchInput, 'change'))
+          await bambooDelay(100)
 
-        // Step 4: Focus and type into the search input
-        searchInput.focus()
-        searchInput.value = ''
-        searchInput.dispatchEvent(new Event('input', { bubbles: true }))
-        searchInput.dispatchEvent(new Event('change', { bubbles: true }))
-
-        await new Promise((r) => setTimeout(r, 100))
-
-        // Type the value character by character
-        for (const char of currentValue) {
-          searchInput.value += char
-          searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
-          searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
-          searchInput.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
-          searchInput.dispatchEvent(new Event('input', { bubbles: true }))
-          searchInput.dispatchEvent(new Event('change', { bubbles: true }))
-
-          await new Promise((r) => setTimeout(r, 50))
+          for (const char of currentValue) {
+            searchInput.value += char
+            searchInput.dispatchEvent(bambooKey(searchInput, 'keydown', char))
+            searchInput.dispatchEvent(bambooKey(searchInput, 'keypress', char))
+            searchInput.dispatchEvent(bambooKey(searchInput, 'keyup', char))
+            searchInput.dispatchEvent(bambooInputEvent(searchInput, 'input'))
+            searchInput.dispatchEvent(bambooInputEvent(searchInput, 'change'))
+            await bambooDelay(50)
+          }
         }
 
-        // Step 5: Wait for options to appear and click the match.
-        const found = await waitForBambooHROption(currentValue, 20, 0, pick)
+        const found = await waitForBambooHROption(menu, currentValue, 20, 0, pick)
 
         if (found) {
-          await new Promise((r) => setTimeout(r, 300))
+          await bambooDelay(300)
           cleanup()
         } else {
-          // Try next value
           console.log(`[fillBambooHRSelect] No match for "${currentValue}", trying next`)
-          await new Promise((r) => setTimeout(r, 300))
+          await bambooDelay(300)
           tryNextValue()
         }
       } catch (error) {
@@ -627,13 +689,14 @@ export const fillBambooHRSelect = (
 }
 
 const waitForBambooHROption = (
+  menu: HTMLElement,
   searchValue: string,
   maxRetries = 20,
   retryCount = 0,
   pick?: BambooMenuPicker,
 ): Promise<boolean> => {
   return new Promise((resolve) => {
-    const options = document.querySelectorAll('[role="menuitem"]')
+    const options = menu.querySelectorAll('[role="menuitem"]')
 
     console.log(
       `[waitForBambooHROption] Retry ${retryCount}/${maxRetries} - Found ${options.length} options`,
@@ -642,7 +705,7 @@ const waitForBambooHROption = (
     const retryLater = () => {
       if (retryCount < maxRetries) {
         setTimeout(() => {
-          resolve(waitForBambooHROption(searchValue, maxRetries, retryCount + 1, pick))
+          resolve(waitForBambooHROption(menu, searchValue, maxRetries, retryCount + 1, pick))
         }, 100)
         return
       }
@@ -658,51 +721,21 @@ const waitForBambooHROption = (
     const optionTexts = Array.from(options).map((el) => el.textContent?.trim() || '')
     console.log(`[waitForBambooHROption] Available options:`, optionTexts)
 
-    if (pick) {
-      const chosen = pick(optionTexts)
-      const wanted = chosen?.trim().toLowerCase() || ''
-      const picked = wanted
-        ? (Array.from(options).find((el) => (el.textContent?.trim().toLowerCase() || '') === wanted) as
-            | HTMLElement
-            | undefined)
-        : undefined
-      if (picked) {
-        console.log(`[waitForBambooHROption] SUCCESS - Picked: "${picked.textContent?.trim()}"`)
-        picked.click()
-        resolve(true)
-        return
-      }
-      // A country picker must not fall through to the first row (often United States
-      // or Afghanistan) when the profile country is not in the menu yet.
-      retryLater()
+    const chosen = pick ? pick(optionTexts) : chooseBambooOptionText(optionTexts, searchValue)
+    const wanted = chosen?.trim().toLowerCase() || ''
+    const picked = wanted
+      ? (Array.from(options).find((el) => (el.textContent?.trim().toLowerCase() || '') === wanted) as
+          | HTMLElement
+          | undefined)
+      : undefined
+    if (picked) {
+      console.log(`[waitForBambooHROption] SUCCESS - Picked: "${picked.textContent?.trim()}"`)
+      picked.click()
+      resolve(true)
       return
     }
-
-    const normalizedSearch = searchValue.toLowerCase().trim()
-    console.log(`[waitForBambooHROption] Looking for: "${normalizedSearch}"`)
-
-    const match = Array.from(options).find((el) => {
-      const text = el.textContent?.toLowerCase().trim() || ''
-      return text === normalizedSearch || text.includes(normalizedSearch)
-    }) as HTMLElement | undefined
-
-    if (match) {
-      console.log(
-        `[waitForBambooHROption] SUCCESS - Found and clicking: "${match.textContent?.trim()}"`,
-      )
-      match.click()
-      resolve(true)
-    } else {
-      const firstOption = options[0] as HTMLElement | undefined
-      if (firstOption) {
-        console.log(
-          `[waitForBambooHROption] No exact match, clicking first option: "${firstOption.textContent?.trim()}"`,
-        )
-        firstOption.click()
-        resolve(true)
-      } else {
-        retryLater()
-      }
-    }
+    // Do not click the first row. On the country menu that row is another
+    // country (Uganda, when the list is windowed next to United States).
+    retryLater()
   })
 }

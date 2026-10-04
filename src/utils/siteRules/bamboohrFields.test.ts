@@ -7,10 +7,14 @@ import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import bambooHrConfig, { setBambooResumeLoader } from './bamboohr.ts'
 import {
   assignResumeFile,
+  bambooOwnedMenu,
   bambooUploadRole,
+  chooseBambooOptionText,
   describeBambooUpload,
   isBambooCountryControl,
+  isBambooStateControl,
   pickBambooCountryOption,
+  pickBambooStateOption,
 } from './bamboohrFields.ts'
 import {
   fileFromBambooSavedResumeMessage,
@@ -71,6 +75,206 @@ test('a blank profile country does not replace the posting default', () => {
 test('does not choose a nearby United option when United States is absent', () => {
   const withoutUs = COUNTRIES.filter((country) => country !== 'United States')
   assert.equal(pickBambooCountryOption(withoutUs, 'Norway', 'united_states'), null)
+})
+
+test('United States stays the country when Georgia and Uganda are also listed', () => {
+  const menu = ['Uganda', 'Georgia', 'United States', 'Norway', 'South Georgia and the South Sandwich Islands']
+  assert.equal(pickBambooCountryOption(menu, 'Norway', 'united_states'), 'United States')
+  assert.equal(pickBambooCountryOption(menu, 'Georgia', 'united_states'), 'United States')
+  assert.equal(pickBambooCountryOption(menu, 'Uganda', 'united_states'), 'United States')
+  assert.equal(pickBambooCountryOption(['Uganda', 'Georgia', 'Norway'], 'Norway', 'united_states'), null)
+  assert.equal(chooseBambooOptionText(['Uganda', 'Ukraine', 'United States'], 'Georgia'), null)
+  assert.equal(pickBambooStateOption(menu, 'Georgia'), null)
+  assert.equal(pickBambooStateOption(['Alabama', 'Georgia', 'Hawaii'], 'Georgia'), 'Georgia')
+  assert.equal(pickBambooStateOption(['Uganda', 'Ukraine', 'United States'], 'Georgia'), null)
+})
+
+test('the open state menu is not the country list that appears first', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div id="country-menu">
+      <input class="fab-MenuSearch__input" />
+      <div role="menuitem">Uganda</div>
+      <div role="menuitem">Georgia</div>
+    </div>
+    <div id="state-menu" data-menu-id="state-menu">
+      <input class="fab-MenuSearch__input" />
+      <div role="menuitem">Georgia</div>
+    </div>
+    <button type="button" id="state-toggle" class="fab-SelectToggle" aria-controls="state-menu"></button>
+  </body>`)
+  const toggle = dom.window.document.getElementById('state-toggle')!
+  assert.equal(bambooOwnedMenu(toggle)?.id, 'state-menu')
+  assert.deepEqual(
+    Array.from(bambooOwnedMenu(toggle)!.querySelectorAll('[role="menuitem"]')).map((el) => el.textContent),
+    ['Georgia'],
+  )
+})
+
+test('United States on the country control is not the state field', () => {
+  const countryText = 'countryid.valuefabselect346countryunitedstatesselectone'
+  assert.equal(countryText.includes('state'), true)
+  assert.equal(
+    isBambooStateControl({ name: 'countryId.value', id: 'fab-select346', type: 'select-one' }, countryText),
+    false,
+  )
+  assert.equal(
+    isBambooStateControl(
+      { name: 'state.value', id: 'fab-select345', type: 'select-one' },
+      'state.valuefabselect345stateselectone',
+    ),
+    true,
+  )
+  assert.equal(
+    isBambooStateControl(
+      { name: 'state.value', id: 'FabricTextField-344', type: 'text' },
+      'state.valueprovincetext',
+    ),
+    true,
+  )
+  assert.equal(
+    isBambooStateControl({ name: 'personalStatement', id: 'statement', type: 'textarea' }, 'personalstatement'),
+    false,
+  )
+})
+
+test('Georgia stays on the state control and United States stays on the country control', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div id="country-menu">
+      <input id="country-search" class="fab-MenuSearch__input" />
+      <div role="menuitem" id="opt-uganda">Uganda</div>
+      <div role="menuitem" id="opt-country-georgia">Georgia</div>
+      <div role="menuitem" id="opt-us">United States</div>
+      <div role="menuitem" id="opt-norway">Norway</div>
+      <div role="menuitem" id="opt-south-georgia">South Georgia and the South Sandwich Islands</div>
+    </div>
+    <div id="state-menu">
+      <input id="state-search" class="fab-MenuSearch__input" />
+      <div role="menuitem" id="opt-al">Alabama</div>
+      <div role="menuitem" id="opt-state-georgia">Georgia</div>
+      <div role="menuitem" id="opt-hi">Hawaii</div>
+    </div>
+    <div class="fab-Select">
+      <button type="button" class="fab-SelectToggle" id="state-toggle" aria-expanded="true" aria-controls="state-menu">
+        <span class="fab-SelectToggle__content"></span>
+      </button>
+      <select name="state.value" id="fab-select345"></select>
+    </div>
+    <div class="fab-Select">
+      <button type="button" class="fab-SelectToggle" id="country-toggle" aria-expanded="true" aria-controls="country-menu">
+        <span class="fab-SelectToggle__content">Norway</span>
+      </button>
+      <select name="countryId.value" id="fab-select346">
+        <option value="161" selected>Norway</option>
+      </select>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const clicks: string[] = []
+  const countryToggle = doc.getElementById('country-toggle')!
+  const stateToggle = doc.getElementById('state-toggle')!
+  const watch = (id: string, toggle: Element, name: string) => {
+    doc.getElementById(id)!.addEventListener('click', () => {
+      clicks.push(name)
+      const content = toggle.querySelector('.fab-SelectToggle__content')
+      if (content) content.textContent = doc.getElementById(id)!.textContent
+    })
+  }
+  watch('opt-uganda', countryToggle, 'country:Uganda')
+  watch('opt-country-georgia', countryToggle, 'country:Georgia')
+  watch('opt-us', countryToggle, 'country:United States')
+  watch('opt-norway', countryToggle, 'country:Norway')
+  watch('opt-south-georgia', countryToggle, 'country:South Georgia')
+  watch('opt-state-georgia', stateToggle, 'state:Georgia')
+  watch('opt-al', stateToggle, 'state:Alabama')
+
+  assert.equal(bambooOwnedMenu(stateToggle)?.id, 'state-menu')
+  assert.equal(bambooOwnedMenu(countryToggle)?.id, 'country-menu')
+  assert.notEqual(doc.querySelector('.fab-MenuSearch__input')?.id, 'state-search')
+
+  const info = cloneDefaultPersonalInfo()
+  info.country = 'united_states'
+  info.state = 'Georgia'
+  const rule = bambooHrConfig()
+  const stateField = 'state.valuefabselect345provincestateselectone'
+  const countryField = 'countryid.valuefabselect346countryunitedstatesselectone'
+  const stateSelect = doc.getElementById('fab-select345') as HTMLSelectElement
+  const countrySelect = doc.getElementById('fab-select346') as HTMLSelectElement
+
+  assert.equal(await rule.apply(stateSelect, stateField, info), true)
+  assert.equal(await rule.apply(countrySelect, countryField, info), true)
+  assert.deepEqual(clicks, ['state:Georgia', 'country:United States'])
+  assert.equal((doc.getElementById('state-search') as HTMLInputElement).value, 'Georgia')
+  assert.equal((doc.getElementById('country-search') as HTMLInputElement).value, 'United States')
+  assert.equal(stateToggle.querySelector('.fab-SelectToggle__content')?.textContent, 'Georgia')
+  assert.equal(countryToggle.querySelector('.fab-SelectToggle__content')?.textContent, 'United States')
+
+  assert.equal(await rule.apply(stateSelect, stateField, info), true)
+  assert.equal(await rule.apply(countrySelect, countryField, info), true)
+  assert.deepEqual(clicks, ['state:Georgia', 'country:United States'])
+})
+
+test('a blank Province text input next to the country menu is filled with the profile state', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div id="country-menu">
+      <input id="country-search" class="fab-MenuSearch__input" />
+      <div role="menuitem" id="opt-uganda">Uganda</div>
+      <div role="menuitem" id="opt-country-georgia">Georgia</div>
+      <div role="menuitem" id="opt-us">United States</div>
+    </div>
+    <div id="province-row">
+      <label for="FabricTextField-344">Province*</label>
+      <input id="FabricTextField-344" name="state.value" type="text" value="" />
+    </div>
+    <div class="fab-Select">
+      <button type="button" class="fab-SelectToggle" id="country-toggle" aria-expanded="false" aria-label="Country Uganda">
+        <span class="fab-SelectToggle__content">Uganda</span>
+      </button>
+      <select name="countryId.value" id="fab-select346">
+        <option value="219" selected>Uganda</option>
+      </select>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const clicks: string[] = []
+  const province = doc.getElementById('FabricTextField-344') as HTMLInputElement
+  const countryToggle = doc.getElementById('country-toggle')!
+  const countryContent = countryToggle.querySelector('.fab-SelectToggle__content')!
+  // The menu stays closed until the toggle is clicked. Enter does not open it.
+  countryToggle.addEventListener('click', () => {
+    countryToggle.setAttribute('aria-expanded', 'true')
+    countryToggle.setAttribute('aria-controls', 'country-menu')
+  })
+  const watch = (id: string, name: string) => {
+    doc.getElementById(id)!.addEventListener('click', () => {
+      clicks.push(name)
+      countryContent.textContent = doc.getElementById(id)!.textContent
+      // Changing country drops the region value. Province has to be written again.
+      if (name === 'country:United States') province.value = ''
+    })
+  }
+  watch('opt-uganda', 'country:Uganda')
+  watch('opt-country-georgia', 'country:Georgia')
+  watch('opt-us', 'country:United States')
+
+  const info = cloneDefaultPersonalInfo()
+  info.country = 'united_states'
+  info.state = 'Georgia'
+  const rule = bambooHrConfig()
+  const country = doc.getElementById('fab-select346') as HTMLSelectElement
+  assert.equal(province.value, '')
+  assert.equal(countryContent.textContent, 'Uganda')
+
+  assert.equal(await rule.apply(province, 'state.valueprovincetext', info), true)
+  assert.equal(await rule.apply(country, 'countryid.valuecountryugandaselectone', info), true)
+  assert.equal(province.value, 'Georgia')
+  assert.equal(countryContent.textContent, 'United States')
+  assert.deepEqual(clicks, ['country:United States'])
+
+  assert.equal(await rule.apply(province, 'state.valueprovincetext', info), true)
+  assert.equal(await rule.apply(country, 'countryid.valuecountryugandaselectone', info), true)
+  assert.equal(province.value, 'Georgia')
+  assert.equal(countryContent.textContent, 'United States')
+  assert.deepEqual(clicks, ['country:United States'])
 })
 
 const SUPABASE_URL = 'https://example.supabase.co'
