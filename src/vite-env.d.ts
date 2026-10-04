@@ -7,6 +7,15 @@ interface ImportMetaEnv {
   readonly VITE_RESUME_API_URL: string
   readonly VITE_RESUME_API_KEY: string
   readonly VITE_EXTENSIONPAY_EXTENSION_ID: string
+  readonly VITE_MATCH_SCORE_ENABLED: string
+  readonly VITE_MATCH_SCORE_GREENHOUSE: string
+  readonly VITE_MATCH_SCORE_ASHBY: string
+  readonly VITE_MATCH_SCORE_LEVER: string
+  readonly VITE_MATCH_SCORE_JOBVITE: string
+  readonly VITE_MATCH_SCORE_WORKABLE: string
+  readonly VITE_MATCH_SCORE_BAMBOOHR: string
+  readonly VITE_MATCH_SCORE_ICIMS: string
+  readonly VITE_MATCH_SCORE_WORKDAY: string
   readonly MODE: string
   readonly DEV: boolean
   readonly PROD: boolean

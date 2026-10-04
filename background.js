@@ -17,6 +17,7 @@ import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { persistUploadedResume } from './src/services/resumeVaultWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
+import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 
@@ -414,6 +415,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     enqueueInstallSource(() => enrichInstallSourceFromTab(sender?.tab?.url, request.referrer))
       .then((record) => sendResponse({ ok: !!record }))
       .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
+  if (
+    request.action === 'matchScore' ||
+    request.action === 'matchScoreDecline' ||
+    request.action === 'matchScoreUndoDecline' ||
+    request.action === 'fetchJobPosting' ||
+    request.action === 'matchScoreAddSkill' ||
+    request.action === 'matchScoreRemoveSkill' ||
+    request.action === 'matchScoreRelay'
+  ) {
+    handleMatchScoreMessage(request, sender)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false, view: 'hide' }))
     return true
   }
 

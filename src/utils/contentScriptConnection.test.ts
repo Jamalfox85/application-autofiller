@@ -76,6 +76,7 @@ test('other send failures are not treated as a missing content script', async ()
 const CONTENT_SCRIPT_MATCHES = [
   'https://*.greenhouse.io/*',
   'https://*.lever.co/*',
+  'https://*.eu.lever.co/*',
   'https://*.myworkdayjobs.com/*',
   'https://*.myworkday.com/*',
   'https://*.myworkdaysite.com/*',
@@ -128,6 +129,8 @@ test('manifest content script and the command fallback target content.js', () =>
     'https://*.supabase.co/*',
     'http://localhost:8080/*',
     'https://api-production-5aca1.up.railway.app/*',
+    'https://api.eu.lever.co/*',
+    'https://www.workable.com/*',
   ])
   assertNoAllSites(manifest, 'manifest')
   assert.equal(manifest.commands['autofill-page'].suggested_key.default, 'Ctrl+Shift+F')

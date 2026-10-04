@@ -1,4 +1,5 @@
 import { openProCheckout, openProLogin } from '@/services/billing/client'
+import { mountInToastStack } from './toastStack'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import {
   PAID_EVENT,
@@ -73,16 +74,14 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
   overlay.style.cssText = `
     position: fixed;
     inset: 0;
-    z-index: 2147483647;
+    z-index: 2147483646;
     background: rgba(0, 0, 0, 0.45);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   `
 
   const card = document.createElement('div')
+  card.className = 'gofillr-paywall-card'
   card.style.cssText = `
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
     width: min(340px, calc(100vw - 32px));
     background: #16161a;
     color: #ebebee;
@@ -109,6 +108,7 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
   const close = async () => {
     if (mode === 'soft') await trackPaid(PAID_EVENT.softDismissed, softPaywallDismissedProps(ctx))
     else await trackPaid(PAID_EVENT.hardDismissed, hardPaywallDismissedProps(ctx))
+    card.remove()
     overlay.remove()
   }
 
@@ -141,6 +141,7 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
       )
       return
     }
+    card.remove()
     overlay.remove()
   }
 
@@ -152,6 +153,7 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
     const keep = button(PAYWALL_COPY.soft.secondary, 'secondary')
     keep.addEventListener('click', async () => {
       await trackPaid(PAID_EVENT.softCta, softPaywallCtaProps({ ...ctx, cta: 'continue_free' }))
+      card.remove()
       overlay.remove()
     })
     const annual = button(PAYWALL_COPY.soft.tertiary, 'text')
@@ -174,6 +176,6 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
   })
   card.append(restore)
 
-  overlay.append(card)
   document.body.append(overlay)
+  mountInToastStack(card)
 }

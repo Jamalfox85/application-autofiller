@@ -407,7 +407,10 @@ test('home screen upgrade sits beside autofill and uses paywall checkout', () =>
   assert.equal(SOFT_GATE_AT, 10)
 
   const paywall = readFileSync('src/content/fillPaywall.ts', 'utf8')
-  assert.match(paywall, /position:\s*fixed;\s*right:\s*20px;\s*bottom:\s*20px;/)
+  const toastStack = readFileSync('src/content/toastStack.ts', 'utf8')
+  assert.match(paywall, /mountInToastStack\(card\)/)
+  assert.match(toastStack, /right:\s*20px/)
+  assert.match(toastStack, /bottom:\s*20px/)
   assert.match(paywall, /openProCheckout\(\{/)
 })
 

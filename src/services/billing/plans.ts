@@ -20,7 +20,7 @@ export const PLAN_PRICE = {
 
 export type BillingPlan = keyof typeof EXTENSION_PAY_PLAN_SKUS
 
-export type CheckoutSource = 'soft_gate' | 'hard_cap' | 'resume_ai' | 'multi_profile' | 'popup'
+export type CheckoutSource = 'soft_gate' | 'hard_cap' | 'resume_ai' | 'multi_profile' | 'match_score' | 'popup'
 
 export type SoftPaywallCta = 'upgrade_monthly' | 'see_annual' | 'continue_free'
 

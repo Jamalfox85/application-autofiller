@@ -88,6 +88,15 @@ await esbuild.build({
 })
 
 await esbuild.build({
+  entryPoints: ['src/services/matchScoreWorker.ts'],
+  outfile: 'dist/src/services/matchScoreWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})
+
+await esbuild.build({
   entryPoints: ['src/utils/contentScriptConnection.ts'],
   outfile: 'dist/src/utils/contentScriptConnection.js',
   format: 'esm',
