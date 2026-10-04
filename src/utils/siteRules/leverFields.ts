@@ -348,6 +348,80 @@ export function isLeverResumeField(field: LeverField): boolean {
   return type === 'file' || name === 'resume' || dataQa === 'input-resume'
 }
 
+// "Autofill with resume", "Apply with resume", and the same idea under another
+// label. GoFillr fills the application itself, so these controls are never driven.
+export function isLeverResumeAutofillText(value: string | null | undefined): boolean {
+  const text = (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text) return false
+  if (/\bautofill\b/.test(text) && /\b(resume|cv)\b/.test(text)) return true
+  if (/\bauto fill\b/.test(text) && /\b(resume|cv)\b/.test(text)) return true
+  if (/\bapply with (your |my |the )?resume\b/.test(text)) return true
+  if (/\buse (your |my )?resume to (auto )?fill\b/.test(text)) return true
+  if (/\bimport (your |my )?resume\b/.test(text)) return true
+  if (/\bparse (your |my |the )?resume\b/.test(text)) return true
+  return false
+}
+
+// A plain choose-file control (Resume/CV, ATTACH RESUME/CV, Upload, Choose file).
+// Not Lever's resume-parser button, and not a cover letter or other upload.
+export function isLeverPlainResumeFile(field: LeverField): boolean {
+  if (fieldType(field) !== 'file') return false
+  if (isLeverResumeAutofillText(field.label) || isLeverResumeAutofillText(field.optionLabel)) {
+    return false
+  }
+
+  const name = fieldName(field).toLowerCase()
+  const id = (field.id || '').toLowerCase()
+  const dataQa = (field.dataQa || '').toLowerCase()
+  const className = (field.className || '').toLowerCase()
+  const label = normalizeLeverLabel(field.label)
+  const option = normalizeLeverLabel(field.optionLabel)
+  const caption = `${label} ${option}`
+
+  if (caption.includes('coverletter')) return false
+
+  if (
+    name === 'resume' ||
+    dataQa === 'input-resume' ||
+    className.includes('invisible-resume-upload') ||
+    id === 'resume-upload-input' ||
+    /(^|[^a-z0-9])resume([^a-z0-9]|$)/.test(id)
+  ) {
+    return true
+  }
+
+  if (
+    label === 'cv' ||
+    option === 'cv' ||
+    label.includes('curriculumvitae') ||
+    option.includes('curriculumvitae') ||
+    label.includes('resume') ||
+    option.includes('resume')
+  ) {
+    return true
+  }
+
+  if (
+    label.includes('choosefile') ||
+    option.includes('choosefile') ||
+    label === 'upload' ||
+    option === 'upload' ||
+    label.includes('uploadresume') ||
+    option.includes('uploadresume') ||
+    label.includes('attachresume') ||
+    option.includes('attachresume') ||
+    option.includes('attachcv')
+  ) {
+    return true
+  }
+
+  return false
+}
+
 export function leverRepeatKey(field: LeverField): LeverRepeatKey | null {
   if (isLeverResumeField(field) || isLeverLocationAutocomplete(field)) return null
   if (leverEeoKind(field)) return null

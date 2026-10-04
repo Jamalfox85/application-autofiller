@@ -1,7 +1,10 @@
 import type { SiteRule } from '../../types/index.ts'
 import { detectAts, type AtsPageContext } from '../ats.ts'
 import { fillNativeInput, setReactInputValue } from '../inputHandlers.ts'
+import { assignLeverResumeFile } from './leverResumeFile.ts'
+import { requestSavedResume as requestAccountResume } from './bamboohrResume.ts'
 import {
+  isLeverPlainResumeFile,
   isLeverResumeField,
   leverEeoKind,
   leverLocationQueries,
@@ -25,8 +28,39 @@ type EeoNote = { enabled: boolean; filled: boolean }
 
 const eeoNotes = new Map<string, EeoNote>()
 
+type SavedResume = { name: string; mimeType: string; bytes: Uint8Array }
+
+let resumeSource: () => Promise<SavedResume | null> = accountResumePayload
+let resumeRequest: Promise<SavedResume | null> | null = null
+
+export function setLeverResumeSourceForTests(source: (() => Promise<SavedResume | null>) | null) {
+  resumeSource = source ?? accountResumePayload
+  resumeRequest = null
+}
+
 export function beginLeverFill() {
   eeoNotes.clear()
+  resumeRequest = null
+}
+
+function loadSavedResume(): Promise<SavedResume | null> {
+  if (!resumeRequest) {
+    resumeRequest = Promise.resolve()
+      .then(() => resumeSource())
+      .catch(() => null)
+  }
+  return resumeRequest
+}
+
+// Same account download BambooHR already uses. Lever only assigns the file.
+async function accountResumePayload(): Promise<SavedResume | null> {
+  const file = await requestAccountResume()
+  if (!file || file.size <= 0 || !file.name.trim()) return null
+  return {
+    name: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    bytes: new Uint8Array(await file.arrayBuffer()),
+  }
 }
 
 export function readLeverEeoTelemetry() {
@@ -46,8 +80,19 @@ export default function leverConfig(): SiteRule {
         return false
       const field = describeLeverField(input)
       if (isLeverResumeField(field)) {
-        // The profile stores a file name, not bytes. Leave the file input alone.
-        return false
+        // tagName, not instanceof: the content script and the test realm do not
+        // share one HTMLInputElement constructor.
+        if (input.tagName !== 'INPUT' || (input as HTMLInputElement).type !== 'file' || !isLeverPlainResumeFile(field)) {
+          return false
+        }
+        try {
+          const resume = await loadSavedResume()
+          if (!resume) return false
+          return assignLeverResumeFile(input as HTMLInputElement, resume)
+        } catch (error) {
+          console.error('[lever] could not attach the saved resume', error)
+          return false
+        }
       }
 
       const repeatKey = leverRepeatKey(field)
@@ -134,15 +179,18 @@ function describeLeverField(
   const question = input.closest('.application-question')
   const labelEl = question?.querySelector('.application-label')
   const rawLabel = labelEl?.querySelector('.text')?.textContent || labelEl?.textContent || ''
+  const controlType = input.tagName === 'SELECT' ? 'select-one' : (input as HTMLInputElement).type || ''
   const optionLabel =
-    input instanceof HTMLInputElement && (input.type === 'radio' || input.type === 'checkbox')
+    controlType === 'radio' || controlType === 'checkbox'
       ? input.closest('label')?.querySelector('.application-answer-alternative')?.textContent ||
         input.value
-      : ''
+      : controlType === 'file'
+        ? fileChooserLabel(input as HTMLInputElement)
+        : ''
   return {
     name: input.name || '',
     id: input.id || '',
-    type: input instanceof HTMLSelectElement ? 'select-one' : input.type || '',
+    type: controlType,
     label: cleanLabel(rawLabel),
     optionLabel: cleanLabel(optionLabel),
     dataQa: input.getAttribute('data-qa'),
@@ -152,6 +200,23 @@ function describeLeverField(
 
 function cleanLabel(value: string): string {
   return value.replace(/✱/g, '').replace(/\s+/g, ' ').trim()
+}
+
+// The visible choose-file caption ("ATTACH RESUME/CV", "Choose file"), not the
+// "Analyzing resume..." status Lever shows after its own parser runs.
+function fileChooserLabel(input: HTMLInputElement): string {
+  const control = input.closest('a, button')
+  const scoped = control ?? input.closest('.application-field')
+  const explicit = scoped?.querySelector('.default-label')?.textContent
+  if (explicit?.trim()) return explicit
+  if (!control) return ''
+  const clone = control.cloneNode(true) as HTMLElement
+  clone
+    .querySelectorAll(
+      'input, svg, script, style, .resume-upload-failure, .resume-upload-working, .resume-upload-success, .resume-upload-oversize',
+    )
+    .forEach((node) => node.remove())
+  return clone.textContent || ''
 }
 
 function repeatIndex(input: HTMLElement, key: string): number {
