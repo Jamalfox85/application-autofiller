@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { isHostedLeverPage } from './lever.ts'
 import {
+  isLeverPlainResumeFile,
+  isLeverResumeAutofillText,
   leverEeoChoice,
   leverEeoOptionMatches,
   leverFullName,
@@ -525,5 +527,57 @@ describe('hosted Lever detection', () => {
       }),
       false,
     )
+  })
+})
+
+describe('Lever resume file', () => {
+  it('recognizes the plain Resume/CV choose-file input', () => {
+    assert.equal(
+      isLeverPlainResumeFile({
+        name: 'resume',
+        id: 'resume-upload-input',
+        type: 'file',
+        label: 'Resume/CV',
+        optionLabel: 'ATTACH RESUME/CV',
+        dataQa: 'input-resume',
+        className: 'application-file-input invisible-resume-upload',
+      }),
+      true,
+    )
+    assert.equal(
+      isLeverPlainResumeFile({ name: 'cards[0][field0]', type: 'file', label: 'Choose file' }),
+      true,
+    )
+    assert.equal(isLeverPlainResumeFile({ name: 'upload', type: 'file', label: 'Upload' }), true)
+  })
+
+  it('does not treat resume-autofill controls, cover letters, or other uploads as the resume file', () => {
+    assert.equal(isLeverResumeAutofillText('Autofill with resume'), true)
+    assert.equal(isLeverResumeAutofillText('Apply with your resume'), true)
+    assert.equal(isLeverResumeAutofillText("Couldn't auto-read resume."), false)
+    assert.equal(isLeverResumeAutofillText('Analyzing resume...'), false)
+    assert.equal(isLeverResumeAutofillText('ATTACH RESUME/CV'), false)
+    assert.equal(
+      isLeverPlainResumeFile({
+        name: 'resume',
+        type: 'file',
+        label: 'Resume/CV',
+        optionLabel: 'Autofill with resume',
+      }),
+      false,
+    )
+    assert.equal(
+      isLeverPlainResumeFile({ name: 'cards[0][field1]', type: 'file', label: 'Cover letter' }),
+      false,
+    )
+    assert.equal(
+      isLeverPlainResumeFile({
+        name: 'cards[0][field2]',
+        type: 'file',
+        label: 'Please upload a writing sample',
+      }),
+      false,
+    )
+    assert.equal(leverPlan({ name: 'resume', type: 'file', label: 'Resume/CV' }, profile), null)
   })
 })
