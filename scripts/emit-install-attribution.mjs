@@ -3,7 +3,7 @@
 // bundle ExtensionPay into that same unpack output.
 import * as esbuild from 'esbuild'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { copyFile, mkdir } from 'node:fs/promises'
 
 if (existsSync('.env')) {
   for (const line of readFileSync('.env', 'utf8').split('\n')) {
@@ -34,7 +34,13 @@ const define = {
 }
 
 await mkdir('dist/src/services', { recursive: true })
-await mkdir('dist/src/utils', { recursive: true })
+await mkdir('dist/src/utils/siteRules', { recursive: true })
+// Copied as-is so chrome.scripting.executeScript can stringify the page function
+// without a bundler renaming its body.
+await copyFile(
+  'src/utils/siteRules/icimsPageDropdownCommand.js',
+  'dist/src/utils/siteRules/icimsPageDropdownCommand.js',
+)
 await esbuild.build({
   entryPoints: ['src/services/installAttribution.ts'],
   outfile: 'dist/src/services/installAttribution.js',

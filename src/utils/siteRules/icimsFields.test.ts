@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import vm from 'node:vm'
+import { icimsPageDropdownCommand } from './icimsPageDropdownCommand.js'
 import type { ApplicationAccount, PersonalInfo } from '../../types/index.ts'
 import { icimsAccountRequiresConfirmation } from './icimsAccount.ts'
 import {
@@ -759,6 +761,196 @@ test('native iCIMS country and state options select United States and New Jersey
     )
     assert.equal(country.value, 'US')
     assert.equal(state.value, 'NJ')
+  } finally {
+    if (previousIcims === undefined) delete (globalThis as { ICIMS?: unknown }).ICIMS
+    else (globalThis as { ICIMS?: unknown }).ICIMS = previousIcims
+  }
+})
+
+test('content script fills United States then New Jersey through the page dropdown registry', async () => {
+  const previousIcims = (globalThis as { ICIMS?: unknown }).ICIMS
+  delete (globalThis as { ICIMS?: unknown }).ICIMS
+  const clicks: string[] = []
+  const order: string[] = []
+  const queries: string[] = []
+  const countrySpan = { textContent: '— Make a Selection —' }
+  const stateSpan = { textContent: 'Please select a country' }
+  const euResident = { type: 'checkbox', id: 'eu_resident', checked: false, click() { clicks.push('eu') } }
+  const hcaptcha = { id: 'hcaptcha', click() { clicks.push('hcaptcha') } }
+  const countrySelect = {
+    tagName: 'SELECT',
+    id: 'PersonProfileFields.AddressCountry',
+    name: 'PersonProfileFields.AddressCountry',
+    value: '-999',
+    options: [{ value: '-999', text: '— Make a Selection —' }],
+    getAttribute(name: string) {
+      if (name === 'id') return 'PersonProfileFields.AddressCountry'
+      if (name === 'name') return 'PersonProfileFields.AddressCountry'
+      if (name === 'icimsdropdown-enabled') return '1'
+      return null
+    },
+    click() {
+      clicks.push('country')
+    },
+  }
+  const stateSelect = {
+    tagName: 'SELECT',
+    id: 'PersonProfileFields.AddressState',
+    name: 'PersonProfileFields.AddressState',
+    value: '',
+    options: [{ value: '', text: 'Please select a country' }],
+    getAttribute(name: string) {
+      if (name === 'id') return 'PersonProfileFields.AddressState'
+      if (name === 'name') return 'PersonProfileFields.AddressState'
+      if (name === 'data-ddd-parent-link') return 'PersonProfileFields.AddressCountry'
+      return null
+    },
+    click() {
+      clicks.push('state')
+    },
+  }
+  const buttons = ['Next', 'Log In', 'Create Account', 'Submit'].map((label) => ({
+    tagName: 'BUTTON',
+    type: label === 'Submit' ? 'submit' : 'button',
+    value: label,
+    click() {
+      clicks.push(label)
+    },
+  }))
+  const doc = {
+    getElementById(id: string) {
+      if (id === 'PersonProfileFields.AddressCountry_fakeSelected_icimsDropdown') return countrySpan
+      if (id === 'PersonProfileFields.AddressState_fakeSelected_icimsDropdown') return stateSpan
+      if (id === 'eu_resident') return euResident
+      return null
+    },
+    querySelectorAll(selector: string) {
+      queries.push(selector)
+      if (selector === 'select') return [stateSelect, countrySelect]
+      clicks.push(selector)
+      return [...buttons, hcaptcha]
+    },
+  }
+  countrySelect.ownerDocument = doc
+  stateSelect.ownerDocument = doc
+  const countryWidget = {
+    query: '',
+    words: [] as Array<{ value: string; text: string }>,
+    setInput(value: string) {
+      countryWidget.query = value
+    },
+    resetOptions(callback?: () => void) {
+      const query = countryWidget.query.toLowerCase()
+      countryWidget.words = query.includes('united')
+        ? [
+            { value: 'D41234', text: 'United States Minor Outlying Islands' },
+            { value: 'D41001', text: 'United States' },
+          ]
+        : []
+      callback?.()
+    },
+    getWords() {
+      return countryWidget.words
+    },
+    findWordFromValue(value: string) {
+      return countryWidget.words.find((word) => word.value === value) ?? null
+    },
+    optionSelected(word: { value: string; text: string }) {
+      order.push('country:' + word.text)
+      countrySelect.value = word.value
+      countrySelect.options = [{ value: word.value, text: word.text }]
+      countrySpan.textContent = word.text
+      throw new Error('list.onchange is not a function')
+    },
+  }
+  const stateWidget = {
+    query: '',
+    words: [] as Array<{ value: string; text: string }>,
+    setInput(value: string) {
+      stateWidget.query = value
+    },
+    resetOptions(callback?: () => void) {
+      order.push(`state-search:${countrySelect.value}:${stateWidget.query}`)
+      stateWidget.words =
+        countrySelect.value && countrySelect.value !== '-999'
+          ? [
+              { value: 'D41001035', text: 'New York' },
+              { value: 'D41001033', text: 'New Jersey' },
+              { value: 'D41001034', text: 'New Mexico' },
+            ]
+          : [{ value: '', text: 'Please select a country' }]
+      callback?.()
+    },
+    getWords() {
+      return stateWidget.words
+    },
+    findWordFromValue(value: string) {
+      return stateWidget.words.find((word) => word.value === value) ?? null
+    },
+    optionSelected(word: { value: string; text: string }) {
+      order.push(`state-set:${word.text}`)
+      stateSelect.value = word.value
+      stateSelect.options = [{ value: word.value, text: word.text }]
+      stateSpan.textContent = word.text
+    },
+  }
+  const sandbox = vm.createContext({
+    setTimeout,
+    clearTimeout,
+    ICIMS: {
+      dropdowns: {
+        'PersonProfileFields.AddressCountry': countryWidget,
+        'PersonProfileFields.AddressState': stateWidget,
+      },
+    },
+    document: {
+      querySelector() {
+        clicks.push('page-query')
+        return hcaptcha
+      },
+    },
+  })
+  const command = `(${icimsPageDropdownCommand.toString()})`
+  const bridge = (request: unknown) => {
+    assert.equal((globalThis as { ICIMS?: unknown }).ICIMS, undefined)
+    return vm.runInContext(`${command}(${JSON.stringify(request)})`, sandbox)
+  }
+
+  try {
+    await fillIcimsLocationMenus(
+      doc,
+      profile({ country: 'United States', state: 'NJ', city: 'Test City', zip: '07001' }),
+      bridge,
+    )
+    assert.equal(countrySpan.textContent, 'United States')
+    assert.equal(countrySelect.value, 'D41001')
+    assert.equal(stateSpan.textContent, 'New Jersey')
+    assert.equal(stateSelect.value, 'D41001033')
+    assert.equal(countryWidget.query, 'United States')
+    assert.equal(stateWidget.query, 'New Jersey')
+    assert.deepEqual(order, [
+      'country:United States',
+      'state-search:D41001:New Jersey',
+      'state-set:New Jersey',
+    ])
+    assert.deepEqual(clicks, [])
+    assert.deepEqual(queries, ['select'])
+    assert.equal(euResident.checked, false)
+    assert.equal((globalThis as { ICIMS?: unknown }).ICIMS, undefined)
+
+    countrySelect.value = '-999'
+    countrySelect.options = [{ value: '-999', text: '— Make a Selection —' }]
+    countrySpan.textContent = '— Make a Selection —'
+    stateSelect.value = ''
+    stateSelect.options = [{ value: '', text: 'Please select a country' }]
+    stateSpan.textContent = 'Please select a country'
+    countryWidget.words = []
+    stateWidget.words = []
+    order.length = 0
+    await fillIcimsLocationMenus(doc, profile({ country: 'united_states', state: 'NJ' }), bridge)
+    assert.equal(countrySpan.textContent, 'United States')
+    assert.equal(stateSpan.textContent, 'New Jersey')
+    assert.deepEqual(clicks, [])
   } finally {
     if (previousIcims === undefined) delete (globalThis as { ICIMS?: unknown }).ICIMS
     else (globalThis as { ICIMS?: unknown }).ICIMS = previousIcims

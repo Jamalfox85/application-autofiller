@@ -150,6 +150,7 @@ export default function icimsConfig(): SiteRule {
       })
       if (plan.action === 'select' && (plan.mode === 'country' || plan.mode === 'state')) {
         const doc = input.ownerDocument
+        // Country first, then state, in the page's ICIMS.dropdowns registry.
         if (doc) await fillIcimsLocationMenus(doc, personalInfo)
         if (icimsLocationMenuCommitted(input)) return true
       }
