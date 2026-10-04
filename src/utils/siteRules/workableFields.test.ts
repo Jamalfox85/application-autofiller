@@ -13,6 +13,7 @@ import {
   workablePlan,
   workableQuestionLabel,
   workableWorkAuthAnswer,
+  workableWorkAuthBasis,
   type WorkableField,
   type WorkableProfile,
 } from './workableFields.ts'
@@ -257,6 +258,96 @@ test('work authorization follows the profile and other questions stay blank', ()
     workablePlan(field({ dataUi: 'cover_letter', name: 'cover_letter', type: 'textarea' }), profile),
     { action: 'skip' },
   )
+})
+
+const ELIGIBILITY = 'Do you currently have eligibility to work in the US?'
+const BASIS =
+  'What is the basis of your current work authorization (e.g., U.S. Citizen, Permanent Resident, H-1B, F-1 OPT, J-1, Other)'
+
+test('eligibility to work is a yes/no work-auth question, not only "eligible to work"', () => {
+  assert.equal(classifyWorkableQuestion(ELIGIBILITY), 'authorized')
+  assert.equal(classifyWorkableQuestion('Are you eligible to work in the United States?'), 'authorized')
+  const yes = field({
+    name: 'QA_eligibility',
+    type: 'radio',
+    optionValue: 'true',
+    optionLabel: 'YES',
+    label: ELIGIBILITY,
+  })
+  const no = field({ ...yes, optionValue: 'false', optionLabel: 'NO' })
+  assert.equal(workablePhase(yes), 'work-authorization')
+  assert.deepEqual(workablePlan(yes, profile), { action: 'click' })
+  assert.deepEqual(workablePlan(no, profile), { action: 'skip' })
+  assert.deepEqual(
+    workablePlan(yes, { ...profile, workAuthorization: 'need_sponsorship' }),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(no, { ...profile, workAuthorization: 'need_sponsorship' }),
+    { action: 'click' },
+  )
+  assert.deepEqual(workablePlan(yes, { sponsorshipRequired: 'No' }), { action: 'skip' })
+})
+
+test('a free-text work-authorization basis is filled from the saved status', () => {
+  assert.equal(classifyWorkableQuestion(BASIS), 'basis')
+  const basis = field({ name: 'QA_basis', type: 'text', label: BASIS })
+  assert.equal(workablePhase(basis), 'work-authorization')
+  assert.deepEqual(workablePlan(basis, profile), { action: 'text', value: 'U.S. citizen' })
+  assert.equal(workableWorkAuthBasis(profile), 'U.S. citizen')
+  assert.deepEqual(
+    workablePlan(basis, { ...profile, workAuthorization: 'green_card' }),
+    { action: 'text', value: 'Permanent resident' },
+  )
+  assert.deepEqual(
+    workablePlan(basis, { ...profile, workAuthorization: 'authorized_no_sponsorship' }),
+    { action: 'text', value: 'Authorized, no sponsorship needed' },
+  )
+  assert.deepEqual(
+    workablePlan(basis, { ...profile, workAuthorization: 'work_visa' }),
+    { action: 'text', value: 'Authorized, sponsorship needed later' },
+  )
+  assert.deepEqual(
+    workablePlan(basis, { ...profile, workAuthorization: 'need_sponsorship' }),
+    { action: 'text', value: 'Need sponsorship now' },
+  )
+  assert.deepEqual(
+    workablePlan(basis, { ...profile, workAuthorization: 'not_authorized' }),
+    { action: 'text', value: 'Not authorized to work' },
+  )
+  assert.deepEqual(workablePlan(basis, { sponsorshipRequired: 'No' }), { action: 'skip' })
+  assert.deepEqual(workablePlan(basis, {}), { action: 'skip' })
+  assert.deepEqual(
+    workablePlan(
+      field({
+        name: 'QA_live',
+        type: 'radio',
+        optionValue: 'true',
+        optionLabel: 'YES',
+        label: 'Do you currently live near the Raleigh-Durham-Chapel Hill Area?',
+      }),
+      profile,
+    ),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(
+      field({
+        name: 'QA_commute',
+        type: 'radio',
+        optionValue: 'true',
+        optionLabel: 'YES',
+        label: 'Are you willing to commute to the office in Durham, NC 5x a week?',
+      }),
+      profile,
+    ),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ dataUi: 'resume', type: 'file' }), profile),
+    { action: 'skip' },
+  )
+  assert.equal(workableMaySubmit(), false)
 })
 
 test('EEO radios map when answers are enabled and stay blank when they are not', () => {

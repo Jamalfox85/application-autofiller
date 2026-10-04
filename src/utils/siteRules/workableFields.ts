@@ -208,7 +208,18 @@ const HIDDEN_LOCATION_KEYS = new Set([
   'subregion',
 ])
 
-type WorkAuthKind = 'authorized-without-sponsorship' | 'authorized' | 'sponsorship'
+type WorkAuthKind = 'authorized-without-sponsorship' | 'authorized' | 'sponsorship' | 'basis'
+
+// Short labels for a free-text "basis of your work authorization" question.
+// These follow the profile statuses. They do not pick a visa class such as H-1B.
+const WORK_AUTH_BASIS: Record<string, string> = {
+  us_citizen: 'U.S. citizen',
+  green_card: 'Permanent resident',
+  authorized_no_sponsorship: 'Authorized, no sponsorship needed',
+  work_visa: 'Authorized, sponsorship needed later',
+  need_sponsorship: 'Need sponsorship now',
+  not_authorized: 'Not authorized to work',
+}
 
 function clean(value: string | null | undefined): string {
   return (value || '').replace(/\s+/g, ' ').trim()
@@ -285,12 +296,27 @@ function isWorkAuthField(field: WorkableField): boolean {
   return classifyWorkableQuestion(field.label) !== null
 }
 
+function isWorkAuthBasisQuestion(text: string): boolean {
+  return (
+    /basis of (?:your |the )?(?:current )?work authori[sz]ation/.test(text) ||
+    /(?:what is|describe|state|provide|enter) (?:the |your )?(?:current )?(?:basis|type|status) of (?:your |the )?(?:current )?work authori[sz]ation/.test(
+      text,
+    ) ||
+    /work authori[sz]ation (?:basis|type|status)/.test(text)
+  )
+}
+
 export function classifyWorkableQuestion(text: string | null | undefined): WorkAuthKind | null {
   const t = clean(text).toLowerCase()
   if (!t) return null
-  const auth = /authori[sz]ed to work|work authori[sz]ation|legally authori[sz]ed|eligible to work|right to work/.test(
-    t,
-  )
+  // "What is the basis of your current work authorization" contains "work
+  // authorization" but it is not a yes/no. Classify it before the yes/no rules.
+  if (isWorkAuthBasisQuestion(t)) return 'basis'
+  // "eligibility to work" is the noun form of "eligible to work".
+  const auth =
+    /authori[sz]ed to work|work authori[sz]ation|legally authori[sz]ed|eligib(?:le|ility) to work|work eligibility|right to work/.test(
+      t,
+    )
   if (/years of|how many years|experience with|proficien/.test(t) && !auth) return null
   if (auth && /sponsor/.test(t)) {
     if (/without|w\/o|no sponsor|not require|do not require|don't require/.test(t)) {
@@ -301,6 +327,12 @@ export function classifyWorkableQuestion(text: string | null | undefined): WorkA
   if (auth) return 'authorized'
   if (/require|need/.test(t) && /sponsor/.test(t)) return 'sponsorship'
   return null
+}
+
+export function workableWorkAuthBasis(info: WorkableProfile): string | null {
+  const status = clean(info.workAuthorization)
+  if (!status) return null
+  return WORK_AUTH_BASIS[status] || null
 }
 
 function hasWorkSignal(info: WorkableProfile): boolean {
@@ -417,6 +449,12 @@ export function workablePlan(field: WorkableField, info: WorkableProfile, rowInd
   if (phase === 'work-authorization') {
     const kind = classifyWorkableQuestion(field.label)
     if (!kind) return { action: 'skip' }
+    if (kind === 'basis') {
+      if (type === 'radio' || type === 'checkbox' || type === 'file' || type === 'select-one') {
+        return { action: 'skip' }
+      }
+      return textPlan(workableWorkAuthBasis(info))
+    }
     return clickYesNo(field, workableWorkAuthAnswer(kind, info))
   }
 
