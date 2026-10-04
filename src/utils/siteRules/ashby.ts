@@ -26,6 +26,7 @@ import {
   ashbyEeoTelemetry,
   type AshbyYesNo,
 } from './ashbyFields.ts'
+import { applyAshbyResumeFile, resetAshbySavedResumeRequest } from './ashbyResumeFile.ts'
 
 // One click per page. formChanged sees the new inputs and runs autofill again.
 let revealedSecondEducation = false
@@ -54,6 +55,7 @@ export default function ashbyConfig(): SiteRule {
       }) === 'ashby',
     prepareFill: () => {
       eeoTally = freshAshbyEeoTally()
+      resetAshbySavedResumeRequest()
     },
     fillTelemetry: () => ashbyEeoTelemetry(eeoTally),
     apply: async (input, _fieldText, personalInfo) => {
@@ -62,6 +64,18 @@ export default function ashbyConfig(): SiteRule {
 
       const eeoKind: AshbyEeoKind | null = ashbyEeoKind(context.title)
       if (eeoKind) observeAshbyEeoField(eeoTally, eeoKind, personalInfo)
+
+      if (isFileControl(input)) {
+        // Plain Resume / Upload / Choose file only. "Autofill from resume" is
+        // skipped inside applyAshbyResumeFile and is never clicked or given a file.
+        return applyAshbyResumeFile(input, {
+          path: context.path,
+          title: context.title,
+          id: input.id,
+          name: input.name,
+          type: input.type,
+        })
+      }
 
       if (input instanceof HTMLSelectElement) {
         return fillEducationDate(input, context, personalInfo)
@@ -74,8 +88,7 @@ export default function ashbyConfig(): SiteRule {
       if (
         isAshbyResumeField({ path: context.path, title: context.title, type: input.type, id: input.id })
       ) {
-        // Resume hook: the dropzone is `_systemfield_resume`. personalInfo only
-        // has resumeFileName, so there is no file to attach. Leave it for the user.
+        // A non-file resume control is not the plain chooser. Leave it blank.
         return false
       }
 
@@ -179,6 +192,12 @@ export default function ashbyConfig(): SiteRule {
       return false
     },
   }
+}
+
+function isFileControl(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): input is HTMLInputElement {
+  return input.tagName?.toUpperCase() === 'INPUT' && (input.type || '').toLowerCase() === 'file'
 }
 
 function countAshbyFillableFields(): number {
