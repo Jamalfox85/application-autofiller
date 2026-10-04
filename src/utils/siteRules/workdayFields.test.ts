@@ -2410,12 +2410,13 @@ test('Autofill opens a 0 items selected How Did You Hear input and selects Other
 test('Blue Origin source multiselect with a Search box and 0 items selected selects Other', async () => {
   const dom = new JSDOM(
     `<!doctype html><body>
-      <div data-automation-id="formField-source">
+      <span data-automation-id="promptIcon" id="other-icon" aria-hidden="true"></span>
+      <div data-automation-id="formField-source" data-fkit-id="source--source">
         <label id="source-label">How Did You Hear About Us?</label>
-        <div data-automation-id="multiSelectContainer" data-uxi-widget-type="multiselect">
-          <input id="source--source" type="text" placeholder="Search" value="" />
-          <div data-automation-id="promptAriaInstruction">0 items selected</div>
-          <span data-automation-id="promptIcon" id="source-icon"></span>
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" aria-required="true" />
+          <div data-automation-id="promptAriaInstruction" aria-hidden="true">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
         </div>
       </div>
     </body>`,
@@ -2424,12 +2425,31 @@ test('Blue Origin source multiselect with a Search box and 0 items selected sele
   const doc = dom.window.document
   const input = doc.getElementById('source--source') as HTMLInputElement
   const icon = doc.getElementById('source-icon') as HTMLElement
+  const decoy = doc.getElementById('other-icon') as HTMLElement
   const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
   const selected: string[] = []
+  let pointerDown = false
+  let decoyPressed = false
   input.addEventListener('click', () => {
     input.dataset.clicked = 'true'
   })
+  decoy.addEventListener('mousedown', () => {
+    decoyPressed = true
+  })
+  decoy.addEventListener('click', () => {
+    decoyPressed = true
+  })
+  // A bare click() does not open this widget. The list appears only after the
+  // same mousedown, mouseup, click sequence a prompt row requires.
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  icon.addEventListener('mouseup', (event) => {
+    if (event.button !== 0) pointerDown = false
+  })
   icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
     if (doc.getElementById('source-popup')) return
     const popup = doc.createElement('div')
     popup.id = 'source-popup'
@@ -2457,6 +2477,7 @@ test('Blue Origin source multiselect with a Search box and 0 items selected sele
   assert.equal(await rule.apply(input, 'howdidyouhearaboutus', info), true)
   assert.equal(input.value, '')
   assert.equal(input.hasAttribute('data-clicked'), false)
+  assert.equal(decoyPressed, false)
   assert.deepEqual(selected, ['Other'])
   assert.equal(doc.querySelector('[data-automation-id="selectedItem"]')?.textContent, 'Other')
   for (const forbidden of ['Career Websites', 'College/University', 'Event', 'Job Sites', 'Military/Veteran', 'News']) {
