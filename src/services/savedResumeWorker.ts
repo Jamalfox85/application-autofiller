@@ -6,11 +6,11 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { chromeLocalStorage } from '../lib/chromeLocalStorage.ts'
 import { supabasePublicConfigError } from '../lib/supabaseConfig.ts'
-import { savedResumeFromStored } from '../utils/siteRules/workableResume.ts'
-
-export type SavedResumeMessage =
-  | { ok: true; name: string; type: string; bytes: Uint8Array }
-  | { ok: false }
+import {
+  savedResumeFromStored,
+  savedResumeWireMessage,
+  type SavedResumeWireMessage,
+} from '../utils/siteRules/workableResume.ts'
 
 let client: SupabaseClient | null = null
 
@@ -31,7 +31,7 @@ function workerSupabase(): SupabaseClient | null {
   return client
 }
 
-export async function loadSavedResumeInWorker(): Promise<SavedResumeMessage> {
+export async function loadSavedResumeInWorker(): Promise<SavedResumeWireMessage> {
   const supabase = workerSupabase()
   if (!supabase) return { ok: false }
   try {
@@ -59,7 +59,7 @@ export async function loadSavedResumeInWorker(): Promise<SavedResumeMessage> {
       mimeType: downloaded.data.type,
     })
     if (!saved) return { ok: false }
-    return { ok: true, name: saved.name, type: saved.type, bytes: saved.bytes }
+    return savedResumeWireMessage(saved)
   } catch (error) {
     console.error('[saved-resume] could not load the stored resume', error)
     return { ok: false }

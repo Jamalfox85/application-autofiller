@@ -22,6 +22,7 @@ import {
   profileSavedResume,
   savedResumeFromMessage,
   savedResumeFromStored,
+  savedResumeWireMessage,
 } from './workableResume.ts'
 import workableConfig, {
   describeWorkableField,
@@ -125,6 +126,18 @@ test('resume is recognized and not written from the filename', () => {
     savedResumeFromMessage({ ok: true, name: 'ada.pdf' }),
     null,
   )
+  // Chrome's default messaging JSON-encodes a Uint8Array into {"0":37,"1":80}.
+  const jsonUint8 = JSON.parse(
+    JSON.stringify({
+      ok: true,
+      name: 'ada-lovelace.pdf',
+      type: 'application/pdf',
+      bytes: Uint8Array.from([0x25, 0x50, 0x44, 0x46]),
+    }),
+  ) as { bytes: unknown }
+  assert.equal(jsonUint8.bytes instanceof Uint8Array, false)
+  assert.equal(Array.isArray(jsonUint8.bytes), false)
+  assert.equal(savedResumeFromMessage(jsonUint8), null)
 })
 
 const SAVED_BYTES = [0x25, 0x50, 0x44, 0x46, 0x2d]
@@ -1084,12 +1097,13 @@ test('attaches the saved resume to a plain file input and does not drive autofil
 
 test('the stored resume download is attached, and a missing file stays empty', async () => {
   const sent: unknown[] = []
-  let response: unknown = {
-    ok: true,
+  const wire = savedResumeWireMessage({
     name: 'ada-lovelace.pdf',
     type: 'application/pdf',
     bytes: Uint8Array.from(SAVED_BYTES),
-  }
+  })
+  // The same trip chrome.runtime.sendMessage makes: stringify, then parse.
+  let response: unknown = JSON.parse(JSON.stringify(wire))
   const previous = (globalThis as { chrome?: unknown }).chrome
   ;(globalThis as { chrome?: unknown }).chrome = {
     runtime: {
@@ -1110,6 +1124,10 @@ test('the stored resume download is attached, and a missing file stays empty', a
       doc.getElementById(id)?.addEventListener('click', () => clicks.push(id))
       doc.getElementById(id)?.addEventListener('focus', () => focused.push(id))
     }
+    const delivered = response as { bytesBase64?: unknown; bytes?: unknown }
+    assert.equal(typeof delivered.bytesBase64, 'string')
+    assert.equal(delivered.bytes, undefined)
+    assert.deepEqual(Array.from(savedResumeFromMessage(response)?.bytes ?? []), SAVED_BYTES)
     const rule = workableConfig()
     assert.equal(await rule.apply(read('resume-file'), '', profile as PersonalInfo), true)
     const attached = read('resume-file').files?.[0]
