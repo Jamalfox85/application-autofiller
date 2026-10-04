@@ -62,6 +62,16 @@ export function isIcimsLoginSurface(page: IcimsPageSignals): boolean {
   return isIcimsLoginPath(page.pathname, page.search ?? '')
 }
 
+// Joby Aviation and HireRight (2026-10-04) both stop on "Enter Your Information":
+// an email field, no password, and Next opens hCaptcha. The password step is a
+// later document state (a password input exists). That email step is the
+// account-creation handoff. A combined login that already shows a password is not.
+export function isIcimsAccountCreationEmailStep(page: IcimsPageSignals): boolean {
+  if (page.hasPasswordField === true) return false
+  if (page.hasEmailGate !== true) return false
+  return isIcimsCandidateHost(page.hostname)
+}
+
 type GateElement = {
   textContent?: string | null
   getAttribute?: (name: string) => string | null

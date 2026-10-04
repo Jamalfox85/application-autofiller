@@ -1,13 +1,17 @@
 import type { PersonalInfo, SiteRule } from '../../types/index.ts'
 import {
   hasIcimsAccountCredentials,
+  isIcimsAccountCreationEmailStep,
   isIcimsCandidateHost,
-  isIcimsLoginPath,
   isIcimsLoginSurface,
   pageHasEmailGate,
   pageHasPasswordField,
   type IcimsPageSignals,
 } from './icimsAccount.ts'
+import {
+  dismissIcimsAccountCreationPopup,
+  publishIcimsAccountCreationHandoff,
+} from './icimsAccountHandoff.ts'
 import {
   publishMissingIcimsAccountNotice,
   readPersonalInfoForIcims,
@@ -30,12 +34,35 @@ function readIcimsPage(): IcimsPageSignals {
     search: location?.search || '',
     hasPasswordField: pageHasPasswordField(root),
   }
-  // `/login` already decides the in-document gate. Scan for "Enter Your Information"
-  // only when the path is not enough (the email gate mounted under another URL).
-  if (!isIcimsLoginPath(page.pathname, page.search ?? '') && !page.hasPasswordField) {
+  // The email step and the password step share `/login`. Scan for
+  // "Enter Your Information" whenever this document has no password yet.
+  if (!page.hasPasswordField) {
     page.hasEmailGate = pageHasEmailGate(root)
   }
   return page
+}
+
+// What to do on one pass over the login document.
+// handoff: email step, before any password field — show the create-account popup.
+// writeGate: type the saved email/password. On the email step that happens once;
+// later DOM changes are the captcha widget, and writing again dismisses it.
+// warnIfMissing: the Application Accounts notice, only when no iCIMS login is saved.
+export function planIcimsLoginPass(
+  page: IcimsPageSignals,
+  emailStepAlreadyWritten: boolean,
+): { handoff: boolean; warnIfMissing: boolean; writeGate: boolean } {
+  const login = isIcimsCandidateHost(page.hostname) && isIcimsLoginSurface(page)
+  const handoff = isIcimsAccountCreationEmailStep(page)
+  return {
+    handoff,
+    warnIfMissing: login,
+    writeGate: login && (!handoff || !emailStepAlreadyWritten),
+  }
+}
+
+export function maybeShowIcimsAccountCreationHandoff(page: IcimsPageSignals): boolean {
+  if (!isIcimsAccountCreationEmailStep(page)) return false
+  return publishIcimsAccountCreationHandoff()
 }
 
 // Login/create-account and the email-first apply gate. Job search and the job
@@ -52,19 +79,33 @@ export async function maybeWarnMissingIcimsAccount(
 }
 
 let lastFormSignature = ''
+let emailStepWritten = false
 
 function syncIcimsLogin(personalInfo: PersonalInfo | null | undefined) {
   const page = readIcimsPage()
-  if (!isIcimsCandidateHost(page.hostname) || !isIcimsLoginSurface(page)) return
+  if (!isIcimsCandidateHost(page.hostname)) return
+  const plan = planIcimsLoginPass(page, emailStepWritten)
+  if (!isIcimsLoginSurface(page)) {
+    emailStepWritten = false
+    dismissIcimsAccountCreationPopup()
+    return
+  }
   void (async () => {
+    if (plan.handoff) maybeShowIcimsAccountCreationHandoff(page)
+    else {
+      emailStepWritten = false
+      dismissIcimsAccountCreationPopup()
+    }
     const latest = await readPersonalInfoForIcims(personalInfo)
     if (!hasIcimsAccountCredentials(latest)) {
-      await maybeWarnMissingIcimsAccount(latest, page)
+      if (plan.warnIfMissing) await maybeWarnMissingIcimsAccount(latest, page)
       return
     }
+    if (!plan.writeGate) return
     // Email and password only. hCaptcha, the EU/UK checkbox, and every advance
     // button stay untouched so a person can finish the gate and never auto-submit.
     fillIcimsLoginGate(document, latest, page)
+    if (plan.handoff) emailStepWritten = true
     consumeIcimsHcaptchaStop(document)
   })()
 }
@@ -109,8 +150,8 @@ export default function icimsConfig(): SiteRule {
       const page = readIcimsPage()
       if (!isIcimsCandidateHost(page.hostname)) return
       // Job search and the job description share the career-portal host. The gate
-      // watcher stays quiet there, and fills email/password once /login or the
-      // email-first step is on screen. A missing login still warns.
+      // watcher stays quiet there. The email step shows the create-account popup
+      // and fills the saved email once. A missing login still warns.
       syncIcimsLogin(personalInfo)
       return watchIcimsLogin(personalInfo)
     },
@@ -123,6 +164,9 @@ export default function icimsConfig(): SiteRule {
     },
     formChanged: () => {
       if (typeof document === 'undefined') return false
+      // Captcha opening adds nodes on the email step. That is not a new
+      // application page, and a rescan would write into the form under the puzzle.
+      if (isIcimsAccountCreationEmailStep(readIcimsPage())) return false
       const next = icimsFormSignature(document)
       if (!next) return false
       if (!lastFormSignature) {
