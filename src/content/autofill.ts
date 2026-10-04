@@ -96,7 +96,7 @@ export async function consumeAutofillTriggerForSubmission(): Promise<{
   }
 }
 
-function isSkippableField(input: FormField) {
+function isSkippableField(input: FormField, includeFilled?: (input: FormField) => boolean) {
   if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button') {
     return true
   }
@@ -113,6 +113,9 @@ function isSkippableField(input: FormField) {
     input.type != 'radio' &&
     !comboboxSearchIsUncommitted(input)
   ) {
+    // BambooHR country is preselected to the job location. That value has to
+    // be revisited. Every other prefilled control stays skipped.
+    if (includeFilled?.(input)) return false
     return true
   }
 
@@ -184,9 +187,11 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       }
     }
 
-    const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
-    const fillableInputs = inputs.filter((input) => !isSkippableField(input))
     const activeSiteRule = siteRules.find((rule) => rule.detect())
+    const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
+    const fillableInputs = inputs.filter(
+      (input) => !isSkippableField(input, activeSiteRule?.includeFilled),
+    )
     beginLeverFill()
 
     await reportAttempt()

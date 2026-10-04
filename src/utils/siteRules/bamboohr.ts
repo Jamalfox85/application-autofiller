@@ -1,6 +1,13 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { fillNativeInput, fillBambooHRSelect } from '../inputHandlers.ts'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
+import {
+  bambooCountryLabel,
+  bambooSelectToggle,
+  bambooToggleLabel,
+  isBambooCountryControl,
+  pickBambooCountryOption,
+} from './bamboohrFields.ts'
 
 let bambooHRFormLoaded = false
 let lastBambooHRFormSignature = ''
@@ -16,6 +23,9 @@ export default function bambooHrConfig(): SiteRule {
       }
       return false
     },
+    // Job location preselects country (Norway on an Oslo posting). Visit that
+    // select anyway so the profile country can replace it.
+    includeFilled: (input) => isBambooCountryControl(input),
     formChanged: () => {
       // Only check once when form first loads
       if (!bambooHRFormLoaded) {
@@ -48,6 +58,24 @@ const fieldHandlers: Array<{
   match: FieldMatch
   handle: FieldHandler
 }> = [
+  {
+    match: (input) => isBambooCountryControl(input),
+    handle: async (input, _, personalInfo) => {
+      const label = bambooCountryLabel(personalInfo.country)
+      if (!label) return false
+
+      const toggle = bambooSelectToggle(input)
+      if (!toggle) return false
+
+      const current = bambooToggleLabel(toggle)
+      if (current.toLowerCase() === label.toLowerCase()) return true
+
+      await fillBambooHRSelect(toggle, label, (optionTexts) =>
+        pickBambooCountryOption(optionTexts, current, personalInfo.country),
+      )
+      return true
+    },
+  },
   {
     match: (_, fieldText) => fieldText.includes('state'),
     handle: async (input, _, personalInfo) => {

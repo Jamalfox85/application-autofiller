@@ -155,6 +155,13 @@ function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
     'school_name',
     'universityname',
     'university_name',
+    // BambooHR college is educationInstitutionName, label "College/University".
+    // That string contains "name", but it is the school, not the applicant.
+    'institutionname',
+    'institution',
+    'college',
+    'university',
+    'school',
     'employername',
     'employer_name',
     'referencename',
