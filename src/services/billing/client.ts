@@ -1,3 +1,4 @@
+import { readEntitlement } from './entitlementStore.ts'
 import type { BillingPlan, CheckoutSource } from './plans.ts'
 
 export interface BillingState {
@@ -21,13 +22,20 @@ const EMPTY_STATE: BillingState = {
   extensionPayConfigured: false,
 }
 
+// When the worker cannot answer, fall back to the cached entitlement so a Pro
+// user does not see the Upgrade button for a transient messaging failure.
+async function unavailableState(error: string | undefined): Promise<BillingState> {
+  const cached = await readEntitlement()
+  return { ...EMPTY_STATE, isPro: cached.isPro, plan: cached.plan, error }
+}
+
 export async function fetchBillingState(): Promise<BillingState> {
   try {
     const response = await chrome.runtime.sendMessage({ action: 'billing', billingAction: 'getState' })
-    if (!response || response.ok === false) return { ...EMPTY_STATE, error: response?.error }
+    if (!response || response.ok === false) return unavailableState(response?.error)
     return response as BillingState
   } catch (error) {
-    return { ...EMPTY_STATE, error: error instanceof Error ? error.message : 'billing_unavailable' }
+    return unavailableState(error instanceof Error ? error.message : 'billing_unavailable')
   }
 }
 

@@ -1,6 +1,7 @@
 import { detectAts, type AtsPageContext } from '@/utils/ats'
 import { readEntitlement } from './entitlementStore.ts'
-import { applySuccessfulFill, decideFill, fillsRemaining } from './quota.ts'
+import { fetchBillingState } from './client.ts'
+import { applySuccessfulFill, decideFillWithRefresh, fillsRemaining } from './quota.ts'
 import { readFillQuota, writeFillQuota } from './quotaStore.ts'
 
 export interface FillAccess {
@@ -13,7 +14,11 @@ export interface FillAccess {
 export async function evaluateFillAccess(ctx: AtsPageContext): Promise<FillAccess> {
   const ats = detectAts(ctx) ?? 'other'
   const [quota, entitlement] = await Promise.all([readFillQuota(), readEntitlement()])
-  const decision = decideFill({ quota, isPro: entitlement.isPro, ats })
+  // getState re-reads ExtPay in the worker and rewrites the cached entitlement.
+  const decision = await decideFillWithRefresh(
+    { quota, isPro: entitlement.isPro, ats },
+    async () => (await fetchBillingState()).isPro,
+  )
   return {
     decision,
     ats,

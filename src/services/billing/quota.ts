@@ -104,6 +104,21 @@ export function decideFill(input: {
   return 'allow'
 }
 
+// The content script gates on the cached entitlement. Before a hard stop, ask
+// ExtPay again so a purchase the cache has not seen yet does not block a fill.
+export async function decideFillWithRefresh(
+  input: { quota: FillQuotaRecord; isPro: boolean; ats: string },
+  refreshIsPro: () => Promise<boolean>,
+): Promise<'allow' | 'block'> {
+  const decision = decideFill(input)
+  if (decision === 'allow') return decision
+  try {
+    return (await refreshIsPro()) ? 'allow' : decision
+  } catch {
+    return decision
+  }
+}
+
 export function applySuccessfulFill(
   quota: FillQuotaRecord,
   ats: string,

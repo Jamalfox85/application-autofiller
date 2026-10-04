@@ -4,6 +4,7 @@ import {
   EXTENSION_PAY_EXTENSION_ID,
   EXTENSION_PAY_PLAN_SKUS,
   isExtensionPayConfigured,
+  isExtPayUserPaid,
   planFromExtPayInterval,
   priceForPlan,
 } from './billing/plans.ts'
@@ -39,6 +40,8 @@ function extpay() {
 
 interface PaidUser {
   paid?: boolean
+  paidAt?: Date | string | null
+  subscriptionStatus?: string | null
   plan?: { interval?: string | null; nickname?: string | null; unitAmountCents?: number } | null
 }
 
@@ -52,7 +55,7 @@ async function refreshEntitlement(): Promise<{ isPro: boolean; plan: BillingPlan
 
   try {
     const user = (await extpay().getUser()) as PaidUser
-    const isPro = user?.paid === true
+    const isPro = isExtPayUserPaid(user)
     const plan = isPro ? planOf(user) : null
     await writeEntitlement({ isPro, plan, updatedAt: Date.now() })
     if (isPro && !previous.isPro) await syncProPlanAfterPurchase()
@@ -101,7 +104,7 @@ function watchCheckoutTab(tabId: number, session: CheckoutSession): void {
       if (!current || current.openedAt !== session.openedAt || current.completed) return
       try {
         const user = (await extpay().getUser()) as PaidUser
-        if (user?.paid) return
+        if (isExtPayUserPaid(user)) return
       } catch {
         // Treat a failed status check as an abandoned checkout.
       }

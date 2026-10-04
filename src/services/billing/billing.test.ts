@@ -6,6 +6,7 @@ import {
   applySuccessfulFill,
   calendarWeekKey,
   decideFill,
+  decideFillWithRefresh,
   emptyQuota,
   mergeQuotaRecords,
   type FillQuotaRecord,
@@ -31,6 +32,7 @@ import {
   EXTENSION_PAY_PLAN_SKUS,
   FREE_FILL_LIMIT,
   SOFT_GATE_AT,
+  isExtPayUserPaid,
   isExtensionPayConfigured,
   priceForPlan,
 } from './plans.ts'
@@ -452,4 +454,42 @@ test('a second profile is a roster addition and does not drop the primary', () =
   assert.equal(roster.profiles[0].name, 'Primary')
   assert.equal(roster.profiles[1].name, 'Contract')
   assert.equal(roster.activeId, roster.profiles[1].id)
+})
+
+test('ExtPay paidAt grants Pro unless the subscription has lapsed', () => {
+  const paidAt = new Date('2026-10-04T12:00:00Z')
+  assert.equal(isExtPayUserPaid(null), false)
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt: null }), false)
+  assert.equal(isExtPayUserPaid({ paid: true, paidAt: null }), true)
+  // onPaid fires on paidAt. A refresh must not demote that purchase because paid is false.
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt }), true)
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt: '2026-10-04T12:00:00Z', subscriptionStatus: 'active' }), true)
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt, subscriptionStatus: 'past_due' }), false)
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt, subscriptionStatus: 'canceled' }), false)
+})
+
+test('a stale free entitlement re-checks ExtPay before the hard cap blocks', async () => {
+  const atCap = quota({ successfulFills: 25 })
+  let refreshes = 0
+  const refresh = (isPro: boolean) => async () => {
+    refreshes += 1
+    return isPro
+  }
+
+  assert.equal(await decideFillWithRefresh({ quota: atCap, isPro: false, ats: 'greenhouse' }, refresh(true)), 'allow')
+  assert.equal(await decideFillWithRefresh({ quota: atCap, isPro: false, ats: 'greenhouse' }, refresh(false)), 'block')
+  assert.equal(refreshes, 2)
+
+  // Under the cap, or already Pro, skips the worker round trip.
+  assert.equal(
+    await decideFillWithRefresh({ quota: quota({ successfulFills: 3 }), isPro: false, ats: 'lever' }, refresh(false)),
+    'allow',
+  )
+  assert.equal(await decideFillWithRefresh({ quota: atCap, isPro: true, ats: 'lever' }, refresh(false)), 'allow')
+  assert.equal(refreshes, 2)
+
+  const failing = async (): Promise<boolean> => {
+    throw new Error('worker unavailable')
+  }
+  assert.equal(await decideFillWithRefresh({ quota: atCap, isPro: false, ats: 'lever' }, failing), 'block')
 })

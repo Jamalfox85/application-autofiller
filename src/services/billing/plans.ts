@@ -46,3 +46,20 @@ export function planFromExtPayInterval(
   if (interval === 'month' || nickname === EXTENSION_PAY_PLAN_SKUS.monthly) return 'monthly'
   return null
 }
+
+export interface ExtPayUserStatus {
+  paid?: boolean | null
+  paidAt?: Date | string | null
+  subscriptionStatus?: string | null
+}
+
+// ExtPay fires onPaid on paidAt, but user.paid is true only while a
+// subscription's status is exactly "active". Reading paid alone let a refresh
+// demote the purchase onPaid had just granted. Treat paidAt as Pro unless ExtPay
+// reports the subscription as lapsed.
+export function isExtPayUserPaid(user: ExtPayUserStatus | null | undefined): boolean {
+  if (!user) return false
+  if (user.paid === true) return true
+  if (!user.paidAt) return false
+  return user.subscriptionStatus !== 'past_due' && user.subscriptionStatus !== 'canceled'
+}
