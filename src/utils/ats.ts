@@ -11,6 +11,10 @@ const ATS_HOST_RULES: Array<{ fragment: string; ats: string }> = [
   { fragment: 'bamboohr.com', ats: 'bamboohr' },
   { fragment: 'icims.com', ats: 'icims' },
   { fragment: 'smartrecruiters.com', ats: 'smartrecruiters' },
+  // Hosted Jobvite career sites: jobs.jobvite.com/{company}/job/{id} and /apply,
+  // plus the older /careers/{company}/job/{id}/apply path. Any other *.jobvite.com
+  // host (including the candidate portal) tags as jobvite. The apply filler only
+  // writes inside the Jobvite apply form.
   { fragment: 'jobvite.com', ats: 'jobvite' },
   { fragment: 'ultipro.com', ats: 'ultipro' },
   { fragment: 'breezy.hr', ats: 'breezy' },

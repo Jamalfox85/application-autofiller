@@ -81,6 +81,27 @@ test('unrelated host without Greenhouse signals stays null', () => {
   assert.equal(atsFromHostname('www.carvana.com'), null)
 })
 
+test('hosted Jobvite career and apply hosts tag ats=jobvite', () => {
+  assert.equal(atsFromHostname('jobs.jobvite.com'), 'jobvite')
+  assert.equal(atsFromHostname('Jobs.Jobvite.com'), 'jobvite')
+  assert.equal(atsFromHostname('acme.jobvite.com'), 'jobvite')
+  assert.equal(
+    detectAts({
+      hostname: 'jobs.jobvite.com',
+      href: 'https://jobs.jobvite.com/uplight/job/oPTRAfwT/apply',
+    }),
+    'jobvite',
+  )
+  assert.equal(
+    detectAts({
+      hostname: 'jobs.jobvite.com',
+      href: 'https://jobs.jobvite.com/careers/kymanox/job/abc123/apply',
+    }),
+    'jobvite',
+  )
+  assert.equal(atsFromHostname('jobs.lever.co'), 'lever')
+})
+
 test('hosted Ashby job boards tag ats=ashby', () => {
   assert.equal(
     detectAts({

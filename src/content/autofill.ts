@@ -208,10 +208,15 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       const snapshot = captureFieldSnapshot(input)
 
       console.log('Processing field:', fieldText, input)
-      // Try site-specific handling first
-      let handled =
-        !!activeSiteRule &&
-        (await activeSiteRule.apply(input, normalizeText(fieldText), personalInfo))
+      // Try site-specific handling first. 'skip' means the rule recognized the
+      // field and left it blank (custom screening questions, resume file, an
+      // unmatched radio). Do not count or highlight those, and do not fall
+      // through to the generic matcher.
+      const applyResult = activeSiteRule
+        ? await activeSiteRule.apply(input, normalizeText(fieldText), personalInfo)
+        : false
+      if (applyResult === 'skip') continue
+      let handled = !!applyResult
       if (handled) {
         console.log('Filled by site rule:', fieldText, input)
         filledCount++
