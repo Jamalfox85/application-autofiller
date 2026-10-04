@@ -3,6 +3,8 @@ import {
   BAND_LABEL,
   INSUFFICIENT_COPY,
   MATCH_SCORE_FOOTNOTE,
+  MATCH_SCORE_HOW_COPY,
+  MATCH_SCORE_HOW_LABEL,
   MATCH_SCORE_LOADING,
   STRONG_MATCH_COPY,
   quickAnswerFor,
@@ -118,6 +120,26 @@ function pillButton(doc: Document, label: string, onClick: () => void, disabled 
   return button
 }
 
+function howCalculated(doc: Document): HTMLElement {
+  const wrap = el(doc, 'div', 'display:flex; flex-direction:column; gap:8px; align-items:flex-start;')
+  const button = doc.createElement('button')
+  button.type = 'button'
+  button.textContent = MATCH_SCORE_HOW_LABEL
+  button.setAttribute('aria-expanded', 'false')
+  button.style.cssText = `border:none; background:none; color:#8f8f99; font:500 11px/1.3 ${FONT}; cursor:pointer; padding:0; text-align:left; text-decoration:underline;`
+  const blurb = el(doc, 'div', 'font-size:11px; line-height:1.45; color:#b9b9c2; white-space:pre-wrap;')
+  blurb.hidden = true
+  button.addEventListener('click', (event) => {
+    event.stopPropagation()
+    if (!blurb.hidden) return
+    blurb.textContent = MATCH_SCORE_HOW_COPY
+    blurb.hidden = false
+    button.setAttribute('aria-expanded', 'true')
+  })
+  wrap.append(button, blurb)
+  return wrap
+}
+
 function renderScored(
   doc: Document,
   card: HTMLElement,
@@ -135,6 +157,9 @@ function renderScored(
     pill.style.cursor = 'pointer'
     pill.addEventListener('click', handlers.onToggle)
     card.append(pill)
+    const how = howCalculated(doc)
+    how.style.padding = '0 12px 10px'
+    card.append(how)
     return
   }
 
@@ -196,6 +221,7 @@ function renderScored(
     body.append(el(doc, 'div', 'font-size:12px; line-height:1.4; color:#b9b9c2;', notice.text))
   }
   body.append(el(doc, 'div', 'font-size:10.5px; line-height:1.4; color:#8f8f99;', MATCH_SCORE_FOOTNOTE))
+  body.append(howCalculated(doc))
   const collapse = doc.createElement('button')
   collapse.type = 'button'
   collapse.textContent = 'Hide details'

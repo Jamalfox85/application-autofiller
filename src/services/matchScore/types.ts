@@ -122,6 +122,17 @@ export const STRONG_MATCH_COPY = "You're a strong match"
 export const INSUFFICIENT_COPY = 'Complete your profile to get a Match Score'
 export const MATCH_SCORE_FOOTNOTE = 'Scored against your GoFillr profile, not your resume file'
 export const MATCH_SCORE_LOADING = 'Checking match…'
+export const MATCH_SCORE_HOW_LABEL = 'How is this score calculated'
+export const MATCH_SCORE_HOW_COPY = `The score compares your saved GoFillr profile with this job, not your resume file. Pieces the job doesn\u2019t mention are left out, and the rest still add up to 100.
+
+Required skills, 40. A skill counts if it\u2019s on your profile or in a job description there, including synonyms.
+Years and seniority, 20. Partial credit if your dated work history is short of the ask.
+Nice-to-have skills, 15.
+Job title overlap with past titles, 10.
+Education, 10.
+Industry, 5.
+
+80 and up is Very strong, 60 is Good, 40 is Okay, and under 40 is Weak. If the role doesn\u2019t offer sponsorship you need, or it\u2019s onsite outside your country, the score stays under 40. Clearance and licenses are notes only.`
 
 export function isMatchAts(value: string): value is MatchAts {
   return (MATCH_ATS as readonly string[]).includes(value)

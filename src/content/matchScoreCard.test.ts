@@ -5,6 +5,8 @@ import { renderMatchScoreCard } from './matchScoreCard.ts'
 import {
   INSUFFICIENT_COPY,
   MATCH_SCORE_FOOTNOTE,
+  MATCH_SCORE_HOW_COPY,
+  MATCH_SCORE_HOW_LABEL,
   MATCH_SCORE_LOADING,
   STRONG_MATCH_COPY,
   type ScoredMatch,
@@ -100,6 +102,51 @@ test('years and education suggestions stay plain text', () => {
     labels.filter((label) => label === 'Yes' || label === 'No'),
     ['Yes', 'No'],
   )
+})
+
+test('how this score is calculated reveals only the weight blurb', () => {
+  const expanded = render({
+    kind: 'scored',
+    collapsed: false,
+    pending: false,
+    undoSkill: null,
+    score: scored(),
+  })
+  const collapsed = render({
+    kind: 'scored',
+    collapsed: true,
+    pending: false,
+    undoSkill: null,
+    score: scored(),
+  })
+  for (const card of [expanded, collapsed]) {
+    const control = [...card.querySelectorAll('button')].find((button) => button.textContent === MATCH_SCORE_HOW_LABEL)
+    assert.ok(control)
+    assert.equal(control?.getAttribute('aria-expanded'), 'false')
+    const blurb = control?.nextElementSibling
+    assert.equal(blurb?.textContent, '')
+    control?.dispatchEvent(new card.ownerDocument.defaultView!.Event('click', { bubbles: true }))
+    assert.equal(control?.getAttribute('aria-expanded'), 'true')
+    assert.equal(blurb?.textContent, MATCH_SCORE_HOW_COPY)
+    assert.equal(blurb?.childElementCount, 0)
+  }
+  assert.equal(MATCH_SCORE_HOW_COPY, `The score compares your saved GoFillr profile with this job, not your resume file. Pieces the job doesn\u2019t mention are left out, and the rest still add up to 100.
+
+Required skills, 40. A skill counts if it\u2019s on your profile or in a job description there, including synonyms.
+Years and seniority, 20. Partial credit if your dated work history is short of the ask.
+Nice-to-have skills, 15.
+Job title overlap with past titles, 10.
+Education, 10.
+Industry, 5.
+
+80 and up is Very strong, 60 is Good, 40 is Okay, and under 40 is Weak. If the role doesn\u2019t offer sponsorship you need, or it\u2019s onsite outside your country, the score stays under 40. Clearance and licenses are notes only.`)
+
+  const loading = render({ kind: 'loading' })
+  const locked = render({ kind: 'locked' })
+  const insufficient = render({ kind: 'insufficient' })
+  for (const card of [loading, locked, insufficient]) {
+    assert.equal(card.textContent?.includes(MATCH_SCORE_HOW_LABEL), false)
+  }
 })
 
 test('loading, locked, and insufficient states hide the number', () => {
