@@ -589,7 +589,9 @@ function collapseOpenListbox() {
     button.click()
     return
   }
-  button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  const KeyCtor = button.ownerDocument?.defaultView?.KeyboardEvent
+  if (!KeyCtor) return
+  button.dispatchEvent(new KeyCtor('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
 }
 
 // Rows for this button that were painted outside its aria-controls node.
@@ -624,8 +626,8 @@ function listboxShowsLabel(button: HTMLElement, label: string): boolean {
   return !!value && value === label.trim().toLowerCase()
 }
 
-// Degree is a Canvas Select, not a prompt. The closed label is the option whose
-// id was written to the hidden input. The row text is not that id.
+// Degree is a Canvas Select. The closed label changes when that select's key
+// handler commits an option. Writing the hidden input does not change the label.
 function canvasSelectInput(button: HTMLElement): HTMLInputElement | null {
   const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
   if (!field) return null
@@ -657,6 +659,34 @@ function writeCanvasSelectValue(button: HTMLElement, option: HTMLElement): boole
 function listboxIsPlaceholder(button: HTMLElement): boolean {
   const key = workdayListboxValue(button).toLowerCase().replace(/[^a-z]/g, '')
   return !key || key === 'selectone' || key === 'select' || key === 'pleaseselect' || key === 'chooseone'
+}
+
+// The Canvas select commits from its own key handler. While the menu is closed,
+// each typed character selects the first enabled option whose label starts with
+// the characters so far. While it is open, those characters only move focus and
+// Enter commits. "B" alone is Bachelor of Arts when that row is listed first, so
+// the whole degree name is typed before Enter.
+async function commitCanvasDegreeTypeahead(
+  button: HTMLButtonElement,
+  label: string,
+): Promise<string | null> {
+  if (listboxShowsLabel(button, label)) return workdayListboxValue(button)
+  const doc = button.ownerDocument
+  const view = doc?.defaultView
+  if (!doc || !view) return null
+  const KeyCtor = view.KeyboardEvent ?? KeyboardEvent
+  const press = (key: string) => {
+    button.dispatchEvent(new KeyCtor('keydown', { key, bubbles: true, cancelable: true }))
+  }
+  button.focus()
+  for (const character of label) press(character)
+  press('Enter')
+  const started = Date.now()
+  while (Date.now() - started < 300) {
+    if (listboxShowsLabel(button, label)) return workdayListboxValue(button)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  return null
 }
 
 // Canvas Select commits the focused row on Enter. A mousedown on the row can
@@ -693,9 +723,9 @@ async function commitListedDegreeByKeyboard(button: HTMLButtonElement, label: st
   }
 }
 
-// A prompt row can commit on click. A Canvas degree select commits when the
-// hidden input receives that row's data-value. Returning the label while the
-// closed control still says Select One is not a selection.
+// A prompt row can commit on click. A Canvas degree select does not: its closed
+// label changes only after its own key handler commits. An option id written
+// into the hidden input is ignored unless that label actually changes.
 async function settleListedChoice(
   button: HTMLButtonElement,
   option: HTMLElement,
@@ -1245,6 +1275,8 @@ export async function selectWorkdayListedDegree(
 ): Promise<string | null> {
   const trimmed = degreeType.trim()
   if (!trimmed) return null
+  const typed = await commitCanvasDegreeTypeahead(button, trimmed)
+  if (typed) return typed
   return chooseFirstListedOption(
     button,
     (labels) => workdayDegreeOption(labels, trimmed),

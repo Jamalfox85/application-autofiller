@@ -1502,10 +1502,11 @@ test('Cisco degree list commits Bachelor of Science while another listbox is ope
   assert.equal(chosen.includes('Bachelor of Arts'), false)
 })
 
-// Cisco renders degree as a Canvas Select. The closed label stays "Select One"
-// until the hidden input receives the option id. Clicking the row or typing the
-// degree name does not change that label. Associate of Science is a different id.
-test('Cisco degree select commits Bachelor of Science through the option id', async () => {
+// Cisco's Canvas select updates the closed label from its own key handler.
+// Writing an option id into the hidden input leaves the label on Select One.
+// Bachelor of Arts is listed before Bachelor of Science, so the first "B"
+// would commit the wrong degree. The full name is required.
+test('Cisco degree closed label follows typeahead of the full degree name', async () => {
   const dom = new JSDOM(`<!doctype html><body>
     <div data-automation-id="selectedItemList" role="listbox">
       <div data-automation-id="selectedItem">Kennesaw State University</div>
@@ -1518,48 +1519,61 @@ test('Cisco degree select commits Bachelor of Science through the option id', as
   const doc = dom.window.document
   const button = doc.getElementById('degree') as HTMLButtonElement
   const input = doc.getElementById('degree-value') as HTMLInputElement
-  const options = [
-    { label: 'Select One', value: '' },
-    { label: 'Doctor of Medicine (MD)', value: 'md' },
-    { label: 'Associate of Science', value: 'as' },
-    { label: 'Bachelor of Science', value: 'bs' },
-    { label: 'Doctor of Medicine', value: 'md2' },
-    { label: 'Juris Doctorate', value: 'jd' },
+  const labels = [
+    'Select One',
+    'Doctor of Medicine (MD)',
+    'Associate of Science',
+    'Bachelor of Arts',
+    'Bachelor of Science',
+    'Doctor of Medicine',
+    'Juris Doctorate',
   ]
-  const applyValue = () => {
-    const match = options.find((option) => option.value && option.value === input.value)
-    if (match) button.textContent = match.label
-  }
-  input.addEventListener('input', applyValue)
-  input.addEventListener('change', applyValue)
-  button.addEventListener('click', () => {
-    if (doc.getElementById('degree-menu')) return
-    button.setAttribute('aria-expanded', 'true')
-    button.setAttribute('aria-controls', 'degree-menu')
-    const menu = doc.createElement('ul')
-    menu.id = 'degree-menu'
-    menu.setAttribute('role', 'listbox')
-    for (const option of options) {
-      const row = doc.createElement('li')
-      row.setAttribute('role', 'option')
-      row.setAttribute('data-value', option.value)
-      const text = doc.createElement('div')
-      text.textContent = option.label
-      text.addEventListener('mousedown', (event) => event.stopPropagation())
-      text.addEventListener('click', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-      })
-      row.appendChild(text)
-      menu.appendChild(row)
+  let keys = ''
+  let focus = 0
+  let open = false
+  const matchFrom = (start: number, text: string): number => {
+    for (let index = start; index < labels.length; index++) {
+      if (index === 0) continue
+      if (labels[index].toLowerCase().indexOf(text.toLowerCase()) === 0) return index
     }
-    doc.body.appendChild(menu)
+    return -1
+  }
+  const typeahead = (character: string) => {
+    const start = keys.length === 0 ? focus + 1 : focus
+    keys += character
+    let index = matchFrom(start >= labels.length ? 0 : start, keys)
+    if (index < 0) index = matchFrom(0, keys)
+    if (index < 0) return
+    if (open) focus = index
+    else button.textContent = labels[index]
+  }
+  button.addEventListener('keydown', (event) => {
+    const key = (event as KeyboardEvent).key
+    if (key.length === 1 && /\S/.test(key)) {
+      typeahead(key)
+      return
+    }
+    if ((key === ' ' || key === 'Spacebar') && keys) {
+      typeahead(' ')
+      return
+    }
+    if (key === 'ArrowDown' || key === 'Down') {
+      if (!open) open = true
+      return
+    }
+    if (key === 'Enter' && open && focus > 0) button.textContent = labels[focus]
   })
+  input.addEventListener('input', () => {})
+  input.addEventListener('change', () => {})
+  input.value = 'bs'
+  input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  input.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  assert.equal(button.textContent, 'Select One')
+  input.value = ''
   const { selectWorkdayListedDegree } = await import('./workday.ts')
   assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelor of Science')
   assert.equal(button.textContent, 'Bachelor of Science')
-  assert.equal(input.value, 'bs')
-  assert.notEqual(input.value, 'as')
-  assert.notEqual(button.textContent, 'Associate of Science')
   assert.notEqual(button.textContent, 'Select One')
+  assert.notEqual(button.textContent, 'Associate of Science')
+  assert.notEqual(button.textContent, 'Bachelor of Arts')
 })
