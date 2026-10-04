@@ -81,3 +81,12 @@ await esbuild.build({
   bundle: true,
   platform: 'neutral',
 })
+
+await esbuild.build({
+  entryPoints: ['src/utils/siteRules/bamboohrResumeWorker.ts'],
+  outfile: 'dist/src/utils/siteRules/bamboohrResumeWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})

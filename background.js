@@ -16,6 +16,7 @@ import { handleBillingMessage, startExtensionPay } from './src/services/extensio
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
+import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 
 startExtensionPay()
 
@@ -405,6 +406,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // dropdown methods. It does not click Next, Log In, Create Account, Submit, or hCaptcha.
   if (request.action === 'icimsPageDropdown') {
     deliverIcimsPageDropdown(request.request, sender, chrome.scripting)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
+  // BambooHR apply pages block a content-script fetch to Supabase. Download the
+  // saved resume here and return the bytes. This does not click Apply or any
+  // autofill-from-resume control.
+  if (request.action === 'loadSavedResume') {
+    loadSavedResumeForWorker()
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false }))
     return true
