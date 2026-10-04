@@ -9,8 +9,27 @@ export { DEFAULT_PERSONAL_INFO, cloneDefaultPersonalInfo }
 
 const MIRROR_KEY = 'personalInfo'
 
+let resumeMirrorListener = false
+
 export function usePersonalInfo() {
   const personalInfo = ref<PersonalInfo>(cloneDefaultPersonalInfo())
+
+  // The service worker writes the mirror after it stores the resume. Fold just
+  // those fields into the open popup so a later Save does not drop them.
+  if (!resumeMirrorListener && typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    resumeMirrorListener = true
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !changes[MIRROR_KEY]?.newValue) return
+      const next = changes[MIRROR_KEY].newValue as PersonalInfo
+      const path = next?.resumeFilePath
+      if (!path || path === personalInfo.value.resumeFilePath) return
+      personalInfo.value = {
+        ...personalInfo.value,
+        resumeFileName: next.resumeFileName || personalInfo.value.resumeFileName,
+        resumeFilePath: path,
+      }
+    })
+  }
 
   // Supabase is the source of truth. We hydrate from it and refresh the chrome.storage.local
   // mirror the content script reads.

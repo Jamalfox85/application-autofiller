@@ -14,6 +14,7 @@ import {
 } from './src/services/installAttribution.js'
 import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
+import { persistUploadedResume } from './src/services/resumeVaultWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
@@ -241,31 +242,6 @@ async function writeResumeJob(state) {
   })
 }
 
-function classifyResumeUploadError(status, apiMessage) {
-  switch (status) {
-    case 401:
-      return { code: 'auth', message: 'Your session expired. Please sign in again.' }
-    case 413:
-      return { code: 'too_large', message: apiMessage || 'That file is too large — keep it under 10MB.' }
-    case 415:
-      return { code: 'bad_type', message: apiMessage || 'Please upload a PDF or DOCX file.' }
-    case 422:
-      return {
-        code: 'unreadable',
-        message: apiMessage || "We couldn't read this resume. Try a different file.",
-      }
-    case 502:
-      return { code: 'upstream', message: 'The resume service is temporarily unavailable. Please try again shortly.' }
-    case 503:
-      return { code: 'server', message: 'The resume service is temporarily unavailable. Please try again shortly.' }
-    default:
-      return {
-        code: `http_${status}`,
-        message: apiMessage || `Upload failed (${status}). Please try again.`,
-      }
-  }
-}
-
 // Same key as src/utils/savedResumeFile.ts SAVED_RESUME_STORAGE_KEY. The content
 // script reads it when a Jobvite file input needs the bytes. Sign-out removes it.
 const SAVED_RESUME_STORAGE_KEY = 'savedResumeFile'
@@ -339,58 +315,79 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
     return
   }
 
-  let res
-  let rawBody = ''
+  let bytes
+  try {
+    bytes = base64ToBytes(fileBytesBase64)
+  } catch (err) {
+    console.error('[resume-upload] could not decode the file', err)
+    await writeResumeJob({
+      phase: 'error',
+      code: 'read_failed',
+      message: "Couldn't read that file. Please choose another.",
+    })
+    return
+  }
+
+  // The account save is the upload. The parse API is only for prefilling the
+  // form; a file in storage with no profiles row is not a saved resume.
+  let saved
+  try {
+    saved = await persistUploadedResume({ token, fileName, fileType, bytes })
+    await cacheUploadedResume({
+      token,
+      fileName,
+      fileType,
+      fileBytesBase64,
+      storagePath: saved.storagePath,
+    })
+  } catch (err) {
+    console.error('[resume-upload] account save failed', err)
+    await writeResumeJob({
+      phase: 'error',
+      code: 'save_failed',
+      message: err instanceof Error ? err.message : "Couldn't save your resume. Please try again.",
+    })
+    return
+  }
+
+  let parsed = null
+  let firstUpload = null
   try {
     const form = new FormData()
-    form.append(
-      'file',
-      new Blob([base64ToBytes(fileBytesBase64)], { type: fileType || 'application/octet-stream' }),
-      fileName,
-    )
+    form.append('file', new Blob([bytes], { type: fileType || 'application/octet-stream' }), fileName)
 
-    res = await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       // No Content-Type — FormData sets multipart/form-data + boundary.
       headers: { Authorization: `Bearer ${token}` },
       body: form,
     })
-    rawBody = await res.text()
-  } catch (err) {
-    console.error('[resume-upload] request failed', err)
-    await writeResumeJob({
-      phase: 'error',
-      code: 'network',
-      message: 'Upload failed — check your connection and that the API is running, then try again.',
-    })
-    return
-  }
-
-  let body = null
-  try {
-    body = rawBody ? JSON.parse(rawBody) : null
-  } catch {
-    // non-JSON body — leave `body` null, handled below
-  }
-  console.log('[resume-upload]', res.status, rawBody.slice(0, 2000))
-
-  try {
-    if (res.ok && body && body.success === true) {
-      const storagePath = body.data ? body.data.storage_path ?? null : null
-      await cacheUploadedResume({ token, fileName, fileType, fileBytesBase64, storagePath })
-      await writeResumeJob({
-        phase: 'done',
-        fileName,
-        firstUpload: body.data ? body.data.first_upload ?? null : null,
-        parsed: body.data ? body.data.parsed ?? null : null,
-        storagePath,
-      })
-      return
+    const rawBody = await res.text()
+    let body = null
+    try {
+      body = rawBody ? JSON.parse(rawBody) : null
+    } catch {
+      body = null
     }
+    console.log('[resume-upload]', res.status, rawBody.slice(0, 2000))
+    if (res.ok && body && body.success === true) {
+      firstUpload = body.data ? body.data.first_upload ?? null : null
+      parsed = body.data ? body.data.parsed ?? null : null
+    } else {
+      console.error('[resume-upload] parse failed after the resume was saved', res.status)
+    }
+  } catch (err) {
+    console.error('[resume-upload] parse request failed after the resume was saved', err)
+  }
 
-    const apiMessage = body && typeof body.error === 'string' ? body.error : ''
-    const { code, message } = classifyResumeUploadError(res.status, apiMessage)
-    await writeResumeJob({ phase: 'error', httpStatus: res.status, code, message, apiMessage })
+  try {
+    await writeResumeJob({
+      phase: 'done',
+      fileName,
+      firstUpload,
+      parsed,
+      storagePath: saved.storagePath,
+    })
   } catch (err) {
     console.error('[resume-upload] handling response failed', err)
     await writeResumeJob({
