@@ -475,7 +475,6 @@ watch(authStatus, (next, previous) => {
           <span v-if="autofillState === 'idle'">Auto-fill application</span>
           <span v-else-if="autofillState === 'filling'">Filling fields…</span>
           <span v-else>Filled {{ lastFillCount?.filled }} of {{ lastFillCount?.total }} fields</span>
-          <span v-if="autofillState === 'idle' && detection.detected" class="shortcut-badge">⌘⇧F</span>
         </button>
         <button v-if="!detection.detected" class="scan-btn" @click="scanCurrentPageManually">
           Scan this page manually
@@ -831,16 +830,6 @@ watch(authStatus, (next, previous) => {
     color: #5c5c66;
     cursor: not-allowed;
   }
-}
-
-.shortcut-badge {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10.5px;
-  font-weight: 500;
-  opacity: 0.72;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 4px;
-  padding: 1px 4px;
 }
 
 .scan-btn {
