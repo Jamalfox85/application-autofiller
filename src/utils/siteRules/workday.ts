@@ -612,7 +612,7 @@ function activateMatchingPortalOption(
     if (!label) continue
     const option = workdayOptionElement(popups[index], label)
     if (!option) continue
-    activateWorkdayOption(option)
+    activateWorkdayOption(promptRowTarget(option))
     return label
   }
   return null
@@ -637,9 +637,22 @@ async function chooseWorkdayListOption(
   while (Date.now() - started < 1500) {
     const prompt = workdayActivePrompt(button)
     if (prompt && searchText && !typed) {
-      const search = workdayPromptSearchInput(prompt)
+      let search = workdayPromptSearchInput(prompt)
+      // The catalog search lives in the field or the open prompt, not in an
+      // empty aria-controls anchor. Degree and school opt into that lookup.
+      if (!search && scanPortals) {
+        const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+        if (field) search = workdayPromptSearchInput(field)
+        if (!search) {
+          const popups = promptPopups(button.ownerDocument, elementNode(prompt))
+          for (let index = popups.length - 1; index >= 0 && !search; index--) {
+            search = workdayPromptSearchInput(popups[index])
+          }
+        }
+      }
       if (search) {
-        await fillWorkdayInput(search, searchText)
+        if (scanPortals) setReactInputValue(search, searchText)
+        else await fillWorkdayInput(search, searchText)
         typed = true
         await new Promise((resolve) => setTimeout(resolve, 200))
         continue
@@ -664,7 +677,7 @@ async function chooseWorkdayListOption(
     if (label && prompt) {
       const option = workdayOptionElement(prompt, label)
       if (option) {
-        activateWorkdayOption(option)
+        activateWorkdayOption(promptRowTarget(option))
         openListbox = null
         return label
       }
@@ -837,18 +850,87 @@ function promptPopups(doc: Document, except: Element | null): Element[] {
     doc.querySelectorAll(
       '[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"], [role="listbox"]',
     ),
-  ).filter((node) => node !== except)
-}
-
-function substantivePromptLabels(labels: string[]): string[] {
-  return labels.filter((label) => {
-    const key = label.toLowerCase().replace(/[^a-z]/g, '')
-    return key !== 'selectone' && key !== 'select' && key !== 'pleaseselect' && key !== 'chooseone' && key !== 'choose'
+  ).filter((node) => {
+    if (node === except) return false
+    if (node.getAttribute('data-automation-id') === 'selectedItemList') return false
+    if (node.closest('[data-automation-id="selectedItemList"]')) return false
+    return true
   })
 }
 
-// Workday commits a prompt row on mousedown. element.click() only fires click,
-// which runs after blur and is dropped, so the menu closes on Select One.
+function substantivePromptLabels(labels: string[]): string[] {
+  return labels.filter((label) => !isPromptPlaceholderLabel(label))
+}
+
+// "No Items." is the empty catalog, not a school. "Select One" is the closed
+// degree placeholder. Neither is a row that can be committed.
+function isPromptPlaceholderLabel(label: string): boolean {
+  const key = label.toLowerCase().replace(/[^a-z]/g, '')
+  return (
+    key === 'selectone' ||
+    key === 'select' ||
+    key === 'pleaseselect' ||
+    key === 'chooseone' ||
+    key === 'choose' ||
+    key === 'noitems' ||
+    key === 'noitem' ||
+    key === 'noitemsavailable' ||
+    key === 'nomatches' ||
+    key === 'nomatchesfound' ||
+    key === 'noresults' ||
+    key === 'noresultsfound'
+  )
+}
+
+function catalogShellOpen(doc: Document): boolean {
+  return !!doc.querySelector(
+    '[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"], [data-automation-id="monikerSearchBox"], [data-automation-id="monikerSearchBoxFullscreen"]',
+  )
+}
+
+function isCatalogSearchInput(input: HTMLInputElement): boolean {
+  const id = input.getAttribute('data-automation-id') || ''
+  if (id === 'searchBox' || id === 'promptSearchInput' || id === 'monikerSearchBox') return true
+  return !!input.closest(
+    '[data-automation-id="monikerSearchBox"], [data-automation-id="monikerSearchBoxFullscreen"]',
+  )
+}
+
+// The closed multiselect is not the catalog. Opening it paints input[searchBox]
+// inside the prompt; that box is what the school query has to reach.
+async function resolveCatalogSearch(control: HTMLElement): Promise<HTMLInputElement | null> {
+  const own = control.tagName === 'INPUT' ? (control as HTMLInputElement) : null
+  if (own && isCatalogSearchInput(own)) return own
+  const started = Date.now()
+  while (Date.now() - started < 400) {
+    const doc = control.ownerDocument
+    const field = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+    const inField = field ? workdayPromptSearchInput(field) : null
+    if (inField && inField !== own) return inField
+    const prompts = promptPopups(doc, null)
+    for (let index = prompts.length - 1; index >= 0; index--) {
+      const found = workdayPromptSearchInput(prompts[index])
+      if (found && found !== own) return found
+    }
+    if (Date.now() - started >= 40 && !catalogShellOpen(doc)) break
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  return own && own.isConnected ? own : null
+}
+
+// A prompt row commits on the promptLeafNode (click). The selected pill commits
+// on mousedown and ignores click. The visible label inside the row does neither
+// when it stops the event, so the event has to start on the leaf or option.
+function promptRowTarget(element: HTMLElement): HTMLElement {
+  const leaf = element.closest('[data-automation-id="promptLeafNode"]')
+  if (leaf) return leaf as HTMLElement
+  const option = element.closest('[role="option"]')
+  if (option) return option as HTMLElement
+  return element
+}
+
+// Workday commits a prompt row on mousedown for a selected pill, and on click
+// for a promptLeafNode. Dispatch both on the row that owns the handler.
 function activateWorkdayOption(option: HTMLElement) {
   const view = option.ownerDocument?.defaultView
   const MouseCtor = view?.MouseEvent ?? MouseEvent
@@ -900,33 +982,38 @@ function suggestionMenuIsOpen(input: HTMLInputElement): boolean {
 }
 
 // Type into a school or field-of-study prompt and click the matching suggestion.
-// change and blur dismiss the list before the row can be chosen and leave the
-// typed name uncommitted. Enter is only for a catalog that never opened; an
-// open menu that does not match is not the highlighted wrong school.
+// The catalog reads the prompt's search box, which appears when the multiselect
+// opens. change and blur dismiss that list. A typed query with no matching row
+// is cleared. Enter is only for a catalog that never opened.
 export async function selectWorkdayPromptQuery(
-  input: HTMLInputElement,
+  control: HTMLElement,
   query: string,
   pick: (labels: string[]) => string | null = (labels) => workdaySuggestionOption(labels, query),
 ): Promise<boolean> {
   const trimmed = query.trim()
-  if (!trimmed || input.tagName !== 'INPUT') return false
-  input.click()
-  input.focus()
-  setReactInputValue(input, trimmed)
+  if (!trimmed) return false
+  control.click()
+  if (control.tagName === 'INPUT') (control as HTMLInputElement).focus()
+  const search = await resolveCatalogSearch(control)
+  if (!search) return false
+  setReactInputValue(search, trimmed)
   const started = Date.now()
   while (Date.now() - started < 1500) {
-    const option = matchingSuggestionRow(input, pick)
+    const option = matchingSuggestionRow(search, pick)
     if (option) {
-      activateWorkdayOption(option)
+      activateWorkdayOption(promptRowTarget(option))
       return true
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  if (!suggestionMenuIsOpen(input)) {
-    const view = input.ownerDocument?.defaultView
+  const doc = search.ownerDocument
+  if (!catalogShellOpen(doc) && !suggestionMenuIsOpen(search)) {
+    const view = doc?.defaultView
     const KeyCtor = view?.KeyboardEvent ?? KeyboardEvent
-    input.dispatchEvent(new KeyCtor('keydown', { key: 'Enter', keyCode: 13, bubbles: true }))
-    input.dispatchEvent(new KeyCtor('keyup', { key: 'Enter', keyCode: 13, bubbles: true }))
+    search.dispatchEvent(new KeyCtor('keydown', { key: 'Enter', keyCode: 13, bubbles: true }))
+    search.dispatchEvent(new KeyCtor('keyup', { key: 'Enter', keyCode: 13, bubbles: true }))
+  } else if (search.value.trim()) {
+    setReactInputValue(search, '')
   }
   return false
 }
@@ -1178,10 +1265,20 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
     const schoolQuery = (education.schoolName || '').trim()
     if (schoolQuery) {
       console.log('Filling school name:', schoolQuery)
-      const schoolInput = firstTextControl(section, ['schoolName', 'school'])
+      const schoolIds = ['schoolName', 'school', 'schoolItem']
+      const schoolInput = firstTextControl(section, schoolIds)
       let schoolSelected = schoolInput ? await selectWorkdayPromptQuery(schoolInput, schoolQuery) : false
       if (!schoolSelected) {
-        const schoolButton = firstListbox(section, ['schoolName', 'school', 'schoolItem'])
+        const scope = schoolIds.map((id) => fieldScope(section, id)).find((node) => node)
+        const container = scope?.querySelector(
+          '[data-automation-id="multiSelectContainer"], [data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"]',
+        )
+        if (container && container !== schoolInput) {
+          schoolSelected = await selectWorkdayPromptQuery(container as HTMLElement, schoolQuery)
+        }
+      }
+      if (!schoolSelected) {
+        const schoolButton = firstListbox(section, schoolIds)
         if (schoolButton) {
           const label = await chooseFirstListedOption(
             schoolButton,

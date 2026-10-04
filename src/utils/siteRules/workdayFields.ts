@@ -560,6 +560,7 @@ export function workdayOptionElements(root: ParentNode): Array<{ label: string; 
   // Keep the innermost node that actually has a label.
   return labeled.filter(
     (choice) =>
+      !choice.element.closest('[data-automation-id="selectedItemList"]') &&
       !labeled.some(
         (other) => other.element !== choice.element && choice.element.contains(other.element),
       ),
@@ -712,7 +713,13 @@ export function workdayDegreeSearchTexts(degreeType: string): string[] {
 
 export function workdayPromptSearchInput(root: ParentNode): HTMLInputElement | null {
   const input = root.querySelector(
-    'input[data-automation-id="searchBox"], input[data-automation-id="promptSearchInput"], input[data-automation-id="monikerSearchBox"]',
+    [
+      'input[data-automation-id="searchBox"]',
+      'input[data-automation-id="promptSearchInput"]',
+      'input[data-automation-id="monikerSearchBox"]',
+      '[data-automation-id="monikerSearchBox"] input',
+      '[data-automation-id="monikerSearchBoxFullscreen"] input',
+    ].join(', '),
   )
   if (!input || input.tagName !== 'INPUT') return null
   return input as HTMLInputElement
