@@ -25,6 +25,7 @@ import {
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
   workdayElementIsFormerEmployee,
+  workdayElementIsPhoneDeviceType,
   workdayElementIsSource,
   workdayExperienceLocation,
   workdayFieldControl,
@@ -65,7 +66,7 @@ export default function workdayConfig(): SiteRule {
       let accountCredentialsMissing = false
       let formStarted = false
       let educationStarted = false
-      let phoneTypeHandled = false
+      let phoneTypeAttempts = 0
       let countryHandled = false
       let stateHandled = false
       let sourceHandled = false
@@ -206,24 +207,6 @@ export default function workdayConfig(): SiteRule {
           if (!listboxBusy) {
             listboxBusy = true
             try {
-              // Step 6: Phone device type. No profile field; Mobile or Cell is the default.
-              if (!phoneTypeHandled) {
-                const phoneTypeButton = workdayPhoneDeviceTypeButton(document)
-                if (phoneTypeButton) {
-                  const already = workdayPhoneTypeOption([workdayListboxValue(phoneTypeButton)])
-                  phoneTypeHandled = true
-                  if (!already) {
-                    const optionText = await chooseWorkdayListOption(phoneTypeButton, workdayPhoneTypeOption, '')
-                    if (optionText) {
-                      console.log('✓ Selected phone type:', optionText)
-                      await new Promise((resolve) => setTimeout(resolve, 500))
-                    } else {
-                      console.error('Mobile phone type option not found')
-                    }
-                  }
-                }
-              }
-
               // Step 7: Country before state. The region list is empty until a country is chosen.
               // Profile values are slugs ("united_states"); the option label is not.
               if (!countryHandled && personalInfo.country) {
@@ -268,10 +251,10 @@ export default function workdayConfig(): SiteRule {
               }
 
               // Required source and former-employee questions have no vault answer.
-              // Country and phone type above are unchanged. Never answer Yes.
+              // Never answer Yes. These prompts are not Phone Device Type.
               if (!sourceHandled) {
                 const sourceButton = workdaySourceListboxButton(document)
-                if (sourceButton) {
+                if (sourceButton && !workdayElementIsPhoneDeviceType(sourceButton)) {
                   sourceHandled = true
                   if (workdayListboxIsEmpty(sourceButton)) {
                     const optionText = await chooseWorkdaySource(sourceButton)
@@ -287,7 +270,7 @@ export default function workdayConfig(): SiteRule {
 
               if (!formerEmployeeHandled) {
                 const formerButton = workdayFormerEmployeeListboxButton(document)
-                if (formerButton) {
+                if (formerButton && !workdayElementIsPhoneDeviceType(formerButton)) {
                   formerEmployeeHandled = true
                   if (workdayListboxIsEmpty(formerButton)) {
                     const optionText = await chooseFirstListedOption(formerButton, workdaySafeNoOption, ['no'])
@@ -296,6 +279,30 @@ export default function workdayConfig(): SiteRule {
                       await new Promise((resolve) => setTimeout(resolve, 500))
                     } else {
                       console.error('Former employee No option not found')
+                    }
+                  }
+                }
+              }
+
+              // Phone device type last, after source and former-employee. Those
+              // passes must not claim this prompt. No profile field; Mobile or Cell
+              // is the default. A miss can be a menu that was still the other
+              // question, so try once more on a later pass.
+              if (phoneTypeAttempts < 2) {
+                const phoneTypeButton = workdayPhoneDeviceTypeButton(document)
+                if (phoneTypeButton) {
+                  const already = workdayPhoneTypeOption([workdayListboxValue(phoneTypeButton)])
+                  if (already) {
+                    phoneTypeAttempts = 2
+                  } else {
+                    phoneTypeAttempts += 1
+                    const optionText = await chooseWorkdayListOption(phoneTypeButton, workdayPhoneTypeOption, '')
+                    if (optionText) {
+                      phoneTypeAttempts = 2
+                      console.log('✓ Selected phone type:', optionText)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else if (phoneTypeAttempts >= 2) {
+                      console.error('Mobile phone type option not found')
                     }
                   }
                 }

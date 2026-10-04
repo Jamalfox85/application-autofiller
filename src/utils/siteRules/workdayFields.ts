@@ -424,15 +424,68 @@ export function workdayListboxButton(root: ParentNode, metadataId: string): HTML
 // phoneType. There is no device-type field on the profile; Mobile / Cell is the default.
 const PHONE_DEVICE_TYPE_IDS = ['phone-device-type', 'phoneDeviceType', 'phoneType']
 
+function compactIdBlob(values: Array<string | null | undefined>): string {
+  return values
+    .filter((value): value is string => !!value)
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '')
+}
+
+function controlVisibleLabel(control: Element): string {
+  const doc = control.ownerDocument
+  const labelled: string[] = []
+  const ids = (control.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+  if (doc) {
+    for (const id of ids) labelled.push(doc.getElementById(id)?.textContent || '')
+  }
+  return `${control.getAttribute('aria-label') || ''} ${labelled.join(' ')} ${control.textContent || ''}`
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+// Phone device type is not a source question and not a former-employee question.
+// The id may sit on an ancestor (promptIcon inside phone-device-type / phoneType)
+// while a page-level label still says "How Did You Hear About Us?".
+export function workdayElementIsPhoneDeviceType(control: Element): boolean {
+  let node: Element | null = control
+  for (let depth = 0; node && depth < 8; depth++) {
+    const blob = compactIdBlob([
+      node.id,
+      node.getAttribute('name'),
+      node.getAttribute('data-automation-id'),
+      node.getAttribute('data-fkit-id'),
+    ])
+    if (blob.includes('countryphonecode')) return false
+    if (blob.includes('phonedevicetype') || blob.includes('phonetype')) return true
+    const automation = node.getAttribute('data-automation-id') || ''
+    if (depth > 0 && automation.startsWith('formField-')) break
+    node = node.parentElement
+  }
+  const visible = controlVisibleLabel(control)
+  return visible.includes('phone device type') || visible.includes('device type')
+}
+
+// promptOption rows Mobile / Landline / Fax (or Cell). Not a source dropdown.
+export function workdayIsPhoneDeviceTypeOptionList(optionTexts: string[]): boolean {
+  const keys = optionTexts
+    .map((text) => text.toLowerCase().replace(/[^a-z]/g, ''))
+    .filter((key) => key && !['selectone', 'select', 'pleaseselect', 'chooseone'].includes(key))
+  if (keys.length === 0) return false
+  const hasMobile = keys.some((key) => phoneTypeRank(key) > 0)
+  if (!hasMobile) return false
+  const device = new Set(['landline', 'fax', 'voip', 'work', 'home', 'office', 'telephone'])
+  return keys.every((key) => phoneTypeRank(key) > 0 || device.has(key))
+}
+
 export function workdayPhoneDeviceTypeButton(root: ParentNode): HTMLButtonElement | null {
   for (const id of PHONE_DEVICE_TYPE_IDS) {
     const button = workdayListboxButton(root, id)
-    if (button) return button
+    if (button && workdayElementIsPhoneDeviceType(button)) return button
   }
   const buttons = root.querySelectorAll('button')
   for (const button of Array.from(buttons)) {
-    const name = `${button.getAttribute('aria-label') || ''} ${button.textContent || ''}`.replace(/\s+/g, ' ').toLowerCase()
-    if (name.includes('phone device type') || name.includes('device type')) return button as HTMLButtonElement
+    if (workdayElementIsPhoneDeviceType(button)) return button as HTMLButtonElement
   }
   return null
 }
@@ -446,7 +499,9 @@ export function workdayListboxValue(button: HTMLElement): string {
 }
 
 // The open menu. aria-controls wins so a state click cannot land on a country
-// option that is still in the document (Georgia is both).
+// option that is still in the document (Georgia is both). A phone device menu
+// (Mobile / Landline / Fax) is not a source or former-employee menu, and the
+// source menu is not where Mobile is chosen.
 export function workdayActivePrompt(button: HTMLElement): ParentNode | null {
   const doc = button.ownerDocument
   if (!doc) return null
@@ -460,6 +515,22 @@ export function workdayActivePrompt(button: HTMLElement): ParentNode | null {
       '[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"], [role="listbox"]',
     ),
   ).filter((node) => !button.contains(node))
+  const labelsOf = (prompt: Element) => workdayOptionLabels(prompt as ParentNode)
+  const phoneButton = workdayElementIsPhoneDeviceType(button)
+  if (phoneButton) {
+    const phoneLists = prompts.filter((prompt) => workdayIsPhoneDeviceTypeOptionList(labelsOf(prompt)))
+    if (phoneLists.length === 1) return phoneLists[0] as ParentNode
+    if (phoneLists.length > 1) return phoneLists[phoneLists.length - 1] as ParentNode
+    return null
+  }
+  const nonPhone = prompts.filter((prompt) => !workdayIsPhoneDeviceTypeOptionList(labelsOf(prompt)))
+  if (nonPhone.length !== prompts.length) {
+    if (nonPhone.length === 1) return nonPhone[0] as ParentNode
+    if (nonPhone.length > 1 && button.getAttribute('aria-expanded') === 'true') {
+      return nonPhone[nonPhone.length - 1] as ParentNode
+    }
+    return null
+  }
   if (prompts.length === 1) return prompts[0] as ParentNode
   if (prompts.length > 1 && button.getAttribute('aria-expanded') === 'true') {
     return prompts[prompts.length - 1] as ParentNode
@@ -764,6 +835,7 @@ function probeFrom(el: Element): WorkdayFieldProbe {
 }
 
 export function workdayElementIsSource(input: Element, fieldText = ''): boolean {
+  if (workdayElementIsPhoneDeviceType(input)) return false
   if (workdayIsSourceQuestion(fieldText) || workdayIsCustomSourceField(probeFrom(input))) return true
   const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
   if (field && field !== input && workdayIsCustomSourceField(probeFrom(field))) return true
@@ -771,6 +843,7 @@ export function workdayElementIsSource(input: Element, fieldText = ''): boolean 
 }
 
 export function workdayElementIsFormerEmployee(input: Element, fieldText = ''): boolean {
+  if (workdayElementIsPhoneDeviceType(input)) return false
   if (workdayElementIsSource(input, fieldText)) return false
   if (workdayIsFormerEmployeeQuestion(fieldText)) return true
   return workdayIsFormerEmployeeQuestion(workdayChoiceQuestionText(input))
@@ -914,6 +987,9 @@ export function workdaySourceOption(optionTexts: string[]): string | null {
 }
 
 function rankedSourceOption(optionTexts: string[], minRank: number): string | null {
+  // Mobile / Landline / Fax is the phone device prompt. It is not a source list,
+  // so a leftover device menu cannot be answered with Mobile and then closed.
+  if (workdayIsPhoneDeviceTypeOptionList(optionTexts)) return null
   const ranked = optionTexts
     .map((text, index) => ({ raw: cleanOptionLabel(text), index }))
     .filter((option) => option.raw)
@@ -961,6 +1037,7 @@ function workdayChoiceQuestionText(control: Element): string {
 }
 
 function elementLooksLikeSource(button: HTMLButtonElement): boolean {
+  if (workdayElementIsPhoneDeviceType(button)) return false
   if (workdayIsCustomSourceField(probeFrom(button)) || workdayIsSourceQuestion(workdayChoiceQuestionText(button))) {
     return true
   }
@@ -969,6 +1046,7 @@ function elementLooksLikeSource(button: HTMLButtonElement): boolean {
 }
 
 function isAddressOrPhoneChoice(button: HTMLButtonElement): boolean {
+  if (workdayElementIsPhoneDeviceType(button)) return true
   const field = button.closest('[data-automation-id], [data-fkit-id]')
   const blob = [
     button.getAttribute('name') || '',
