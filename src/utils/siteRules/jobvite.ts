@@ -1,6 +1,7 @@
-import type { SiteRule } from '../../types/index.ts'
+import type { PersonalInfo, SiteRule } from '../../types/index.ts'
 import { detectAts, type AtsPageContext } from '../ats.ts'
 import { setReactInputValue } from '../inputHandlers.ts'
+import { loadResumeFileForJobvite } from '../savedResumeFile.ts'
 import {
   jobvitePlan,
   jobviteRepeatKey,
@@ -10,10 +11,13 @@ import {
   type JobviteSection,
 } from './jobviteFields.ts'
 
+export type JobviteResumeLoader = (info: PersonalInfo) => Promise<File | null>
+
 // Hosted Jobvite apply pages (jobs.jobvite.com/{company}/job/{id} and /apply, plus the
 // older /careers/{company}/job/{id}/apply path). Custom-domain embeds are out of scope:
 // the content script fills the frame whose hostname is jobvite.com. app.jobvite.com is
-// the candidate tracker; this rule only writes inside the apply form.
+// the candidate tracker; this rule writes the apply form, plus the resume file
+// input Jobvite compiles into the Add Resume menu on document.body.
 
 const APPLY_ROOT =
   '.jv-apply-form, .jv-form-field, .jv-ofccp-section, .jv-prescreen-section, #attachResume'
@@ -35,18 +39,25 @@ export function resetJobviteFormWatch() {
   seenFillableCount = null
 }
 
-export default function jobviteConfig(): SiteRule {
+export default function jobviteConfig(deps?: { loadResume?: JobviteResumeLoader }): SiteRule {
+  const loadResume = deps?.loadResume ?? loadResumeFileForJobvite
   return {
     detect: () => isHostedJobvitePage(),
-    apply: (input, _fieldText, personalInfo) => {
-      if (!insideJobviteApply(input)) return false
+    apply: async (input, _fieldText, personalInfo) => {
+      // The Add Resume file input is compiled onto document.body, outside .jv-apply-form.
+      if (!jobviteOwnsControl(input)) return false
       const field = describeJobviteField(input)
       const repeatKey = jobviteRepeatKey(field)
       const index = repeatKey ? repeatIndex(input, repeatKey) : 0
       const plan = jobvitePlan(field, personalInfo, index, { now: new Date() })
-      // Recognized and left blank: custom questions, resume files, unmatched radios.
-      // 'skip' keeps the generic matcher from inventing an answer.
+      // Recognized and left blank: custom questions, cover letter, autofill-with-resume,
+      // unmatched radios. 'skip' keeps the generic matcher from inventing an answer.
       if (plan.action === 'skip') return 'skip'
+      if (plan.action === 'attachResume') {
+        if (controlType(input) !== 'file') return 'skip'
+        return attachSavedResume(input as HTMLInputElement, personalInfo, loadResume)
+      }
+      if (!insideJobviteApply(input)) return 'skip'
       return writeJobvitePlan(input, plan) ? true : 'skip'
     },
     // Step 2 (EEO / OFCCP) and step 3 (prescreen) are ng-if'd in after the person
@@ -71,11 +82,20 @@ function insideJobviteApply(input: HTMLElement): boolean {
   return !!input.closest(APPLY_ROOT)
 }
 
+function jobviteOwnsControl(input: HTMLElement): boolean {
+  if (insideJobviteApply(input)) return true
+  if (controlType(input) !== 'file') return false
+  return !!input.closest('.jv-add-attachment, #attachResume')
+}
+
 function countJobviteFillable(): number {
   if (typeof document === 'undefined') return 0
   const form = document.querySelector('.jv-apply-form')
-  if (!form) return 0
-  return form.querySelectorAll('input, textarea, select').length
+  const formCount = form ? form.querySelectorAll('input, textarea, select').length : 0
+  // jv-file-input inserts the choose-file control into the attachment menu on
+  // document.body, not inside the apply form. A refill should see it arrive.
+  const widgetFiles = document.querySelectorAll('.jv-add-attachment input[type="file"]').length
+  return formCount + widgetFiles
 }
 
 function controlType(input: HTMLElement): string {
@@ -103,7 +123,26 @@ export function describeJobviteField(input: HTMLElement): JobviteField {
           value: option.value,
         }))
       : [],
+    context: fileWidgetContext(input),
   }
+}
+
+// The File item and the Paste prompt share one menu. Keep the prompt (it names
+// Resume vs Cover Letter) and drop LinkedIn / Dropbox, which are separate actions.
+function fileWidgetContext(input: HTMLElement): string {
+  const dropdown = input.closest('.jv-add-attachment')
+  if (dropdown) {
+    const prompt = Array.from(dropdown.querySelectorAll('.jv-visually-hidden'))
+      .map((node) => cleanLabel(node.textContent))
+      .filter(Boolean)
+      .join(' ')
+    return cleanLabel(`${dropdown.getAttribute('attachment-label') || ''} ${prompt}`)
+  }
+  const section = input.closest('#attachResume')
+  if (!section) return ''
+  const header = section.querySelector('#jv-resume-header, .jv-step-header')
+  const labeled = section.querySelector('[attachment-label]')
+  return cleanLabel(`${header?.textContent || ''} ${labeled?.getAttribute('attachment-label') || ''}`)
 }
 
 function questionLabel(input: HTMLElement): string {
@@ -164,9 +203,48 @@ function repeatIndex(input: HTMLElement, key: JobviteRepeatKey): number {
   return count
 }
 
+async function attachSavedResume(
+  input: HTMLInputElement,
+  info: PersonalInfo,
+  loadResume: JobviteResumeLoader,
+): Promise<boolean | 'skip'> {
+  let file: File | null
+  try {
+    file = await loadResume(info)
+  } catch (error) {
+    console.error('[jobvite] could not read the saved resume', error)
+    return 'skip'
+  }
+  if (!file) return 'skip'
+  return assignResumeFile(input, file) ? true : 'skip'
+}
+
+// Chrome lets an extension assign input.files from a DataTransfer. Dispatching
+// change is what Jobvite's jv-file-input reads (an onchange attribute). Do not
+// click the input — that opens the system file chooser.
+export function assignResumeFile(input: HTMLInputElement, file: File): boolean {
+  const view = input.ownerDocument?.defaultView
+  const DataTransferCtor = view?.DataTransfer
+  if (typeof DataTransferCtor !== 'function') return false
+  let transfer: DataTransfer
+  try {
+    transfer = new DataTransferCtor()
+    transfer.items.add(file)
+    input.files = transfer.files
+  } catch {
+    return false
+  }
+  const attached = input.files?.[0]
+  if (!attached || attached.name !== file.name) return false
+  const EventCtor = view?.Event ?? Event
+  input.dispatchEvent(new EventCtor('input', { bubbles: true }))
+  input.dispatchEvent(new EventCtor('change', { bubbles: true }))
+  return true
+}
+
 function writeJobvitePlan(
   input: HTMLElement,
-  plan: Exclude<JobvitePlan, { action: 'skip' }>,
+  plan: Exclude<JobvitePlan, { action: 'skip' } | { action: 'attachResume' }>,
 ): boolean {
   if (plan.action === 'click') {
     const type = controlType(input)

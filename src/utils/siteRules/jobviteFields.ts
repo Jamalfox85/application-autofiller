@@ -3,8 +3,11 @@
 // visible label, autocomplete token, and option text — field ids are opaque (jv-field-…).
 // DOM-free so the rules can be unit tested against the labels those pages render.
 //
-// v1 fills contact, resume (left for the user), experience, education, work
-// authorization, and EEO. Custom screening questions are skipped.
+// v1 fills contact, a plain resume file when the saved file is available,
+// experience, education, work authorization, and EEO. Custom screening questions
+// are skipped. Autofill-with-resume, LinkedIn, and paste-to-parse controls are
+// left alone — attaching the file is not the same as letting Jobvite parse it
+// into the form.
 
 export type JobviteSection = 'apply' | 'eeo' | 'ofccp' | 'prescreen'
 
@@ -21,6 +24,12 @@ export type JobviteField = {
   autocomplete?: string | null
   section?: JobviteSection | null
   options?: JobviteOption[] | null
+  /**
+   * Text that identifies which attachment widget a file input belongs to
+   * (Add Resume vs cover letter). Not the whole menu — LinkedIn and Paste
+   * live next to the File control and must not reclassify it.
+   */
+  context?: string | null
 }
 
 export type JobviteProfile = {
@@ -39,6 +48,8 @@ export type JobviteProfile = {
   linkedin?: string | null
   website?: string | null
   github?: string | null
+  /** Original filename. Empty means there is no saved resume to attach. */
+  resumeFileName?: string | null
   eeoAnswersEnabled?: boolean | null
   gender?: string | null
   raceEthnicity?: string | null
@@ -69,6 +80,8 @@ export type JobvitePlan =
   | { action: 'text'; value: string }
   | { action: 'select'; optionText: string }
   | { action: 'click' }
+  /** Set the saved resume on a plain file input. Bytes are loaded by the caller. */
+  | { action: 'attachResume' }
   /** Recognized, nothing to write. Caller must not let the generic matcher invent a value. */
   | { action: 'skip' }
 
@@ -321,9 +334,75 @@ function isOutOfScope(norm: string): boolean {
   )
 }
 
-function isResume(field: JobviteField, norm: string): boolean {
+function ownText(field: JobviteField): string {
+  return normalizeJobviteLabel(`${field.label || ''} ${field.optionLabel || ''}`)
+}
+
+function isUploadLabel(norm: string): boolean {
+  return (
+    norm === 'file' ||
+    norm === 'upload' ||
+    norm === 'uploadfile' ||
+    norm === 'choosefile' ||
+    norm === 'browse' ||
+    norm.includes('choosefile') ||
+    norm.includes('uploadfile')
+  )
+}
+
+function isResumeName(norm: string): boolean {
+  if (!norm || norm.includes('coverletter')) return false
+  return (
+    norm === 'resume' ||
+    norm === 'cv' ||
+    norm === 'curriculumvitae' ||
+    norm.includes('addresume') ||
+    norm.includes('uploadresume') ||
+    norm.includes('resumefile') ||
+    (norm.includes('resume') && !norm.includes('autofill') && !norm.includes('paste') && !norm.includes('linkedin'))
+  )
+}
+
+function resumeWidgetSubject(context?: string | null): 'resume' | 'cover' | 'autofill' | '' {
+  const norm = normalizeJobviteLabel(context)
+  if (!norm) return ''
+  if (norm.includes('autofill')) return 'autofill'
+  if (norm.includes('coverletter')) return 'cover'
+  if (norm.includes('resume') || norm.includes('curriculumvitae') || norm === 'cv' || norm.endsWith('cv')) {
+    return 'resume'
+  }
+  return ''
+}
+
+// "Autofill with Resume", the Add Resume menu's LinkedIn/Dropbox/Paste actions,
+// and a paste-to-parse box. The File item in that menu is the upload path.
+// A LinkedIn profile URL is a contact field and is not one of these.
+function isAutofillFromResume(field: JobviteField): boolean {
+  const own = ownText(field)
+  if (!own) return false
+  if (own.includes('autofill')) return true
+  if (fieldType(field) === 'file' && isUploadLabel(own)) return false
+  if (own.includes('paste') && (own.includes('resume') || own.includes('cv') || own.includes('coverletter'))) {
+    return true
+  }
   const type = fieldType(field)
-  if (type === 'file') return true
+  if (type !== 'button' && type !== 'submit') return false
+  return own.includes('linkedin') || own.includes('dropbox') || own.includes('paste')
+}
+
+export function isJobviteResumeFileControl(field: JobviteField): boolean {
+  if (fieldType(field) !== 'file') return false
+  if (isAutofillFromResume(field)) return false
+  const own = ownText(field)
+  const subject = resumeWidgetSubject(field.context)
+  if (subject === 'cover' || subject === 'autofill' || own.includes('coverletter')) return false
+  if (isResumeName(own)) return true
+  if (subject === 'resume' && (isUploadLabel(own) || own === '')) return true
+  return false
+}
+
+function isResumeText(field: JobviteField, norm: string): boolean {
+  if (fieldType(field) === 'file') return false
   return norm === 'resume' || norm === 'cv' || norm === 'curriculumvitae' || norm.includes('addresume')
 }
 
@@ -432,6 +511,7 @@ export function jobviteRepeatKey(field: JobviteField): JobviteRepeatKey | null {
 
 type Kind =
   | 'resume'
+  | 'resumeFile'
   | 'password'
   | 'out'
   | JobviteEeoKind
@@ -477,7 +557,9 @@ function classify(field: JobviteField): Kind {
   const section = field.section || 'apply'
 
   if (type === 'password' || type === 'hidden') return 'password'
-  if (isResume(field, norm)) return 'resume'
+  if (isAutofillFromResume(field)) return 'resume'
+  if (isJobviteResumeFileControl(field)) return 'resumeFile'
+  if (isResumeText(field, norm) || type === 'file') return 'resume'
   if (isOutOfScope(norm)) return 'out'
 
   if (norm.includes('gender') || norm === 'sex') return 'gender'
@@ -882,6 +964,7 @@ export function jobvitePlan(
   options?: { now?: Date },
 ): JobvitePlan {
   const kind = classify(field)
+  if (kind === 'resumeFile') return clean(info.resumeFileName) ? { action: 'attachResume' } : skip()
   if (kind === 'resume' || kind === 'password' || kind === 'out' || kind === 'unknown') return skip()
   if (singleContact(kind, index)) return skip()
 
