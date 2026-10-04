@@ -68,7 +68,10 @@ export function profileToDbRows(info: PersonalInfo, userId: string): ProfileDbRo
       linkedin: nullIfEmpty(info.linkedin),
       website: nullIfEmpty(info.website),
       github: nullIfEmpty(info.github),
-      resume_file_name: nullIfEmpty(info.resumeFileName),
+      // Omit when empty so a profile save that has not loaded the resume cannot
+      // null out a file the upload already stored.
+      ...(info.resumeFileName ? { resume_file_name: info.resumeFileName } : {}),
+      ...(info.resumeFilePath ? { resume_file_path: info.resumeFilePath } : {}),
       eeo_answers_enabled: info.eeoAnswersEnabled ?? true,
       gender: nullIfEmpty(info.gender),
       race_ethnicity: nullIfEmpty(info.raceEthnicity),
@@ -190,6 +193,7 @@ export function dbRowsToProfile(rows: {
     website: str(p.website),
     github: str(p.github),
     resumeFileName: str(p.resume_file_name),
+    resumeFilePath: str(p.resume_file_path),
     eeoAnswersEnabled: p.eeo_answers_enabled ?? true,
     gender: str(p.gender),
     raceEthnicity: str(p.race_ethnicity),
@@ -291,6 +295,7 @@ export function profileHasSubstance(
     info.website ||
     info.github ||
     info.resumeFileName ||
+    info.resumeFilePath ||
     info.workAuthorization ||
     (info.experience?.length ?? 0) > 0 ||
     (info.education?.length ?? 0) > 0 ||

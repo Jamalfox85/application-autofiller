@@ -11,7 +11,7 @@ import {
   isWorkdaySignInForm,
   workdayAccountAgreementCheckbox,
   workdayCreateAccountLink,
-  workdayJobApplyButton,
+  workdayApplyChooserTarget,
   workdaySignInWithEmailButton,
   listWorkdayPanels,
   matchingOptionText,
@@ -45,13 +45,13 @@ import {
   workdayListedSearchText,
   workdayListedValueMatches,
   workdayOptionElement,
+  workdayOptionElements,
   workdayOptionLabels,
+  workdayPromptRowIsFolder,
   workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
-  workdayCompanyOwnedSourceOption,
-  workdayCompanyToken,
-  workdayFolderOptions,
-  workdayPreferredSourceOption,
+  workdayIndeedSourceOption,
+  workdayJobBoardFolderOption,
   workdayPromptSearchInput,
   workdaySafeNoOption,
   workdaySourceListboxButton,
@@ -60,8 +60,42 @@ import {
   workdaySelectKind,
   workdaySelectValue,
 } from './workdayFields.ts'
+import {
+  attachWorkdaySavedResume,
+  createWorkdayResumeAttempt,
+  isWorkdayCoverLetterFileInput,
+  isWorkdayResumeFileInput,
+  requestWorkdaySavedResume,
+} from './workdayResume.ts'
 
 var lastFormSignature = ''
+
+type WorkdayResumeLoader = () => Promise<File | null>
+let workdayResumeLoader: WorkdayResumeLoader = requestWorkdaySavedResume
+let workdayResumeTask: Promise<File | null> | null = null
+
+// Tests pass the already-saved file here. Production reads the shared
+// loadSavedResume reply, including the base64 copy messaging actually delivers.
+export function setWorkdayResumeLoader(loader: WorkdayResumeLoader | null) {
+  workdayResumeLoader = loader ?? requestWorkdaySavedResume
+  workdayResumeTask = null
+}
+
+function loadWorkdaySavedResume(): Promise<File | null> {
+  if (!workdayResumeTask) {
+    workdayResumeTask = Promise.resolve()
+      .then(() => workdayResumeLoader())
+      .then((file) => {
+        if (!file) workdayResumeTask = null
+        return file
+      })
+      .catch(() => {
+        workdayResumeTask = null
+        return null
+      })
+  }
+  return workdayResumeTask
+}
 
 export default function workdayConfig(): SiteRule {
   return {
@@ -75,6 +109,10 @@ export default function workdayConfig(): SiteRule {
       void announceMissingWorkdayAccount(personalInfo)
       let jobApplyClicked = false
       let applyManuallyClicked = false
+      let resumeAttached = false
+      // A missing file does not count as attached. A later resume input, including
+      // the dropzone that appears after the first look, still gets the saved file.
+      const fillResume = createWorkdayResumeAttempt(() => workdayResumeLoader())
       let signInWithEmailClicked = false
       let createAccountClicked = false
       let accountInputHandled = false
@@ -94,30 +132,21 @@ export default function workdayConfig(): SiteRule {
 
       const observer = new MutationObserver(async () => {
         try {
-          // Step 1a: Job postings (Cisco, Salesforce, Zillow, and the same external
-          // careers page) show Apply before the method chooser. Clicking it opens
-          // Apply Manually. It is not Submit.
-          if (!jobApplyClicked && !applyManuallyClicked) {
-            const jobApply = workdayJobApplyButton(document)
-            if (jobApply) {
-              jobApplyClicked = true
-              console.log('✓ Found and clicking Apply')
-              jobApply.click()
-              await new Promise((resolve) => setTimeout(resolve, 1500))
-              return
-            }
+          if (!resumeAttached) {
+            if (await fillResume(document)) resumeAttached = true
           }
 
-          // Step 1b: Click "Apply Manually"
+          // Step 1: Apply on the job page, then Apply Manually. The chooser also
+          // shows Autofill with Resume and Use My Last Application. Those are not
+          // clicked. Submit, Submit Application, and Send are not clicked.
           if (!applyManuallyClicked) {
-            const applyManuallyLink = document.querySelector(
-              '[data-automation-id="applyManually"]',
-            ) as HTMLElement
-
-            if (applyManuallyLink) {
-              applyManuallyClicked = true
-              console.log('✓ Found and clicking Apply Manually link')
-              applyManuallyLink.click()
+            const target = workdayApplyChooserTarget(document, { jobApplyClicked })
+            if (target) {
+              const manual = target.getAttribute('data-automation-id') === 'applyManually'
+              if (manual) applyManuallyClicked = true
+              else jobApplyClicked = true
+              console.log(manual ? '✓ Found and clicking Apply Manually link' : '✓ Found and clicking Apply')
+              target.click()
               await new Promise((resolve) => setTimeout(resolve, 1500))
               return
             }
@@ -437,6 +466,14 @@ export default function workdayConfig(): SiteRule {
       }
     },
     apply: async (input, fieldText, personalInfo) => {
+      if (isWorkdayResumeFileInput(input as HTMLInputElement)) {
+        const fileInput = input as HTMLInputElement
+        if ((fileInput.files?.length ?? 0) > 0) return 'skip'
+        const saved = await loadWorkdaySavedResume()
+        if (!saved) return 'skip'
+        return (await attachWorkdaySavedResume(fileInput, saved)) ? true : 'skip'
+      }
+      if (isWorkdayCoverLetterFileInput(input as HTMLInputElement)) return 'skip'
       // Experience rows are filled by the section handler. The generic matcher
       // only knows the first profile job, so letting it through copies that job
       // into every empty row.
@@ -902,16 +939,6 @@ async function chooseFirstListedOption(
   return null
 }
 
-function sourceCompanyToken(button: HTMLElement): string {
-  let host = ''
-  try {
-    host = button.ownerDocument?.defaultView?.location?.hostname || ''
-  } catch {
-    host = ''
-  }
-  return workdayCompanyToken(host)
-}
-
 // aria-controls can point at an empty anchor while the rows are in a portal.
 // Country and state stay on the controlled list. Source may read the portal.
 function activeSourcePrompt(button: HTMLElement): ParentNode | null {
@@ -929,34 +956,54 @@ function activeSourcePrompt(button: HTMLElement): ParentNode | null {
   return prompt
 }
 
+function normalizedSourceLabel(value: string): string {
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+// The closed face "0 items selected" and the open list name "Options Expanded"
+// are not a chosen value. A real pill changes the instruction to include the label.
+function sourceInstructionShows(text: string, label: string): boolean {
+  const shown = normalizedSourceLabel(text)
+  const want = normalizedSourceLabel(label)
+  if (!shown || !want) return false
+  const key = shown.replace(/[^a-z0-9]+/g, ' ').trim()
+  if (/^(?:0|no|none) items? selected(?: press enter.*)?$/.test(key)) return false
+  if (key === 'options expanded' || key === 'search results') return false
+  return shown === want || shown.includes(want)
+}
+
+function sourceFieldRoot(button: HTMLElement): ParentNode | null {
+  return button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
+}
+
+// A selected pill's visible text node is promptOption inside selectedItem. The
+// delete charm sits beside it, so the container's full text is not just the label.
 function sourceControlShows(button: HTMLElement, label: string): boolean {
   if (listboxShowsLabel(button, label)) return true
-  const want = label.replace(/\s+/g, ' ').trim().toLowerCase()
+  const want = normalizedSourceLabel(label)
   if (!want) return false
   if (button.tagName === 'INPUT' || button.tagName === 'TEXTAREA') {
-    const value = (button as HTMLInputElement).value.replace(/\s+/g, ' ').trim().toLowerCase()
+    const value = normalizedSourceLabel((button as HTMLInputElement).value)
     if (value === want) return true
   }
-  const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
+  const field = sourceFieldRoot(button)
   if (!field) return false
   const pills = field.querySelectorAll(
     '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]',
   )
   for (const pill of Array.from(pills)) {
-    const text = (pill.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
-    if (text === want) return true
+    const own = normalizedSourceLabel(pill.getAttribute('data-automation-label') || pill.textContent || '')
+    if (own === want) return true
+    const option = pill.querySelector('[data-automation-id="promptOption"]')
+    if (!option) continue
+    const optionLabel = normalizedSourceLabel(
+      option.getAttribute('data-automation-label') || option.textContent || '',
+    )
+    if (optionLabel === want) return true
   }
+  const instruction = field.querySelector('[data-automation-id="promptAriaInstruction"]')
+  if (instruction && sourceInstructionShows(instruction.textContent || '', label)) return true
   return false
-}
-
-function sourcePromptBackButton(button: HTMLElement): HTMLElement | null {
-  const prompt = activeSourcePrompt(button)
-  const scoped =
-    prompt && 'querySelector' in prompt
-      ? prompt.querySelector('[data-automation-id="backButton"]')
-      : null
-  if (scoped) return scoped as HTMLElement
-  return (button.ownerDocument?.querySelector('[data-automation-id="backButton"]') as HTMLElement | null) || null
 }
 
 async function waitForSourceLabels(
@@ -978,104 +1025,147 @@ function sourceLabelKey(labels: string[]): string {
   return labels.join('\n')
 }
 
-async function commitSourceChoice(
-  button: HTMLElement,
-  prompt: ParentNode,
-  label: string,
-): Promise<string | null> {
+// A highlighted search row is not a pill. Close the prompt only after the
+// closed face shows the committed label, and keep that label when it closes.
+function closeCommittedSourcePrompt(button: HTMLElement, label: string): boolean {
+  const prompt = activeSourcePrompt(button)
+  const open = prompt ? substantivePromptLabels(workdayOptionLabels(prompt)).length > 0 : false
+  if (!open) {
+    openListbox = null
+    return sourceControlShows(button, label)
+  }
+  collapseOpenListbox()
+  return sourceControlShows(button, label)
+}
+
+// A highlighted row is not a pill. Indeed counts only when the closed face shows
+// that label. The list can change before the pill is painted; closing on that
+// change sends Escape, and Workday drops a folder load that has not finished.
+async function commitIndeedPill(button: HTMLElement, prompt: ParentNode, label: string): Promise<string | null> {
   const option = workdayOptionElement(prompt, label)
   if (!option) return null
   activateWorkdayOption(promptRowTarget(option))
   const started = Date.now()
-  while (Date.now() - started < 500) {
+  while (Date.now() - started < 1200) {
     if (sourceControlShows(button, label)) {
-      openListbox = null
-      return label
+      return closeCommittedSourcePrompt(button, label) ? label : null
     }
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   return null
 }
 
-// Folders are not values. Open each parent, then commit one company-owned leaf.
-// No such leaf means the field stays empty.
-async function selectNestedWorkdaySource(
-  button: HTMLElement,
-  company: string,
-): Promise<string | null | undefined> {
-  const rootLabels = await waitForSourceLabels(button, (labels) => labels.length > 0)
-  const rootPrompt = activeSourcePrompt(button)
-  if (!rootLabels || !rootPrompt || workdayFolderOptions(rootPrompt).length === 0) return undefined
-  const rootKey = sourceLabelKey(rootLabels)
-  const groups: Array<{ parent: string; labels: string[] }> = []
-  const parents = workdayFolderOptions(rootPrompt).slice(0, 12)
-  for (const folder of parents) {
-    const current = activeSourcePrompt(button)
-    const row = current
-      ? workdayFolderOptions(current).find((entry) => entry.label === folder.label)
-      : null
-    if (!row) continue
-    const before = sourceLabelKey(substantivePromptLabels(workdayOptionLabels(current || rootPrompt)))
-    activateWorkdayOption(promptRowTarget(row.element))
-    const children = await waitForSourceLabels(
-      button,
-      (labels) => labels.length > 0 && sourceLabelKey(labels) !== before,
-    )
-    if (children) groups.push({ parent: folder.label, labels: children })
-    const back = sourcePromptBackButton(button)
-    if (back) activateWorkdayOption(back)
-    const restored = await waitForSourceLabels(button, (labels) => sourceLabelKey(labels) === rootKey)
-    if (!restored) break
-  }
-  const best = workdayCompanyOwnedSourceOption(
-    groups.flatMap((group) => group.labels),
-    company,
-  )
-  const group = best ? groups.find((entry) => entry.labels.includes(best)) : null
-  if (!best || !group) {
-    collapseOpenListbox()
-    return null
-  }
-  const again = activeSourcePrompt(button)
-  const parent = again ? workdayFolderOptions(again).find((entry) => entry.label === group.parent) : null
-  if (!parent) {
-    collapseOpenListbox()
-    return null
-  }
-  activateWorkdayOption(promptRowTarget(parent.element))
-  const opened = await waitForSourceLabels(button, (labels) => labels.includes(best))
-  const prompt = opened ? activeSourcePrompt(button) : null
-  if (!prompt) {
-    collapseOpenListbox()
-    return null
-  }
-  const committed = await commitSourceChoice(button, prompt, best)
-  if (!committed) collapseOpenListbox()
-  return committed
+function sourcePromptElement(button: HTMLElement): Element | null {
+  const prompt = activeSourcePrompt(button)
+  if (!prompt || !('querySelector' in prompt)) return null
+  return prompt as Element
 }
 
-// Other, then a career site (including "Career Websites"), then the employer's
-// own site. A nested top row is a folder. A list with none of those stays empty.
-async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> {
-  const company = sourceCompanyToken(button)
-  collapseOpenListbox()
+// Folder children are a network load. The popup shows a busy panel, then the
+// rows. Escape while that panel is up aborts the load and leaves no pill.
+function sourceListIsBusy(button: HTMLElement): boolean {
+  const element = sourcePromptElement(button)
+  if (!element) return false
+  if (element.getAttribute('aria-busy') === 'true') return true
+  return !!element.querySelector('[aria-busy="true"], [data-automation-id="wd-LoadingPanel"]')
+}
+
+// Job Board and Job Sites open children. The folder name itself is not a pill.
+// A row with no chevron still opens its children on this catalog. A search
+// flash or a loading row is not that child list.
+async function openJobBoardFolder(button: HTMLElement, prompt: ParentNode): Promise<ParentNode | null> {
+  const labels = substantivePromptLabels(workdayOptionLabels(prompt))
+  const folder = workdayJobBoardFolderOption(labels)
+  if (!folder) return null
+  const option = workdayOptionElement(prompt, folder)
+  if (!option) return null
+  const before = sourceLabelKey(labels)
+  activateWorkdayOption(promptRowTarget(option))
+  const started = Date.now()
+  while (Date.now() - started < 4000) {
+    if (sourceControlShows(button, folder)) return null
+    const current = activeSourcePrompt(button)
+    const next = current ? substantivePromptLabels(workdayOptionLabels(current)) : []
+    const changed = !!current && next.length > 0 && sourceLabelKey(next) !== before
+    if (changed && !sourceListIsBusy(button) && !sourcePromptIsSearchResult(button)) return current
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  return null
+}
+
+// The icon handler searches when the box has a value, then clears the box.
+// Two ENTER hits stay open and highlighted. That highlight is not a pill.
+// An empty box opens the catalog. Drop a leftover query before the icon click.
+function clearSourceSearch(control: HTMLElement) {
+  if (control.tagName !== 'INPUT' && control.tagName !== 'TEXTAREA') return
+  const input = control as HTMLInputElement
+  if (input.value) setReactInputValue(input, '')
+  input.blur()
+}
+
+// Search Results is the filtered list (Amazon Career Choice, Other), not the
+// catalog a plain icon click shows. A highlighted catalog row is not that list:
+// aria-selected marks keyboard focus, and it is not a selected pill.
+function sourcePromptIsSearchResult(button: HTMLElement): boolean {
+  const element = sourcePromptElement(button)
+  if (!element) return false
+  const text = (element.textContent || '').replace(/\s+/g, ' ').toLowerCase()
+  return text.includes('search results')
+}
+
+async function openSourceCatalog(button: HTMLElement): Promise<string[] | null> {
+  clearSourceSearch(button)
   openListbox = button
-  // A multiselect search input does not open the list. The prompt icon does.
-  // A listbox button has no icon, so this still clicks that button.
-  openWorkdayPrompt(button)
+  openWorkdayPrompt(button, false)
   const labels = await waitForSourceLabels(button, (rows) => rows.length > 0)
+  if (!labels || !sourcePromptIsSearchResult(button)) return labels
+  collapseOpenListbox()
+  clearSourceSearch(button)
+  openListbox = button
+  openWorkdayPrompt(button, false)
+  return waitForSourceLabels(button, (rows) => rows.length > 0)
+}
+
+// A chevron row is a parent. Job Sites on the Blue Origin catalog has no chevron
+// and still opens children, so the folder check is the label, not the icon.
+function sourceLeafLabels(prompt: ParentNode): string[] {
+  return workdayOptionElements(prompt)
+    .filter((choice) => !workdayPromptRowIsFolder(choice.element))
+    .map((choice) => choice.label)
+}
+
+// Open Job Board (or Job Sites) and commit Indeed. Indeed already sitting on
+// the list is committed directly. No Indeed on that path leaves the field empty.
+async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> {
+  collapseOpenListbox()
+  const labels = await openSourceCatalog(button)
   const prompt = activeSourcePrompt(button)
   if (!labels || !prompt) {
     collapseOpenListbox()
     return null
   }
-  if (workdayFolderOptions(prompt).length > 0) return selectNestedWorkdaySource(button, company)
-  const choice = workdayCompanyOwnedSourceOption(labels, company)
-  if (!choice) {
+  // A search list can still be what the second open painted. Leave it closed.
+  if (sourcePromptIsSearchResult(button)) {
     collapseOpenListbox()
     return null
   }
-  const committed = await commitSourceChoice(button, prompt, choice)
+  const listedIndeed = workdayIndeedSourceOption(sourceLeafLabels(prompt))
+  if (listedIndeed) {
+    const committed = await commitIndeedPill(button, prompt, listedIndeed)
+    if (!committed) collapseOpenListbox()
+    return committed
+  }
+  const opened = await openJobBoardFolder(button, prompt)
+  if (!opened) {
+    collapseOpenListbox()
+    return null
+  }
+  const childIndeed = workdayIndeedSourceOption(sourceLeafLabels(opened))
+  if (!childIndeed) {
+    collapseOpenListbox()
+    return null
+  }
+  const committed = await commitIndeedPill(button, opened, childIndeed)
   if (!committed) collapseOpenListbox()
   return committed
 }
@@ -1160,8 +1250,8 @@ async function chooseWorkdaySourceControl(
     return chooseWorkdayRadio(input as HTMLInputElement, workdaySourceOption)
   }
   // A custom text input opens a flat list. Claiming it without that click left
-  // "0 items selected" in place. Still claim the field when no company-owned
-  // leaf exists so the generic matcher cannot invent LinkedIn.
+  // "0 items selected" in place. Still claim the field when Indeed is not listed
+  // so the generic matcher cannot invent LinkedIn.
   if (!workdayPromptFaceIsEmpty(input)) return true
   await chooseWorkdaySource(input)
   return true
@@ -1323,10 +1413,14 @@ function promptOpenTarget(control: HTMLElement): HTMLElement {
   return control
 }
 
-function openWorkdayPrompt(control: HTMLElement) {
+function openWorkdayPrompt(control: HTMLElement, focusControl = true) {
   // element.click() does not fire mousedown. This multiselect opens on the same
   // pointer sequence as a prompt row, so a bare click leaves the list closed.
   activateWorkdayOption(promptOpenTarget(control))
+  // School types into the search box, so that caller still focuses it. Source
+  // passes false: a value in this box makes the icon run a search instead of
+  // opening the catalog, and the highlighted hit is not a selected pill.
+  if (!focusControl) return
   if (control.tagName === 'INPUT') (control as HTMLInputElement).focus()
 }
 

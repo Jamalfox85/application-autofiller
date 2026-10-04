@@ -29,6 +29,8 @@ import { PRO_RESUME_PATHS, postProResume, proResumeHeaders } from './proApiContr
 import {
   EXTENSION_PAY_EXTENSION_ID,
   EXTENSION_PAY_PLAN_SKUS,
+  FREE_FILL_LIMIT,
+  SOFT_GATE_AT,
   isExtensionPayConfigured,
   priceForPlan,
 } from './plans.ts'
@@ -387,6 +389,29 @@ test('purchase posts billing/plan and does not update profiles.plan', async () =
   assert.match(worker, /writeEntitlement/)
   assert.doesNotMatch(worker, /writeProfilePlan/)
   assert.doesNotMatch(worker, /from\('profiles'\)/)
+})
+
+test('home screen upgrade sits beside autofill and uses paywall checkout', () => {
+  const app = readFileSync('src/App.vue', 'utf8')
+  assert.match(app, /class="fill-actions-row"/)
+  assert.match(app, /class="autofill-btn"[\s\S]*?class="upgrade-btn"/)
+  assert.match(app, /v-if="showUpgrade"/)
+  assert.match(app, /billing\.value != null && !billing\.value\.isPro/)
+  assert.match(app, /openProCheckout\(\{/)
+  assert.match(app, /plan: 'monthly'/)
+  assert.match(app, /source: 'popup'/)
+  assert.match(app, /\.upgrade-btn\s*\{[^}]*background:\s*#7c3aed/)
+  assert.match(app, /\.container\s*\{[^}]*width:\s*400px;/)
+  assert.match(app, /\.container\s*\{[^}]*height:\s*600px;/)
+  assert.equal(FREE_FILL_LIMIT, 25)
+  assert.equal(SOFT_GATE_AT, 10)
+
+  const paywall = readFileSync('src/content/fillPaywall.ts', 'utf8')
+  const toastStack = readFileSync('src/content/toastStack.ts', 'utf8')
+  assert.match(paywall, /mountInToastStack\(card\)/)
+  assert.match(toastStack, /right:\s*20px/)
+  assert.match(toastStack, /bottom:\s*20px/)
+  assert.match(paywall, /openProCheckout\(\{/)
 })
 
 test('extension pay skus and profile plan stay out of ordinary profile saves', () => {

@@ -3,10 +3,12 @@
 // identified by data-ui / name. Education and experience rows repeat those names,
 // so the caller passes the editor index. DOM-free so the rules can be unit tested.
 //
-// v1 fills, in this order: contact, resume (recognized and left blank), experience,
-// education, work authorization, then EEO. Custom / knockout questions are skipped.
+// v1 fills, in this order: contact, resume (the saved file, when the bytes
+// exist), experience, education, work authorization, then EEO. Custom / knockout
+// questions are skipped. A resume filename with no file bytes stays blank.
 
 import { monthNameFromLooseDate, yearFromLooseDate } from './greenhouseValues.ts'
+import { profileSavedResume, type InlineResumeFile } from './workableResume.ts'
 
 export type WorkableGroup = 'application' | 'education' | 'experience' | 'eeo'
 
@@ -23,6 +25,8 @@ export type WorkableField = {
   /** aria-hidden address autocomplete piece (city, postcode, country). */
   hidden?: boolean | null
   placeholder?: string | null
+  /** data-ui of the nearest section around a file input. Not a field key. */
+  sectionUi?: string | null
 }
 
 export type WorkableProfile = {
@@ -37,6 +41,8 @@ export type WorkableProfile = {
   zip?: string | null
   country?: string | null
   resumeFileName?: string | null
+  /** Real file bytes. A filename alone is not enough to attach. */
+  resumeFile?: InlineResumeFile | null
   eeoAnswersEnabled?: boolean | null
   gender?: string | null
   raceEthnicity?: string | null
@@ -65,6 +71,8 @@ export type WorkableProfile = {
 export type WorkablePlan =
   | { action: 'text'; value: string }
   | { action: 'click' }
+  /** Attach the saved resume to a plain file input. There is no value string. */
+  | { action: 'file' }
   /** Recognized, nothing to write. Caller must not let the generic matcher invent a value. */
   | { action: 'skip' }
 
@@ -109,6 +117,49 @@ export function isWorkableAdvanceControl(control: {
   const type = (control.type || '').toLowerCase()
   if (type === 'submit') return true
   return ADVANCE_DATA_UI.has(ui)
+}
+
+// "Autofill with resume", Import resume, and data-ui="autofill-button" parse the
+// resume into the application. GoFillr already filled the fields. These controls
+// are never clicked, focused, or given a file.
+export function isWorkableResumeAutofillControl(field: {
+  dataUi?: string | null
+  name?: string | null
+  id?: string | null
+  label?: string | null
+}): boolean {
+  const ui = (field.dataUi || '').toLowerCase()
+  if (ui === 'autofill-button' || ui.includes('autofill')) return true
+  const text = `${field.label || ''} ${field.name || ''} ${field.id || ''}`.toLowerCase()
+  if (/\bautofill\b/.test(text)) return true
+  if (/import\s+resume/.test(text)) return true
+  return false
+}
+
+function uploadText(field: WorkableField): string {
+  return [field.dataUi, field.sectionUi, field.name, field.id, field.label, field.placeholder]
+    .map((part) => (part || '').toLowerCase())
+    .join(' ')
+}
+
+function isNonResumeUpload(text: string): boolean {
+  return /cover[\s_-]*letter|coverletter|\bphoto\b|\bavatar\b|\bimage\b|\bpicture\b|\bheadshot\b|\bportfolio\b/.test(
+    text,
+  )
+}
+
+// A real `<input type="file">` for the resume: data-ui/name/label like Resume,
+// or a plain Upload / Choose file control. Not a button, and not cover/photo.
+export function isWorkablePlainResumeFile(field: WorkableField): boolean {
+  if ((field.type || '').toLowerCase() !== 'file') return false
+  if (isWorkableResumeAutofillControl(field)) return false
+  if (isWorkableAdvanceControl({ dataUi: field.dataUi, type: field.type })) return false
+  if (isCustomQuestion(field)) return false
+  const text = uploadText(field)
+  if (isNonResumeUpload(text)) return false
+  if (/\bresume\b|\bcv\b|curriculum\s*vitae/.test(text)) return true
+  if (/\b(?:choose[\s_-]*(?:a[\s_-]*)?file|upload)\b/.test(text)) return true
+  return false
 }
 
 const AUTHORIZED_TO_WORK = new Set([
@@ -250,11 +301,10 @@ export function workableFieldKey(field: WorkableField): string {
 
 export function workablePhase(field: WorkableField): WorkablePhase {
   const key = workableFieldKey(field)
-  const type = (field.type || '').toLowerCase()
   if (field.group === 'eeo' || isEeoKey(key)) return 'eeo'
   if (field.group === 'experience') return 'experience'
   if (field.group === 'education') return 'education'
-  if (type === 'file' && (key === 'resume' || key.includes('resume'))) return 'resume'
+  if (isWorkablePlainResumeFile(field)) return 'resume'
   if (isWorkAuthField(field)) return 'work-authorization'
   if (isCustomQuestion(field) || isOutOfScopeStandard(key, field.group)) return 'custom'
   if (
@@ -445,6 +495,7 @@ export function workablePlan(field: WorkableField, info: WorkableProfile, rowInd
     return { action: 'skip' }
   }
   if (isWorkableAdvanceControl({ dataUi: field.dataUi, type: field.type })) return { action: 'skip' }
+  if (isWorkableResumeAutofillControl(field)) return { action: 'skip' }
 
   const key = workableFieldKey(field)
   const phase = workablePhase(field)
@@ -453,6 +504,9 @@ export function workablePlan(field: WorkableField, info: WorkableProfile, rowInd
     if (field.hidden || HIDDEN_LOCATION_KEYS.has(key)) return { action: 'skip' }
   }
 
+  if (isWorkablePlainResumeFile(field)) {
+    return profileSavedResume(info) ? { action: 'file' } : { action: 'skip' }
+  }
   if (phase === 'resume' || type === 'file') return { action: 'skip' }
   if (phase === 'custom') return { action: 'skip' }
 

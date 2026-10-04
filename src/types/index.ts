@@ -14,9 +14,11 @@ export interface PersonalInfo {
   linkedin: string
   website: string
   github: string
-  // Filename shown in the UI. During onboarding the file is only parsed; from the Links sheet
-  // (signed in) the file itself is uploaded to and stored with the user's account.
+  // Original filename shown in the UI. The popup upload stores this on the profile.
   resumeFileName?: string
+  // Object path in the private `resumes` bucket (`{userId}/resume.pdf`).
+  // The popup upload writes it. Later fills read it back to download the file.
+  resumeFilePath?: string
   education: Education[]
   experience: Experience[]
   skills: string[]

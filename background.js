@@ -14,9 +14,12 @@ import {
 } from './src/services/installAttribution.js'
 import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
+import { persistUploadedResume } from './src/services/resumeVaultWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
+import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
+import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 
 startExtensionPay()
 
@@ -241,28 +244,38 @@ async function writeResumeJob(state) {
   })
 }
 
-function classifyResumeUploadError(status, apiMessage) {
-  switch (status) {
-    case 401:
-      return { code: 'auth', message: 'Your session expired. Please sign in again.' }
-    case 413:
-      return { code: 'too_large', message: apiMessage || 'That file is too large — keep it under 10MB.' }
-    case 415:
-      return { code: 'bad_type', message: apiMessage || 'Please upload a PDF or DOCX file.' }
-    case 422:
-      return {
-        code: 'unreadable',
-        message: apiMessage || "We couldn't read this resume. Try a different file.",
-      }
-    case 502:
-      return { code: 'upstream', message: 'The resume service is temporarily unavailable. Please try again shortly.' }
-    case 503:
-      return { code: 'server', message: 'The resume service is temporarily unavailable. Please try again shortly.' }
-    default:
-      return {
-        code: `http_${status}`,
-        message: apiMessage || `Upload failed (${status}). Please try again.`,
-      }
+// Same key as src/utils/savedResumeFile.ts SAVED_RESUME_STORAGE_KEY. The content
+// script reads it when a Jobvite file input needs the bytes. Sign-out removes it.
+const SAVED_RESUME_STORAGE_KEY = 'savedResumeFile'
+
+function userIdFromAccessToken(token) {
+  if (!token || typeof token !== 'string') return ''
+  const part = token.split('.')[1]
+  if (!part) return ''
+  try {
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (part.length % 4)) % 4)
+    const json = JSON.parse(atob(padded))
+    return typeof json.sub === 'string' ? json.sub : ''
+  } catch {
+    return ''
+  }
+}
+
+async function cacheUploadedResume({ token, fileName, fileType, fileBytesBase64, storagePath }) {
+  if (!fileName || !fileBytesBase64) return
+  try {
+    await chrome.storage.local.set({
+      [SAVED_RESUME_STORAGE_KEY]: {
+        userId: userIdFromAccessToken(token),
+        fileName,
+        fileType: fileType || 'application/octet-stream',
+        bytesBase64: fileBytesBase64,
+        storagePath: storagePath || null,
+        updatedAt: Date.now(),
+      },
+    })
+  } catch (err) {
+    console.error('[resume-upload] could not cache the resume file', err)
   }
 }
 
@@ -271,6 +284,25 @@ function base64ToBytes(b64) {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return bytes
+}
+
+function bytesToBase64(bytes) {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+// chrome.runtime.sendMessage JSON-serializes. A Uint8Array arrives as
+// {"0":37,"1":80}, so the same reply also carries base64. Callers that still
+// read `bytes` in memory are unchanged.
+function savedResumeReply(result) {
+  if (!result || result.ok !== true || !(result.bytes instanceof Uint8Array) || result.bytes.byteLength === 0) {
+    return result
+  }
+  return { ...result, bytesBase64: bytesToBase64(result.bytes) }
 }
 
 async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBase64 }) {
@@ -285,56 +317,79 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
     return
   }
 
-  let res
-  let rawBody = ''
+  let bytes
+  try {
+    bytes = base64ToBytes(fileBytesBase64)
+  } catch (err) {
+    console.error('[resume-upload] could not decode the file', err)
+    await writeResumeJob({
+      phase: 'error',
+      code: 'read_failed',
+      message: "Couldn't read that file. Please choose another.",
+    })
+    return
+  }
+
+  // The account save is the upload. The parse API is only for prefilling the
+  // form; a file in storage with no profiles row is not a saved resume.
+  let saved
+  try {
+    saved = await persistUploadedResume({ token, fileName, fileType, bytes })
+    await cacheUploadedResume({
+      token,
+      fileName,
+      fileType,
+      fileBytesBase64,
+      storagePath: saved.storagePath,
+    })
+  } catch (err) {
+    console.error('[resume-upload] account save failed', err)
+    await writeResumeJob({
+      phase: 'error',
+      code: 'save_failed',
+      message: err instanceof Error ? err.message : "Couldn't save your resume. Please try again.",
+    })
+    return
+  }
+
+  let parsed = null
+  let firstUpload = null
   try {
     const form = new FormData()
-    form.append(
-      'file',
-      new Blob([base64ToBytes(fileBytesBase64)], { type: fileType || 'application/octet-stream' }),
-      fileName,
-    )
+    form.append('file', new Blob([bytes], { type: fileType || 'application/octet-stream' }), fileName)
 
-    res = await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       // No Content-Type — FormData sets multipart/form-data + boundary.
       headers: { Authorization: `Bearer ${token}` },
       body: form,
     })
-    rawBody = await res.text()
-  } catch (err) {
-    console.error('[resume-upload] request failed', err)
-    await writeResumeJob({
-      phase: 'error',
-      code: 'network',
-      message: 'Upload failed — check your connection and that the API is running, then try again.',
-    })
-    return
-  }
-
-  let body = null
-  try {
-    body = rawBody ? JSON.parse(rawBody) : null
-  } catch {
-    // non-JSON body — leave `body` null, handled below
-  }
-  console.log('[resume-upload]', res.status, rawBody.slice(0, 2000))
-
-  try {
-    if (res.ok && body && body.success === true) {
-      await writeResumeJob({
-        phase: 'done',
-        fileName,
-        firstUpload: body.data ? body.data.first_upload ?? null : null,
-        parsed: body.data ? body.data.parsed ?? null : null,
-        storagePath: body.data ? body.data.storage_path ?? null : null,
-      })
-      return
+    const rawBody = await res.text()
+    let body = null
+    try {
+      body = rawBody ? JSON.parse(rawBody) : null
+    } catch {
+      body = null
     }
+    console.log('[resume-upload]', res.status, rawBody.slice(0, 2000))
+    if (res.ok && body && body.success === true) {
+      firstUpload = body.data ? body.data.first_upload ?? null : null
+      parsed = body.data ? body.data.parsed ?? null : null
+    } else {
+      console.error('[resume-upload] parse failed after the resume was saved', res.status)
+    }
+  } catch (err) {
+    console.error('[resume-upload] parse request failed after the resume was saved', err)
+  }
 
-    const apiMessage = body && typeof body.error === 'string' ? body.error : ''
-    const { code, message } = classifyResumeUploadError(res.status, apiMessage)
-    await writeResumeJob({ phase: 'error', httpStatus: res.status, code, message, apiMessage })
+  try {
+    await writeResumeJob({
+      phase: 'done',
+      fileName,
+      firstUpload,
+      parsed,
+      storagePath: saved.storagePath,
+    })
   } catch (err) {
     console.error('[resume-upload] handling response failed', err)
     await writeResumeJob({
@@ -416,12 +471,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  // The apply form is in an iframe. The outer career shell only has hidden
+  // inputs, and a tab-level autofill message reports that nothing is fillable.
+  // Answer from the frame that contains PortalProfileFields.Resume_File.
+  if (request.action === 'autofillIcimsTab') {
+    const tabId = request.tabId
+    if (typeof tabId !== 'number') {
+      sendResponse({ success: false, message: 'No fillable fields found' })
+      return true
+    }
+    deliverIcimsAutofill(tabId, { scripting: chrome.scripting, tabs: chrome.tabs })
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ success: false, message: 'Unable to autofill this page' }))
+    return true
+  }
+
   // The content script cannot see the page's ICIMS.dropdowns registry. Run the
   // country/state search in that frame's page world. The command only calls
   // dropdown methods. It does not click Next, Log In, Create Account, Submit, or hCaptcha.
   if (request.action === 'icimsPageDropdown') {
     deliverIcimsPageDropdown(request.request, sender, chrome.scripting)
       .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
+  // Apply pages block a content-script fetch to Supabase. Download the saved
+  // resume here and return the bytes. Callers assign a plain file input.
+  // This does not click Apply, Next, Submit, or an autofill-from-resume control.
+  if (request.action === 'loadSavedResume') {
+    loadSavedResumeForWorker()
+      .then((result) => sendResponse(savedResumeReply(result)))
       .catch(() => sendResponse({ ok: false }))
     return true
   }

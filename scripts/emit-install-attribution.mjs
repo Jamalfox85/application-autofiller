@@ -41,6 +41,10 @@ await copyFile(
   'src/utils/siteRules/icimsPageDropdownCommand.js',
   'dist/src/utils/siteRules/icimsPageDropdownCommand.js',
 )
+await copyFile(
+  'src/utils/siteRules/icimsFrameAutofill.js',
+  'dist/src/utils/siteRules/icimsFrameAutofill.js',
+)
 await esbuild.build({
   entryPoints: ['src/services/installAttribution.ts'],
   outfile: 'dist/src/services/installAttribution.js',
@@ -60,6 +64,15 @@ await esbuild.build({
 await esbuild.build({
   entryPoints: ['src/services/googleSignInWorker.ts'],
   outfile: 'dist/src/services/googleSignInWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})
+
+await esbuild.build({
+  entryPoints: ['src/services/resumeVaultWorker.ts'],
+  outfile: 'dist/src/services/resumeVaultWorker.js',
   format: 'esm',
   bundle: true,
   platform: 'browser',
@@ -89,4 +102,13 @@ await esbuild.build({
   format: 'esm',
   bundle: true,
   platform: 'neutral',
+})
+
+await esbuild.build({
+  entryPoints: ['src/utils/siteRules/bamboohrResumeWorker.ts'],
+  outfile: 'dist/src/utils/siteRules/bamboohrResumeWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
 })

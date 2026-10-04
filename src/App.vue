@@ -27,7 +27,7 @@ import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDia
 import PaywallDialog from './components/PaywallDialog.vue'
 import ResumeAiDialog from './components/ResumeAiDialog.vue'
 import ProfileRosterDialog from './components/ProfileRosterDialog.vue'
-import { fetchBillingState, type BillingState } from '@/services/billing/client'
+import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
 import { rememberActiveProfile } from '@/services/billing/profileRoster'
 import {
   WORKDAY_ACCOUNT_NOTICE_KEY,
@@ -37,6 +37,7 @@ import {
   ICIMS_ACCOUNT_NOTICE_KEY,
   parseIcimsAccountNotice,
 } from '@/utils/siteRules/icimsAccountNotice.ts'
+import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -68,6 +69,34 @@ const profilesOpen = ref(false)
 
 const refreshBilling = async () => {
   billing.value = await fetchBillingState()
+}
+
+// Pro already has unlimited fills. The home-screen Upgrade button is only for
+// free accounts, matching the Pro rows that open features instead of checkout.
+const showUpgrade = computed(() => billing.value != null && !billing.value.isPro)
+const upgradeBusy = ref(false)
+
+const startUpgrade = async () => {
+  if (upgradeBusy.value || !showUpgrade.value) return
+  upgradeBusy.value = true
+  try {
+    const opened = await openProCheckout({
+      plan: 'monthly',
+      source: 'popup',
+      fillCount: billing.value?.fillCount ?? null,
+      atsSite: null,
+    })
+    if (!opened.ok) {
+      showNotification(
+        opened.error === 'extensionpay_not_configured'
+          ? 'Checkout needs VITE_EXTENSIONPAY_EXTENSION_ID in this build.'
+          : 'Couldn’t open checkout. Try again.',
+        'error',
+      )
+    }
+  } finally {
+    upgradeBusy.value = false
+  }
 }
 
 const openPaywall = (
@@ -120,15 +149,6 @@ const lastFillLabel = computed(() => {
   return `Last fill · ${mostRecent.site}, ${when}`
 })
 
-const recentFills = computed(() => fillHistory.value.slice(0, 3))
-
-const formatRecentFillTime = (timestamp: number) => {
-  const minutesAgo = Math.round((Date.now() - timestamp) / 60000)
-  if (minutesAgo < 1) return 'just now'
-  if (minutesAgo < 60) return `${minutesAgo}m ago`
-  return `${Math.round(minutesAgo / 60)}h ago`
-}
-
 // Methods
 const detectApplication = async () => {
   try {
@@ -154,7 +174,17 @@ const autofillCurrentPage = async () => {
   autofillState.value = 'filling'
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill', surface: 'popup' })
+    let host = ''
+    try {
+      host = tab.url ? new URL(tab.url).hostname : ''
+    } catch {
+      host = ''
+    }
+    // iCIMS keeps the application in a frame. Ask that frame directly so the
+    // outer shell's hidden inputs are not the autofill result.
+    const response = isIcimsCandidateHost(host)
+      ? await chrome.runtime.sendMessage({ action: 'autofillIcimsTab', tabId: tab.id })
+      : await chrome.tabs.sendMessage(tab.id, { action: 'autofill', surface: 'popup' })
 
     if (response?.code === 'hard_cap' || response?.paywall === 'hard') {
       autofillState.value = 'idle'
@@ -478,35 +508,26 @@ watch(authStatus, (next, previous) => {
       </div>
 
       <div class="fill-actions">
-        <button
-          class="autofill-btn"
-          :disabled="!detection.detected || autofillState !== 'idle'"
-          @click="autofillCurrentPage"
-        >
-          <span v-if="autofillState === 'idle'">Auto-fill application</span>
-          <span v-else-if="autofillState === 'filling'">Filling fields…</span>
-          <span v-else>Filled {{ lastFillCount?.filled }} of {{ lastFillCount?.total }} fields</span>
-          <span v-if="autofillState === 'idle' && detection.detected" class="shortcut-badge">⌘⇧F</span>
-        </button>
+        <div class="fill-actions-row">
+          <button
+            class="autofill-btn"
+            :disabled="!detection.detected || autofillState !== 'idle'"
+            @click="autofillCurrentPage"
+          >
+            <span v-if="autofillState === 'idle'">Auto-fill application</span>
+            <span v-else-if="autofillState === 'filling'">Filling fields…</span>
+            <span v-else>Filled {{ lastFillCount?.filled }} of {{ lastFillCount?.total }} fields</span>
+          </button>
+          <button v-if="showUpgrade" class="upgrade-btn" type="button" @click="startUpgrade">
+            Upgrade
+          </button>
+        </div>
         <button v-if="!detection.detected" class="scan-btn" @click="scanCurrentPageManually">
           Scan this page manually
         </button>
       </div>
 
-      <div v-if="!detection.detected && recentFills.length" class="recent-fills">
-        <div class="section-header-row">
-          <span class="section-header-label">Recent fills</span>
-        </div>
-        <button
-          v-for="entry in recentFills"
-          :key="entry.id"
-          class="recent-fill-row"
-          @click="activeView = 'history'"
-        >
-          <span class="recent-fill-role">{{ entry.role }}</span>
-          <span class="recent-fill-meta">{{ entry.site }} · {{ formatRecentFillTime(entry.timestamp) }}</span>
-        </button>
-      </div>
+      <button class="history-btn" type="button" @click="activeView = 'history'">History</button>
 
       <AutoDetectSwitch class="section" />
 
@@ -543,7 +564,6 @@ watch(authStatus, (next, previous) => {
     <footer v-if="activeView === 'main'" class="footer">
       <template v-if="detection.detected">
         <span class="footer-note">{{ lastFillLabel }}</span>
-        <button class="footer-link" @click="activeView = 'history'">View history</button>
       </template>
       <template v-else>
         <span class="footer-note">Synced</span>
@@ -813,8 +833,16 @@ watch(authStatus, (next, previous) => {
   gap: 8px;
 }
 
+.fill-actions-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .autofill-btn {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border: none;
   border-radius: 9px;
   background: #7c3aed;
@@ -844,14 +872,26 @@ watch(authStatus, (next, previous) => {
   }
 }
 
-.shortcut-badge {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10.5px;
-  font-weight: 500;
-  opacity: 0.72;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 4px;
-  padding: 1px 4px;
+.upgrade-btn {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 9px;
+  background: #7c3aed;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 12px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+  &:hover {
+    background: #8b5cf6;
+  }
+  &:active {
+    background: #6d28d9;
+  }
 }
 
 .scan-btn {
@@ -870,53 +910,24 @@ watch(authStatus, (next, previous) => {
   }
 }
 
-.recent-fills {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.recent-fill-row {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+.history-btn {
   width: 100%;
-  text-align: left;
-  border: 1px solid #22222a;
+  border: 1px solid #2e2e36;
+  border-radius: 9px;
   background: #17171b;
-  border-radius: 8px;
-  padding: 9px 11px;
-  cursor: pointer;
-  font-family: inherit;
   color: #ebebee;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.recent-fill-row:hover {
-  background: #1d1d23;
-  border-color: #33333d;
-}
-
-.recent-fill-role {
-  font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.recent-fill-meta {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10.5px;
-  color: #7c7c86;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  cursor: pointer;
+  &:hover {
+    background: #1d1d23;
+    border-color: #47475a;
+  }
+  &:active {
+    background: #141418;
+  }
 }
 
 .section-header-row {

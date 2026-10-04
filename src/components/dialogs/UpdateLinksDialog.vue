@@ -60,19 +60,25 @@ watch(
   () => resumeUpload.phase.value,
   (phase) => {
     if (phase === 'done') {
+      const savedPath = resumeUpload.storagePath.value || editableProfile.value.resumeFilePath
       if (resumeUpload.parsedResume.value && !hasExistingProfileData.value) {
-        // First upload, empty profile — prefill everything for review.
-        editableProfile.value = mergeParsedResumeIntoProfile(
-          editableProfile.value,
-          resumeUpload.parsedResume.value,
-          resumeUpload.fileName.value,
-        )
+        // First upload, empty profile — prefill everything for review. The file
+        // is already stored on the account; this only fills the form.
+        editableProfile.value = {
+          ...mergeParsedResumeIntoProfile(
+            editableProfile.value,
+            resumeUpload.parsedResume.value,
+            resumeUpload.fileName.value,
+          ),
+          resumeFilePath: savedPath,
+        }
       } else {
-        // Repeat upload, or the profile already has data — the API stored the new file; just
-        // reflect its name and leave the user's fields alone.
+        // Repeat upload, or the profile already has data — keep their fields and
+        // show the resume that was just saved on the account.
         editableProfile.value = {
           ...editableProfile.value,
           resumeFileName: resumeUpload.fileName.value,
+          resumeFilePath: savedPath,
         }
       }
       saved.value = false
@@ -213,7 +219,9 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
             :disabled="resumeUploading"
             @click="triggerResumePicker"
           >
-            {{ resumeUploading ? 'Reading…' : editableProfile.resumeFileName ? 'Replace' : 'Upload' }}
+            {{
+              resumeUploading ? 'Reading…' : editableProfile.resumeFileName ? 'Replace' : 'Upload'
+            }}
           </button>
         </div>
 
@@ -269,16 +277,16 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
           </span>
         </label>
 
-        <label
-          v-for="link in editableProfile.otherLinks ?? []"
-          :key="link.id"
-          class="link-field"
-        >
+        <label v-for="link in editableProfile.otherLinks ?? []" :key="link.id" class="link-field">
           <span class="link-field-header">
             <span class="fs-group-label">{{ link.label }}</span>
             <span class="link-field-actions">
-              <span v-if="isInvalid(stripProtocol(link.url))" class="fs-error">Doesn't look like a URL</span>
-              <button type="button" class="link-remove" @click="removeOtherLink(link.id)">Remove</button>
+              <span v-if="isInvalid(stripProtocol(link.url))" class="fs-error"
+                >Doesn't look like a URL</span
+              >
+              <button type="button" class="link-remove" @click="removeOtherLink(link.id)">
+                Remove
+              </button>
             </span>
           </span>
           <span class="link-input-wrap" :class="{ invalid: isInvalid(stripProtocol(link.url)) }">

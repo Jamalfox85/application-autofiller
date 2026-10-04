@@ -75,6 +75,7 @@ watch(
         parsedData.value = {
           ...resumeUpload.parsedResume.value,
           fileName: resumeUpload.fileName.value,
+          resumeFilePath: resumeUpload.storagePath.value || undefined,
         }
         step.value = 'confirm'
       } else {

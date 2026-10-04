@@ -43,6 +43,10 @@ import {
   type GreenhouseEducationField,
   type NativeSelectChoice,
 } from './greenhouseValues.ts'
+import {
+  applyGreenhouseResumeFile,
+  resetGreenhouseSavedResumeRequest,
+} from './greenhouseResume.ts'
 
 // Snapshot at load. Greenhouse mounts city/race/education inputs only after an
 // earlier answer, which increases this count. Replacing a react-select node
@@ -61,7 +65,14 @@ export default function greenhouseConfig(): SiteRule {
     onMount: (personalInfo) => {
       void ensureGreenhouseEducationRows(personalInfo?.education?.length ?? 0)
     },
-    apply: (input, fieldText, personalInfo) => {
+    prepareFill: () => {
+      resetGreenhouseSavedResumeRequest()
+    },
+    apply: async (input, fieldText, personalInfo) => {
+      // Plain Resume/CV file inputs only. Cover letters and autofill controls
+      // are owned here so the generic matcher cannot focus them.
+      const resume = await applyGreenhouseResumeFile(input, fieldText)
+      if (resume !== false) return resume
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {
           return handle(input, fieldText, personalInfo, '')

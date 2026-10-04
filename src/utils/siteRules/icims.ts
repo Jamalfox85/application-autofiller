@@ -22,6 +22,20 @@ import {
   icimsLocationMenuCommitted,
   planIcimsFill,
 } from './icimsFields.ts'
+import { applyIcimsResumeFile, loadIcimsSavedResume } from './icimsResumeFile.ts'
+
+function icimsFieldRowText(element: {
+  closest?: (selector: string) => { textContent?: string | null } | null
+  parentElement?: { textContent?: string | null } | null
+}): string {
+  try {
+    const row =
+      element.closest?.('.iCIMS_TableRow, .iCIMS_FieldRow, tr, li') || element.parentElement || null
+    return (row?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500)
+  } catch {
+    return ''
+  }
+}
 
 function readIcimsPage(): IcimsPageSignals {
   const location = typeof window === 'undefined' ? undefined : window.location
@@ -145,9 +159,18 @@ export default function icimsConfig(): SiteRule {
     },
     apply: async (input, fieldText, personalInfo) => {
       const page = readIcimsPage()
-      const plan = planIcimsFill(controlFromElement(input, fieldText), personalInfo, {
+      const control = controlFromElement(input, fieldText)
+      const contextText = icimsFieldRowText(input)
+      if (contextText) control.contextText = contextText
+      const plan = planIcimsFill(control, personalInfo, {
         loginSurface: isIcimsCandidateHost(page.hostname) && isIcimsLoginSurface(page),
       })
+      if (plan.action === 'leave' && plan.reason === 'resume-autofill') return 'skip'
+      if (plan.action === 'file') {
+        // Select the saved resume on this file input. Do not click it, and do
+        // not submit. An "Autofill with resume" control never reaches this branch.
+        return applyIcimsResumeFile(input, await loadIcimsSavedResume())
+      }
       if (plan.action === 'select' && (plan.mode === 'country' || plan.mode === 'state')) {
         const doc = input.ownerDocument
         // Country first, then state, in the page's ICIMS.dropdowns registry.

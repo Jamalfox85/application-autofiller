@@ -17,6 +17,7 @@ export const DEFAULT_PERSONAL_INFO: PersonalInfo = {
   website: '',
   github: '',
   resumeFileName: '',
+  resumeFilePath: '',
   education: [],
   experience: [],
   skills: [],
