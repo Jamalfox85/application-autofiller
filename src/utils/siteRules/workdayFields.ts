@@ -128,6 +128,49 @@ export function workdayJobApplyButton(root: ParentNode): HTMLElement | null {
   return null
 }
 
+function controlLabel(el: Element): string {
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const aria = (el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  return `${text} ${aria}`.replace(/\s+/g, ' ').trim()
+}
+
+// The apply chooser offers these instead of a file input. They parse the resume
+// into the application. GoFillr already fills the fields, so they are never clicked.
+export function isWorkdayResumeAutofillControl(el: Element): boolean {
+  const label = controlLabel(el)
+  return (
+    label.includes('autofill with resume') ||
+    label.includes('autofill from resume') ||
+    label.includes('use my last application') ||
+    label.includes('use last application')
+  )
+}
+
+export function isWorkdayApplicationSubmitControl(el: Element): boolean {
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const aria = (el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const label = aria || text
+  return label === 'submit' || label === 'submit application' || label === 'send'
+}
+
+function allowedApplyChooserTarget(el: Element | null): HTMLElement | null {
+  if (!el) return null
+  if (isWorkdayResumeAutofillControl(el) || isWorkdayApplicationSubmitControl(el)) return null
+  return el as HTMLElement
+}
+
+// Apply on the job page, then Apply Manually on the chooser. Never Autofill with
+// Resume, Use My Last Application, Submit, Submit Application, or Send.
+export function workdayApplyChooserTarget(
+  root: ParentNode,
+  state: { jobApplyClicked?: boolean } = {},
+): HTMLElement | null {
+  const manual = allowedApplyChooserTarget(root.querySelector('[data-automation-id="applyManually"]'))
+  if (manual) return manual
+  if (state.jobApplyClicked) return null
+  return allowedApplyChooserTarget(workdayJobApplyButton(root))
+}
+
 // Account creation renders email + password + verifyPassword together.
 // Cisco and Zillow put those automation ids on the inputs. Salesforce puts
 // formField-* wrappers around the inputs and may omit the bare ids. My
