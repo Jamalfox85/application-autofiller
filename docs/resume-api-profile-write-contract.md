@@ -23,8 +23,9 @@ The extension autofills job forms directly from these tables, so shape fidelity 
 | `linkedin` | `parsed.contact.linkedin` | normalize to a full URL: bare handle `in/x` → `https://linkedin.com/in/x`; `linkedin.com/...` → prefix `https://` |
 | `website` | `parsed.contact.website` | normalize: `janedoe.dev` → `https://janedoe.dev` |
 | `summary` | `parsed.summary` | text column already exists; extension doesn't use it |
-| `resume_file_name` | uploaded file's original name | optional but nice — otherwise the extension's file card is blank until the user saves |
-| `resume_file_path`, `resume_parsed_at` | as today | the extension reads `resume_file_path` to attach the saved file on a plain choose-file input; it does not write the column |
+| `resume_file_name` | uploaded file's original name | the popup upload writes this itself |
+| `resume_file_path` | `{userId}/resume.pdf` or `{userId}/resume.docx` | the popup upload writes this itself. A storage object with no profile path is not a saved resume |
+| `resume_parsed_at` | as today | the extension does not set this |
 
 Do **not** write `first_name`/etc. as empty strings — use `NULL` when a value is absent.
 
@@ -81,12 +82,12 @@ the user may have edited them by hand in the extension.
 
 ## Write-race note
 
-On a first upload the API and the extension both write these tables (the extension when the
-user reviews the prefilled form and hits Save, a few seconds later). The extension's
-`saveProfileToDb` does `upsert` on `profiles` for the columns it maps and full delete+insert
-on each child table, so the user's reviewed version wins — which is intended. API-only columns
-(`summary`, `certifications`, `resume_file_path`, `resume_parsed_at`, `full_name`) are not in
-the extension's write set and survive.
+On a first upload the API and the extension both write these tables. The popup upload writes
+`resume_file_name` and `resume_file_path` as soon as the file is stored — it does not wait
+for Save, and it does not depend on the API inserting a `profiles` row. A later Save
+upserts the columns the user reviewed and does not send an empty resume path, so a save
+that has not loaded the file cannot clear it. API-only columns (`summary`, `certifications`,
+`resume_parsed_at`, `full_name`) stay out of the extension's write set.
 
 ## Auth / RLS
 
