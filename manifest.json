@@ -5,7 +5,36 @@
   "version": "1.0.5",
   "description": "Autofill from one saved profile on Greenhouse, Ashby, Lever, Jobvite, and Workable. You review every field before you submit.",
   "permissions": ["storage", "activeTab", "scripting", "identity"],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": [
+    "https://*.greenhouse.io/*",
+    "https://*.lever.co/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.myworkday.com/*",
+    "https://*.myworkdaysite.com/*",
+    "https://*.workday.com/*",
+    "https://*.ashbyhq.com/*",
+    "https://*.bamboohr.com/*",
+    "https://*.icims.com/*",
+    "https://*.smartrecruiters.com/*",
+    "https://*.jobvite.com/*",
+    "https://*.apply.workable.com/*",
+    "https://*.ultipro.com/*",
+    "https://*.breezy.hr/*",
+    "https://*.recruitee.com/*",
+    "https://*.jazz.co/*",
+    "https://*.applytojob.com/*",
+    "https://gofillr.com/*",
+    "https://www.gofillr.com/*",
+    "https://chromewebstore.google.com/*",
+    "https://chrome.google.com/*",
+    "https://extensionpay.com/*",
+    "https://app.posthog.com/*",
+    "https://api.mixpanel.com/*",
+    "https://api-js.mixpanel.com/*",
+    "https://*.supabase.co/*",
+    "http://localhost:8080/*",
+    "https://api-production-5aca1.up.railway.app/*"
+  ],
   "oauth2": {
     "client_id": "628494525589-8i2v9kg3hdgil3tqoo1oesmooa8ofi37.apps.googleusercontent.com",
     "scopes": ["openid", "email", "profile"]
@@ -38,7 +67,27 @@
       "run_at": "document_start"
     },
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.myworkday.com/*",
+        "https://*.myworkdaysite.com/*",
+        "https://*.workday.com/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.icims.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.apply.workable.com/*",
+        "https://*.ultipro.com/*",
+        "https://*.breezy.hr/*",
+        "https://*.recruitee.com/*",
+        "https://*.jazz.co/*",
+        "https://*.applytojob.com/*",
+        "https://gofillr.com/*",
+        "https://www.gofillr.com/*"
+      ],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle",
@@ -52,7 +101,28 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/*.png", "assets/images/*"],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.myworkday.com/*",
+        "https://*.myworkdaysite.com/*",
+        "https://*.workday.com/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.icims.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.apply.workable.com/*",
+        "https://*.ultipro.com/*",
+        "https://*.breezy.hr/*",
+        "https://*.recruitee.com/*",
+        "https://*.jazz.co/*",
+        "https://*.applytojob.com/*",
+        "https://gofillr.com/*",
+        "https://www.gofillr.com/*",
+        "https://extensionpay.com/*"
+      ]
     }
   ]
 }
