@@ -618,6 +618,50 @@ function activateMatchingPortalOption(
   return null
 }
 
+function listboxShowsLabel(button: HTMLElement, label: string): boolean {
+  const value = workdayListboxValue(button).replace(/\s+/g, ' ').trim().toLowerCase()
+  return !!value && value === label.trim().toLowerCase()
+}
+
+function listboxIsPlaceholder(button: HTMLElement): boolean {
+  const key = workdayListboxValue(button).toLowerCase().replace(/[^a-z]/g, '')
+  return !key || key === 'selectone' || key === 'select' || key === 'pleaseselect' || key === 'chooseone'
+}
+
+// Canvas Select commits the focused row on Enter. A mousedown on the row can
+// dismiss the menu before click, so ArrowDown until that row is active and then
+// Enter. Stop on the requested label so Associate of Science is not chosen.
+async function commitListedDegreeByKeyboard(button: HTMLButtonElement, label: string): Promise<void> {
+  if (!listboxIsPlaceholder(button) || listboxShowsLabel(button, label)) return
+  const doc = button.ownerDocument
+  const view = doc?.defaultView
+  if (!doc || !view) return
+  const KeyCtor = view.KeyboardEvent ?? KeyboardEvent
+  const press = (key: string) => {
+    button.dispatchEvent(new KeyCtor('keydown', { key, bubbles: true, cancelable: true }))
+  }
+  const wanted = label.trim().toLowerCase()
+  button.focus()
+  for (let step = 0; step < 8; step++) {
+    if (listboxShowsLabel(button, label)) return
+    const prompt = workdayActivePrompt(button)
+    const activeId =
+      prompt && 'getAttribute' in prompt ? prompt.getAttribute('aria-activedescendant') || '' : ''
+    const active = activeId ? doc.getElementById(activeId) : null
+    const activeLabel = (active?.getAttribute('data-automation-label') || active?.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+    if (active && activeLabel === wanted) {
+      press('Enter')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      if (listboxShowsLabel(button, label)) return
+    }
+    press('ArrowDown')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  }
+}
+
 // Open one prompt, optionally filter it, and click the picked label inside that
 // prompt only. Escape closes a miss so the next field cannot click a leftover option.
 // scanPortals is for degree and school: the open menu's rows can arrive after
@@ -666,6 +710,7 @@ async function chooseWorkdayListOption(
       if (scanPortals) {
         const portalLabel = activateMatchingPortalOption(button, prompt, pick)
         if (portalLabel) {
+          await commitListedDegreeByKeyboard(button, portalLabel)
           openListbox = null
           return portalLabel
         }
@@ -678,9 +723,22 @@ async function chooseWorkdayListOption(
       const option = workdayOptionElement(prompt, label)
       if (option) {
         activateWorkdayOption(promptRowTarget(option))
+        if (scanPortals) await commitListedDegreeByKeyboard(button, label)
         openListbox = null
         return label
       }
+    }
+    // Another field's list can be the only role=listbox on the page. Degree
+    // has to keep waiting for its own menu instead of treating that list as a miss.
+    if (scanPortals) {
+      const portalLabel = activateMatchingPortalOption(button, prompt, pick)
+      if (portalLabel) {
+        await commitListedDegreeByKeyboard(button, portalLabel)
+        openListbox = null
+        return portalLabel
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      continue
     }
     // A visible slice that does not contain the target is not a click. After a
     // search, give the filtered rows a moment to replace that slice.
@@ -896,25 +954,98 @@ function isCatalogSearchInput(input: HTMLInputElement): boolean {
   )
 }
 
+function promptFieldRoot(control: HTMLElement): ParentNode {
+  return (
+    control.closest('[data-automation-id^="formField-"]') ||
+    control.closest('[data-fkit-id]') ||
+    control.parentElement ||
+    control
+  )
+}
+
+function promptBackedField(control: HTMLElement): boolean {
+  const scope = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  if (!scope) return false
+  return !!scope.querySelector(
+    '[data-automation-id="multiSelectContainer"], [data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"]',
+  )
+}
+
+function cleanVisibleLabel(value: string): string {
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function selectedPillLabels(root: ParentNode): string[] {
+  const labels: string[] = []
+  root.querySelectorAll('[data-automation-id="selectedItemList"]').forEach((list) => {
+    const items = list.querySelectorAll(
+      '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]',
+    )
+    if (items.length === 0) {
+      const text = cleanVisibleLabel(list.textContent || '')
+      if (text) labels.push(text)
+      return
+    }
+    items.forEach((item) => {
+      const text = cleanVisibleLabel(item.getAttribute('data-automation-label') || item.textContent || '')
+      if (text) labels.push(text)
+    })
+  })
+  return labels
+}
+
+function promptTracksPills(control: HTMLElement): boolean {
+  return !!promptFieldRoot(control).querySelector('[data-automation-id="selectedItemList"]')
+}
+
+function promptSelectionCommitted(
+  control: HTMLElement,
+  pick: (labels: string[]) => string | null,
+): boolean {
+  if (!promptTracksPills(control)) return false
+  return !!pick(selectedPillLabels(promptFieldRoot(control)))
+}
+
+function openWorkdayPrompt(control: HTMLElement) {
+  const scope = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  const icon = scope?.querySelector(
+    '[data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"]',
+  )
+  if (icon && 'click' in icon) (icon as HTMLElement).click()
+  else control.click()
+  if (control.tagName === 'INPUT') (control as HTMLInputElement).focus()
+}
+
+function dispatchEnter(input: HTMLInputElement) {
+  const view = input.ownerDocument?.defaultView
+  const KeyCtor = view?.KeyboardEvent ?? KeyboardEvent
+  input.dispatchEvent(new KeyCtor('keydown', { key: 'Enter', keyCode: 13, bubbles: true }))
+  input.dispatchEvent(new KeyCtor('keyup', { key: 'Enter', keyCode: 13, bubbles: true }))
+}
+
 // The closed multiselect is not the catalog. Opening it paints input[searchBox]
 // inside the prompt; that box is what the school query has to reach.
 async function resolveCatalogSearch(control: HTMLElement): Promise<HTMLInputElement | null> {
   const own = control.tagName === 'INPUT' ? (control as HTMLInputElement) : null
   if (own && isCatalogSearchInput(own)) return own
+  const promptBacked = promptBackedField(control)
   const started = Date.now()
-  while (Date.now() - started < 400) {
+  const giveUpAt = promptBacked ? 700 : 40
+  while (Date.now() - started < 700) {
     const doc = control.ownerDocument
     const field = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
     const inField = field ? workdayPromptSearchInput(field) : null
-    if (inField && inField !== own) return inField
+    if (inField && (inField !== own || isCatalogSearchInput(inField))) return inField
     const prompts = promptPopups(doc, null)
     for (let index = prompts.length - 1; index >= 0; index--) {
       const found = workdayPromptSearchInput(prompts[index])
-      if (found && found !== own) return found
+      if (found) return found
     }
-    if (Date.now() - started >= 40 && !catalogShellOpen(doc)) break
+    if (Date.now() - started >= giveUpAt && !catalogShellOpen(doc)) break
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
+  // Typing into the closed prompt leaves the query visible and unselected.
+  if (promptBacked && own && !isCatalogSearchInput(own)) return null
   return own && own.isConnected ? own : null
 }
 
@@ -983,8 +1114,8 @@ function suggestionMenuIsOpen(input: HTMLInputElement): boolean {
 
 // Type into a school or field-of-study prompt and click the matching suggestion.
 // The catalog reads the prompt's search box, which appears when the multiselect
-// opens. change and blur dismiss that list. A typed query with no matching row
-// is cleared. Enter is only for a catalog that never opened.
+// opens. A typed query is not a selected school. Enter asks a catalog that does
+// not search on each keystroke to show rows; the committed value is the pill.
 export async function selectWorkdayPromptQuery(
   control: HTMLElement,
   query: string,
@@ -992,27 +1123,41 @@ export async function selectWorkdayPromptQuery(
 ): Promise<boolean> {
   const trimmed = query.trim()
   if (!trimmed) return false
-  control.click()
-  if (control.tagName === 'INPUT') (control as HTMLInputElement).focus()
+  if (promptSelectionCommitted(control, pick)) return true
+  openWorkdayPrompt(control)
   const search = await resolveCatalogSearch(control)
   if (!search) return false
   setReactInputValue(search, trimmed)
+  let pressedEnter = false
   const started = Date.now()
-  while (Date.now() - started < 1500) {
+  while (Date.now() - started < 1800) {
+    if (promptSelectionCommitted(control, pick)) return true
     const option = matchingSuggestionRow(search, pick)
     if (option) {
       activateWorkdayOption(promptRowTarget(option))
-      return true
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      if (!promptTracksPills(control) || promptSelectionCommitted(control, pick)) return true
+    } else if (
+      !pressedEnter &&
+      Date.now() - started > 300 &&
+      (catalogShellOpen(search.ownerDocument) ||
+        suggestionMenuIsOpen(search) ||
+        isCatalogSearchInput(search))
+    ) {
+      dispatchEnter(search)
+      pressedEnter = true
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
+  if (promptSelectionCommitted(control, pick)) return true
+  if (promptTracksPills(control)) {
+    if (search.isConnected && search.value.trim()) setReactInputValue(search, '')
+    return false
+  }
   const doc = search.ownerDocument
   if (!catalogShellOpen(doc) && !suggestionMenuIsOpen(search)) {
-    const view = doc?.defaultView
-    const KeyCtor = view?.KeyboardEvent ?? KeyboardEvent
-    search.dispatchEvent(new KeyCtor('keydown', { key: 'Enter', keyCode: 13, bubbles: true }))
-    search.dispatchEvent(new KeyCtor('keyup', { key: 'Enter', keyCode: 13, bubbles: true }))
-  } else if (search.value.trim()) {
+    if (!pressedEnter) dispatchEnter(search)
+  } else if (search.isConnected && search.value.trim()) {
     setReactInputValue(search, '')
   }
   return false

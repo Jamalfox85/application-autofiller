@@ -1337,3 +1337,167 @@ test('Cisco degree menu selects the visible Bachelor of Science row', async () =
   assert.deepEqual(chosen, ['Bachelor of Science'])
   assert.equal(button.textContent, 'Bachelor of Science')
 })
+
+// The closed school box can show the typed query. That is not a selected school.
+// Cisco's catalog search runs on Enter when typeahead is off, and the committed
+// value is the pill. A pill that is already the profile school stays as it is.
+test('Cisco school prompt commits the catalog pill and does not keep typed text', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-school" data-fkit-id="education-1--school">
+      <div data-automation-id="multiSelectContainer">
+        <input id="school-input" value="" />
+        <span data-automation-id="promptIcon" id="school-icon"></span>
+      </div>
+      <div data-automation-id="selectedItemList" id="school-pills" role="listbox"></div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const input = doc.getElementById('school-input') as HTMLInputElement
+  const pills = doc.getElementById('school-pills')!
+  let opened = false
+  const open = () => {
+    if (opened) return
+    opened = true
+    input.setAttribute('data-automation-id', 'searchBox')
+    const popup = doc.createElement('div')
+    popup.id = 'school-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    popup.setAttribute('data-automation-type', 'singleSelectPrompt')
+    const results = doc.createElement('div')
+    results.id = 'school-results'
+    popup.appendChild(results)
+    const paint = () => {
+      results.replaceChildren()
+      const query = input.value.trim().toLowerCase()
+      const schools = ['Kenyon College', 'Kennesaw State University'].filter(
+        (label) => query && label.toLowerCase().includes(query),
+      )
+      for (const label of schools) {
+        const leaf = doc.createElement('div')
+        leaf.setAttribute('data-automation-id', 'promptLeafNode')
+        leaf.id = `${label.toLowerCase().replace(/[^a-z]+/g, '-')}-leaf`
+        const option = doc.createElement('div')
+        option.setAttribute('data-automation-id', 'promptOption')
+        option.setAttribute('data-automation-label', label)
+        const text = doc.createElement('div')
+        text.textContent = label
+        text.addEventListener('mousedown', (event) => event.stopPropagation())
+        text.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        })
+        option.appendChild(text)
+        leaf.appendChild(option)
+        leaf.addEventListener('click', () => {
+          const pill = doc.createElement('div')
+          pill.setAttribute('data-automation-id', 'selectedItem')
+          pill.textContent = label
+          pills.replaceChildren(pill)
+          input.value = ''
+          popup.remove()
+        })
+        results.appendChild(leaf)
+      }
+    }
+    input.addEventListener('keyup', (event) => {
+      if ((event as KeyboardEvent).key === 'Enter') paint()
+    })
+    doc.body.appendChild(popup)
+  }
+  doc.getElementById('school-icon')!.addEventListener('click', open)
+  const { selectWorkdayPromptQuery } = await import('./workday.ts')
+  assert.equal(await selectWorkdayPromptQuery(input, 'Kennesaw State University'), true)
+  assert.equal(pills.textContent, 'Kennesaw State University')
+  assert.equal(input.value, '')
+  assert.equal(opened, true)
+
+  const again = await selectWorkdayPromptQuery(input, 'Kennesaw State University')
+  assert.equal(again, true)
+  assert.equal(pills.textContent, 'Kennesaw State University')
+})
+
+// A selected-pill listbox is already on the page (source, company, school).
+// The degree menu is the Canvas list that opens after the button click.
+// "Select One" is not the choice. Associate of Science is a different degree.
+test('Cisco degree list commits Bachelor of Science while another listbox is open', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="selectedItemList" id="source-pills" role="listbox">
+      <div data-automation-id="selectedItem">Cisco Jobs Career Site</div>
+    </div>
+    <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+      <button id="degree" type="button" aria-haspopup="listbox" aria-expanded="false">Select One</button>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const chosen: string[] = []
+  const rows = [
+    'Select One',
+    'Doctor of Medicine (MD)',
+    'Associate of Science',
+    'Bachelor of Science',
+    'Doctor of Medicine',
+    'Juris Doctorate',
+  ]
+  let focus = 0
+  const openMenu = () => {
+    if (doc.getElementById('degree-menu')) return
+    button.setAttribute('aria-expanded', 'true')
+    button.setAttribute('aria-controls', 'degree-menu')
+    const menu = doc.createElement('ul')
+    menu.id = 'degree-menu'
+    menu.setAttribute('role', 'listbox')
+    menu.setAttribute('aria-activedescendant', `degree-opt-${focus}`)
+    rows.forEach((label, index) => {
+      const option = doc.createElement('li')
+      option.setAttribute('role', 'option')
+      option.id = `degree-opt-${index}`
+      const text = doc.createElement('div')
+      text.textContent = label
+      text.addEventListener('mousedown', (event) => event.stopPropagation())
+      text.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      })
+      option.appendChild(text)
+      // A synthetic mousedown on the row dismisses the Canvas menu before click.
+      // A real pointer click still selects; keyboard Enter on the focused row does too.
+      option.addEventListener('mousedown', () => {
+        menu.remove()
+        button.setAttribute('aria-expanded', 'false')
+        button.removeAttribute('aria-controls')
+      })
+      menu.appendChild(option)
+    })
+    doc.body.appendChild(menu)
+  }
+  button.addEventListener('click', () => {
+    setTimeout(() => openMenu(), 40)
+  })
+  button.addEventListener('keydown', (event) => {
+    const key = (event as KeyboardEvent).key
+    if (key !== 'ArrowDown' && key !== 'Enter') return
+    const menu = doc.getElementById('degree-menu')
+    if (!menu) {
+      if (key === 'ArrowDown') openMenu()
+      return
+    }
+    if (key === 'ArrowDown') {
+      focus = Math.min(rows.length - 1, focus + 1)
+      menu.setAttribute('aria-activedescendant', `degree-opt-${focus}`)
+      return
+    }
+    const label = rows[focus]
+    if (!label || label === 'Select One') return
+    chosen.push(label)
+    button.textContent = label
+    button.setAttribute('aria-expanded', 'false')
+    menu.remove()
+  })
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.deepEqual(chosen, ['Bachelor of Science'])
+  assert.equal(button.textContent, 'Bachelor of Science')
+  assert.equal(chosen.includes('Associate of Science'), false)
+  assert.equal(chosen.includes('Bachelor of Arts'), false)
+})

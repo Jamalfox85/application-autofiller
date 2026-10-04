@@ -515,7 +515,13 @@ export function workdayActivePrompt(button: HTMLElement): ParentNode | null {
     doc.querySelectorAll(
       '[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"], [role="listbox"]',
     ),
-  ).filter((node) => !button.contains(node))
+  ).filter((node) => {
+    if (button.contains(node)) return false
+    // Selected pills use role=listbox. That list is not the open degree menu.
+    if (node.getAttribute('data-automation-id') === 'selectedItemList') return false
+    if (node.closest('[data-automation-id="selectedItemList"]')) return false
+    return true
+  })
   const labelsOf = (prompt: Element) => workdayOptionLabels(prompt as ParentNode)
   const phoneButton = workdayElementIsPhoneDeviceType(button)
   if (phoneButton) {
