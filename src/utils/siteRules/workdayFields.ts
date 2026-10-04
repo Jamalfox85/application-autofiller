@@ -1378,9 +1378,31 @@ export function workdayFormerEmployeeListboxButton(root: ParentNode): HTMLButton
   })
 }
 
+// SelectField's accessible name is the question, then the selected answer
+// ("…requisition? Yes"), not the bare word. A required marker can follow the
+// answer. The closed control has the profile answer when Yes or No is its own word.
+export function workdayClosedLabelShowsAnswer(shown: string, answer: 'yes' | 'no'): boolean {
+  const key = shown.toLowerCase().replace(/[^a-z]+/g, ' ').trim()
+  if (!key || isPlaceholderKey(key)) return false
+  const tokens = key.split(' ')
+  if (answer === 'yes') return tokens.includes('yes')
+  return tokens.includes('no')
+}
+
+export function workdayButtonShowsAnswer(button: HTMLElement, answer: 'yes' | 'no'): boolean {
+  if (workdayClosedLabelShowsAnswer(workdayListboxValue(button), answer)) return true
+  return workdayClosedLabelShowsAnswer(button.getAttribute('aria-label') || '', answer)
+}
+
 export function workdayListboxIsEmpty(button: HTMLElement): boolean {
-  const key = optionKey(workdayListboxValue(button))
-  if (isPlaceholderKey(key)) return true
+  const shown = workdayListboxValue(button)
+  const key = optionKey(shown)
+  if (isPlaceholderKey(key)) {
+    const aria = button.getAttribute('aria-label') || ''
+    if (workdayClosedLabelShowsAnswer(aria, 'yes') || workdayClosedLabelShowsAnswer(aria, 'no')) return false
+    return true
+  }
+  if (workdayClosedLabelShowsAnswer(shown, 'yes') || workdayClosedLabelShowsAnswer(shown, 'no')) return false
   const question = optionKey(workdayChoiceQuestionText(button))
   return !!question && key === question
 }

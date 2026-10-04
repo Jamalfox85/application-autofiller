@@ -35,6 +35,7 @@ import {
   workdayExperienceLocation,
   workdayFieldControl,
   workdayFormerEmployeeListboxButton,
+  workdayButtonShowsAnswer,
   workdayListboxButton,
   workdayListboxIsEmpty,
   workdayListboxValue,
@@ -682,8 +683,11 @@ function listboxIsPlaceholder(button: HTMLElement): boolean {
 async function commitCanvasDegreeTypeahead(
   button: HTMLButtonElement,
   label: string,
+  accept?: (button: HTMLButtonElement) => boolean,
 ): Promise<string | null> {
-  if (listboxShowsLabel(button, label)) return workdayListboxValue(button)
+  const shown = () => workdayListboxValue(button)
+  const matches = () => (accept ? accept(button) : listboxShowsLabel(button, label))
+  if (matches()) return shown() || label
   const doc = button.ownerDocument
   const view = doc?.defaultView
   if (!doc || !view) return null
@@ -696,7 +700,7 @@ async function commitCanvasDegreeTypeahead(
   press('Enter')
   const started = Date.now()
   while (Date.now() - started < 300) {
-    if (listboxShowsLabel(button, label)) return workdayListboxValue(button)
+    if (matches()) return shown() || label
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   return null
@@ -1311,17 +1315,19 @@ async function selectWorkdayProfileChoice(
   // left the closed label on Select One: no rows were readable, so nothing was
   // typed. The closed button commits from its own key handler, the same way
   // Degree does. Yes/No is only kept when that handler actually changes the label.
-  const word = answer === 'yes' ? 'Yes' : 'No'
-  const committed = await commitCanvasDegreeTypeahead(button, word)
-  if (!committed || !closedChoiceMatches(committed, answer)) return null
+  if (workdayButtonShowsAnswer(button, answer)) return workdayListboxValue(button) || wordFor(answer)
+  const word = wordFor(answer)
+  // The closed face can be the question plus the answer, so an exact "Yes"
+  // comparison misses a commit the page is already showing.
+  const committed = await commitCanvasDegreeTypeahead(button, word, (target) =>
+    workdayButtonShowsAnswer(target, answer),
+  )
+  if (!committed) return null
   return committed
 }
 
-function closedChoiceMatches(shown: string, answer: 'yes' | 'no'): boolean {
-  const key = shown.toLowerCase().replace(/[^a-z]+/g, ' ').trim()
-  if (!key) return false
-  if (answer === 'yes') return key === 'yes' || key.startsWith('yes ')
-  return key === 'no' || (key.startsWith('no ') && !key.startsWith('not '))
+function wordFor(answer: 'yes' | 'no'): string {
+  return answer === 'yes' ? 'Yes' : 'No'
 }
 
 function applicationChoiceButton(input: Element): HTMLButtonElement | null {
@@ -1343,11 +1349,18 @@ export async function fillWorkdayApplicationQuestions(
     const button = node as HTMLButtonElement
     const kind = workdayApplicationQuestionKind(button)
     if (kind !== 'authorized' && kind !== 'sponsorship') continue
+    const answer = workdayProfileChoice(kind, info)
+    if (!answer) continue
+    // Already showing the profile answer. Counting it is what keeps the autofill
+    // message from saying nothing matched after the closed label changed.
+    if (workdayButtonShowsAnswer(button, answer)) {
+      filled += 1
+      continue
+    }
     if (!workdayListboxIsEmpty(button)) continue
     const tries = applicationChoiceAttempts.get(button) || 0
     if (tries >= 2) continue
     applicationChoiceAttempts.set(button, tries + 1)
-    if (!workdayProfileChoice(kind, info)) continue
     const label = await selectWorkdayProfileChoice(button, kind, info)
     if (!label) continue
     filled += 1
