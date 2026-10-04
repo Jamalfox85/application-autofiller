@@ -324,6 +324,16 @@ export function classifyWorkableQuestion(text: string | null | undefined): WorkA
     }
     return 'sponsorship'
   }
+  // "Will you require work authorization" asks whether they need it. That is
+  // the sponsorship answer. "Authorized to work" and "eligibility to work"
+  // stay authorized, and this check has to run before that generic rule.
+  if (
+    /require|need/.test(t) &&
+    /work authori[sz]ation/.test(t) &&
+    !/authori[sz]ed to work|eligib(?:le|ility) to work|work eligibility/.test(t)
+  ) {
+    return 'sponsorship'
+  }
   if (auth) return 'authorized'
   if (/require|need/.test(t) && /sponsor/.test(t)) return 'sponsorship'
   return null

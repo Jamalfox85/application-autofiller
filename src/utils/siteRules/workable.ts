@@ -294,10 +294,62 @@ function writeWorkablePlan(input: HTMLElement, plan: Exclude<WorkablePlan, { act
   ) {
     return false
   }
+  if (isWorkableMonthYearInput(input)) {
+    return writeWorkableMonthYear(input as HTMLInputElement, plan.value)
+  }
   setReactInputValue(input as HTMLInputElement, plan.value)
   dispatch(input, 'change')
   dispatch(input, 'blur')
   return true
+}
+
+// Workable's month/year datepicker clears the field when one input event
+// carries the whole "01/2022". Typing each digit, with the slash inserted
+// after the month, is what leaves MM/YYYY in place. No day is added.
+function isWorkableMonthYearInput(input: HTMLElement): boolean {
+  if (input.tagName !== 'INPUT') return false
+  const placeholder = (input.getAttribute('placeholder') || '').replace(/\s+/g, '').toUpperCase()
+  if (placeholder === 'MM/YYYY') return true
+  const name = (input.getAttribute('name') || '').toLowerCase()
+  return (
+    (name === 'start_date' || name === 'end_date') &&
+    !!input.closest('.react-datepicker-wrapper, .react-datepicker__input-container')
+  )
+}
+
+type ReactTrackedInput = HTMLInputElement & {
+  _valueTracker?: { setValue: (value: string) => void }
+}
+
+function writeWorkableMonthYear(input: HTMLInputElement, value: string): boolean {
+  const digits = value.replace(/\D/g, '').slice(0, 6)
+  if (digits.length !== 6) return false
+  const view = input.ownerDocument?.defaultView ?? window
+  const setter = Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value')?.set
+  if (!setter) return false
+  const KeyboardEventCtor = view.KeyboardEvent ?? KeyboardEvent
+  const InputEventCtor = view.InputEvent ?? InputEvent
+  const expected = `${digits.slice(0, 2)}/${digits.slice(2)}`
+  try {
+    input.focus()
+  } catch {
+    // A detached jsdom document can refuse focus. The value write still runs.
+  }
+  for (const char of digits) {
+    input.dispatchEvent(new KeyboardEventCtor('keydown', { key: char, bubbles: true }))
+    input.dispatchEvent(new KeyboardEventCtor('keypress', { key: char, bubbles: true }))
+    const previous = input.value
+    const nextDigits = (previous + char).replace(/\D/g, '').slice(0, 6)
+    const formatted = nextDigits.length <= 2 ? nextDigits : `${nextDigits.slice(0, 2)}/${nextDigits.slice(2)}`
+    setter.call(input, formatted)
+    const tracker = (input as ReactTrackedInput)._valueTracker
+    if (tracker) tracker.setValue(previous)
+    input.dispatchEvent(new InputEventCtor('input', { bubbles: true, data: char, inputType: 'insertText' }))
+    input.dispatchEvent(new KeyboardEventCtor('keyup', { key: char, bubbles: true }))
+  }
+  dispatch(input, 'change')
+  dispatch(input, 'blur')
+  return input.value === expected
 }
 
 function clickChoice(input: HTMLInputElement) {
