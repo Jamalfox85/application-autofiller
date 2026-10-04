@@ -24,7 +24,7 @@ The extension autofills job forms directly from these tables, so shape fidelity 
 | `website` | `parsed.contact.website` | normalize: `janedoe.dev` → `https://janedoe.dev` |
 | `summary` | `parsed.summary` | text column already exists; extension doesn't use it |
 | `resume_file_name` | uploaded file's original name | optional but nice — otherwise the extension's file card is blank until the user saves |
-| `resume_file_path`, `resume_parsed_at` | as today | extension never touches these |
+| `resume_file_path`, `resume_parsed_at` | as today | the extension reads `resume_file_path` to attach the saved file on a plain choose-file input; it does not write the column |
 
 Do **not** write `first_name`/etc. as empty strings — use `NULL` when a value is absent.
 

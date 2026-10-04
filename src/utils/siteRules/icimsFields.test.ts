@@ -487,18 +487,13 @@ test('work authorization and EEO selects follow the profile and skip when EEO is
   assert.deepEqual(off, { field: 'eeoGender', action: 'leave', reason: 'eeo-off' })
 })
 
-test('custom rcf questions, resume files, and source stay blank', () => {
+test('custom rcf questions and source stay blank', () => {
   const info = profile()
   assert.equal(classifyIcimsControl(control({ id: 'PersonProfileFields.rcf3048', fieldText: 'phone' }), false), 'custom')
   const custom = planIcimsFill(control({ id: 'rcf3048', fieldText: 'years of experience with cobol' }), info)
   assert.equal(custom.action, 'leave')
   const source = planIcimsFill(control({ id: 'PersonProfileFields.Source', fieldText: 'how did you hear about us' }), info)
   assert.equal(source.action, 'leave')
-  const resume = planIcimsFill(control({ type: 'file', name: 'Resume' }), info)
-  assert.deepEqual(resume, { field: 'resumeFile', action: 'leave', reason: 'resume' })
-  const file = { type: 'file', value: '' }
-  assert.equal(applyIcimsPlan(file, resume), true)
-  assert.equal(file.value, '')
 })
 
 test('form signature changes when a control appears and ignores the value', () => {
