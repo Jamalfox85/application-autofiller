@@ -28,6 +28,7 @@ import {
   workdayDatePartInput,
   workdayDegreeOption,
   workdayDisabilityOptionIndex,
+  workdayElementIsDegree,
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
   workdayElementIsSchool,
@@ -481,13 +482,25 @@ export default function workdayConfig(): SiteRule {
       // only knows the first profile job, so letting it through copies that job
       // into every empty row.
       if (workdayInputInExperiencePanel(input)) return 'skip'
-      // School or University is a prompt. Typed text is not a selected school,
-      // and the generic matcher must not write the profile name into the box.
+      // School or University is a single-select prompt. The closed box can show
+      // the profile name while Workday still has no selected school. Field of
+      // Study's list icon is a different control. Typed text is not success.
       if (workdayElementIsSchool(input, fieldText)) {
         const school = profileSchoolName(input, personalInfo)
         if (!school) return 'skip'
         const selected = await selectWorkdayPromptQuery(input, school, undefined, { pillPrompt: true })
         return selected ? true : 'skip'
+      }
+      // A degree that already shows the mapped label must not be typed again.
+      // "Bachelor of Science" is not a prefix of "Bachelors", so a later pass
+      // clears that face back to Select One.
+      if (workdayElementIsDegree(input, fieldText)) {
+        const degree = profileDegreeType(input, personalInfo)
+        if (!degree) return 'skip'
+        const button = degreeButtonFor(input)
+        if (!button) return 'skip'
+        const label = await selectWorkdayListedDegree(button, degree)
+        return label ? true : 'skip'
       }
       const application = await workdayApplicationApply(input, fieldText, personalInfo)
       if (application !== false) return application
@@ -1386,12 +1399,41 @@ function promptFieldRoot(control: HTMLElement): ParentNode {
   )
 }
 
+function promptFieldScope(control: HTMLElement): ParentNode | null {
+  return (
+    control.closest('[data-automation-id^="formField-"], [data-fkit-id]') ||
+    control.closest('[data-automation-id="multiSelectContainer"]') ||
+    control.parentElement
+  )
+}
+
 function promptBackedField(control: HTMLElement): boolean {
   const scope = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
   if (!scope) return false
   return !!scope.querySelector(
     '[data-automation-id="multiSelectContainer"], [data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"]',
   )
+}
+
+// The list icon on this field. Field of Study's icon sits in the next form
+// field and must not be used to open School.
+function promptHasIcon(control: HTMLElement): boolean {
+  const scope = promptFieldScope(control)
+  if (!scope) return false
+  return !!scope.querySelector(
+    '[data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"]',
+  )
+}
+
+function schoolTypeaheadInput(control: HTMLElement): HTMLInputElement | null {
+  if (control.tagName === 'INPUT') return control as HTMLInputElement
+  const scope = promptFieldScope(control)
+  const input = scope?.querySelector('input')
+  if (!input || input.tagName !== 'INPUT') return null
+  if (input.closest('[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"]')) {
+    return null
+  }
+  return input as HTMLInputElement
 }
 
 function cleanVisibleLabel(value: string): string {
@@ -1583,6 +1625,38 @@ function suggestionMenuIsOpen(input: HTMLInputElement): boolean {
   )
 }
 
+// Adobe School or University has no prompt icon. The input is the typeahead:
+// an input event asks schools?search=, and the selected instance is a pill.
+// Text left in the box is the query, not the school. Field of Study's icon is
+// not this opener.
+async function commitSchoolTypeahead(
+  input: HTMLInputElement,
+  query: string,
+  pick: (labels: string[]) => string | null,
+): Promise<boolean> {
+  if (promptSelectionCommitted(input, pick)) return true
+  setReactInputValue(input, query)
+  let pressedEnter = false
+  const started = Date.now()
+  while (Date.now() - started < 1800) {
+    if (promptSelectionCommitted(input, pick)) return true
+    const option = matchingSuggestionRow(input, pick)
+    if (option) {
+      activateWorkdayOption(promptRowTarget(option))
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      if (promptSelectionCommitted(input, pick)) return true
+      if (!pressedEnter) {
+        dispatchEnter(input)
+        pressedEnter = true
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  if (promptSelectionCommitted(input, pick)) return true
+  if (input.isConnected && input.value.trim()) setReactInputValue(input, '')
+  return false
+}
+
 // Type into a school or field-of-study prompt and click the matching suggestion.
 // The catalog reads the prompt's search box, which appears when the multiselect
 // opens. A typed query is not a selected school. Enter asks a catalog that does
@@ -1597,6 +1671,16 @@ export async function selectWorkdayPromptQuery(
   if (!trimmed) return false
   if (promptSelectionCommitted(control, pick)) return true
   const pillPrompt = !!options?.pillPrompt
+  // No list icon on this field: suggestions come from the input itself.
+  // Do not click a prompt icon that belongs to Field of Study.
+  if (pillPrompt && !promptHasIcon(control)) {
+    const typeahead = schoolTypeaheadInput(control)
+    if (typeahead) {
+      const committed = await commitSchoolTypeahead(typeahead, trimmed, pick)
+      if (!committed) clearClosedPromptQuery(control)
+      return committed
+    }
+  }
   // The icon opens the catalog only while the closed input is empty. A name
   // already sitting in that box is not a selected school, and it makes the
   // icon search instead of opening the list.
@@ -1604,7 +1688,16 @@ export async function selectWorkdayPromptQuery(
   openWorkdayPrompt(control, !pillPrompt)
   const search = await resolveCatalogSearch(control, pillPrompt)
   if (!search) {
-    if (pillPrompt) clearClosedPromptQuery(control)
+    if (pillPrompt) {
+      // The icon did not paint a popup search. The closed input is the
+      // typeahead, including when a prompt icon is present but does not open.
+      const typeahead = schoolTypeaheadInput(control)
+      if (typeahead) {
+        const committed = await commitSchoolTypeahead(typeahead, trimmed, pick)
+        if (committed) return true
+      }
+      clearClosedPromptQuery(control)
+    }
     return false
   }
   setReactInputValue(search, trimmed)
@@ -1616,7 +1709,11 @@ export async function selectWorkdayPromptQuery(
     if (option) {
       activateWorkdayOption(promptRowTarget(option))
       await new Promise((resolve) => setTimeout(resolve, 40))
-      if (!promptTracksPills(control) || promptSelectionCommitted(control, pick)) return true
+      if (promptSelectionCommitted(control, pick)) return true
+      // A click that leaves the query in the box did not select a school.
+      // pillPrompt waits for the pill. Other prompts still accept the click
+      // when the field does not track pills.
+      if (!pillPrompt && !promptTracksPills(control)) return true
     } else if (
       !pressedEnter &&
       Date.now() - started > 300 &&
@@ -1631,6 +1728,13 @@ export async function selectWorkdayPromptQuery(
   }
   if (promptSelectionCommitted(control, pick)) return true
   if (promptTracksPills(control) || pillPrompt) {
+    // The icon catalog can miss on this page. School suggestions also open
+    // from the field's own input, and a pill is still the only success.
+    const typeahead = pillPrompt ? schoolTypeaheadInput(control) : null
+    if (typeahead && typeahead !== search) {
+      const committed = await commitSchoolTypeahead(typeahead, trimmed, pick)
+      if (committed) return true
+    }
     if (search.isConnected && search.value.trim()) setReactInputValue(search, '')
     if (pillPrompt) clearClosedPromptQuery(control)
     return false
@@ -1650,6 +1754,15 @@ export async function selectWorkdayListedDegree(
 ): Promise<string | null> {
   const trimmed = degreeType.trim()
   if (!trimmed) return null
+  // A later autofill must not reopen a degree that already mapped. Typing
+  // "Bachelor of Science" is not a prefix of "Bachelors", and the Canvas
+  // select clears that face back to Select One.
+  if (!listboxIsPlaceholder(button)) {
+    const shown = workdayListboxValue(button)
+    const mapped = workdayDegreeOption([shown], trimmed)
+    if (mapped && listboxShowsLabel(button, mapped)) return mapped
+    return null
+  }
   // Read the catalog before typing. "Bachelor of Science" is not a prefix of
   // the Workday option "Bachelors", so typing the profile string clears the
   // closed face back to Select One. Commit the mapped label instead.
@@ -1972,15 +2085,30 @@ async function fillWorkdayWorkExperienceOnce(
   return filled
 }
 
-function profileSchoolName(input: Element, info: PersonalInfo): string {
+function educationRow(input: Element, info: PersonalInfo) {
   const education = info.education || []
-  if (education.length === 0) return ''
+  if (education.length === 0) return null
   const doc = input.ownerDocument
   const panels = doc ? listWorkdayPanels(doc, 'education') : []
   const panel = input.closest('[role="group"][aria-labelledby$="-panel"]')
   const index = panel ? panels.indexOf(panel) : 0
-  const row = education[index >= 0 ? index : 0] || education[0]
-  return (row?.schoolName || '').trim()
+  return education[index >= 0 ? index : 0] || education[0]
+}
+
+function profileSchoolName(input: Element, info: PersonalInfo): string {
+  return (educationRow(input, info)?.schoolName || '').trim()
+}
+
+function profileDegreeType(input: Element, info: PersonalInfo): string {
+  return (educationRow(input, info)?.degreeType || '').trim()
+}
+
+function degreeButtonFor(input: Element): HTMLButtonElement | null {
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]') || input.parentElement
+  if (!field) return null
+  const button = field.querySelector('button[aria-haspopup="listbox"]')
+  if (!button || button.tagName !== 'BUTTON') return null
+  return button as HTMLButtonElement
 }
 
 const handleEducation = async (personalInfo: PersonalInfo) => {
@@ -1989,37 +2117,43 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
     const education = personalInfo.education[idx]
     console.log(`Processing education ${idx + 1}/${personalInfo.education.length}`)
 
-    const addBtn = findWorkdaySectionAddButton(document, 'education')
+    // A second autofill must not click Add when this education row is already
+    // on the page. That extra block is Education 2, and filling it again is
+    // what puts a mapped degree back on Select One.
+    const panels = listWorkdayPanels(document, 'education')
+    let section: Element | null = panels[idx] || null
+    if (!section) {
+      const addBtn = findWorkdaySectionAddButton(document, 'education')
 
-    if (!addBtn) {
-      console.error('Education add button not found')
-      break
-    }
-
-    const sectionsBefore = listWorkdayPanels(document, 'education').length
-
-    addBtn.click()
-    console.log('✓ Clicked add education button')
-
-    let section: Element | null = null
-    let attempts = 0
-    while (!section && attempts < 10) {
-      await new Promise((resolve) => setTimeout(resolve, 200))
-      const sectionsNow = listWorkdayPanels(document, 'education')
-      if (sectionsNow.length > sectionsBefore) {
-        section = sectionsNow[sectionsNow.length - 1]
-        console.log('✓ Found new education section')
+      if (!addBtn) {
+        console.error('Education add button not found')
         break
       }
-      attempts++
-    }
 
-    if (!section) {
-      console.error('Could not find new education section')
-      break
-    }
+      const sectionsBefore = panels.length
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+      addBtn.click()
+      console.log('✓ Clicked add education button')
+
+      let attempts = 0
+      while (!section && attempts < 10) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        const sectionsNow = listWorkdayPanels(document, 'education')
+        if (sectionsNow.length > sectionsBefore) {
+          section = sectionsNow[sectionsNow.length - 1]
+          console.log('✓ Found new education section')
+          break
+        }
+        attempts++
+      }
+
+      if (!section) {
+        console.error('Could not find new education section')
+        break
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
 
     // School is a searchable prompt. Typed text is not the selected school;
     // the matching suggestion has to be clicked. A listbox with no text input
