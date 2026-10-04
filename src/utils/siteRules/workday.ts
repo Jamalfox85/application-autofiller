@@ -35,7 +35,6 @@ import {
   workdayListboxButton,
   workdayListboxIsEmpty,
   workdayListboxValue,
-  workdayListedProfileOption,
   workdayProfileChoice,
   workdayListedSearchText,
   workdayListedValueMatches,
@@ -1294,39 +1293,28 @@ export async function selectWorkdayListedDegree(
 
 const applicationChoiceAttempts = new WeakMap<HTMLButtonElement, number>()
 
-async function listedChoiceLabels(button: HTMLButtonElement): Promise<string[]> {
-  collapseOpenListbox()
-  openListbox = button
-  if (button.getAttribute('aria-expanded') !== 'true') button.click()
-  const started = Date.now()
-  while (Date.now() - started < 800) {
-    const prompt = workdayActivePrompt(button)
-    const labels = prompt ? substantivePromptLabels(workdayOptionLabels(prompt)) : []
-    if (labels.length > 0) return labels
-    const doc = button.ownerDocument
-    if (doc) {
-      const popups = promptPopups(doc, elementNode(prompt))
-      for (let index = popups.length - 1; index >= 0; index--) {
-        const extra = substantivePromptLabels(workdayOptionLabels(popups[index]))
-        if (extra.length > 0) return extra
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 40))
-  }
-  return []
-}
-
 async function selectWorkdayProfileChoice(
   button: HTMLButtonElement,
   kind: 'authorized' | 'sponsorship',
   info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
 ): Promise<string | null> {
-  const labels = await listedChoiceLabels(button)
-  const picked = workdayListedProfileOption(labels, kind, info)
-  if (!picked) return null
-  const committed = await commitCanvasDegreeTypeahead(button, picked)
-  if (committed && listboxShowsLabel(button, picked)) return committed
-  return null
+  const answer = workdayProfileChoice(kind, info)
+  if (!answer) return null
+  // The live menu is not in the document until it opens, and opening it is what
+  // left the closed label on Select One: no rows were readable, so nothing was
+  // typed. The closed button commits from its own key handler, the same way
+  // Degree does. Yes/No is only kept when that handler actually changes the label.
+  const word = answer === 'yes' ? 'Yes' : 'No'
+  const committed = await commitCanvasDegreeTypeahead(button, word)
+  if (!committed || !closedChoiceMatches(committed, answer)) return null
+  return committed
+}
+
+function closedChoiceMatches(shown: string, answer: 'yes' | 'no'): boolean {
+  const key = shown.toLowerCase().replace(/[^a-z]+/g, ' ').trim()
+  if (!key) return false
+  if (answer === 'yes') return key === 'yes' || key.startsWith('yes ')
+  return key === 'no' || (key.startsWith('no ') && !key.startsWith('not '))
 }
 
 function applicationChoiceButton(input: Element): HTMLButtonElement | null {
@@ -1340,7 +1328,8 @@ function applicationChoiceButton(input: Element): HTMLButtonElement | null {
 export async function fillWorkdayApplicationQuestions(
   root: ParentNode,
   info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
-): Promise<void> {
+): Promise<number> {
+  let filled = 0
   const buttons = Array.from(root.querySelectorAll('button[aria-haspopup="listbox"]'))
   for (const node of buttons) {
     if (node.tagName !== 'BUTTON') continue
@@ -1353,7 +1342,35 @@ export async function fillWorkdayApplicationQuestions(
     applicationChoiceAttempts.set(button, tries + 1)
     if (!workdayProfileChoice(kind, info)) continue
     const label = await selectWorkdayProfileChoice(button, kind, info)
-    if (label) console.log('✓ Selected application answer:', label)
+    if (!label) continue
+    filled += 1
+    console.log('✓ Selected application answer:', label)
+  }
+  return filled
+}
+
+// Same discovery autofill uses: inputs, textareas, and selects, plus the Canvas
+// buttons those queries miss. A menu that never opens is not a reason to report
+// that the questions were not there.
+export async function workdayQuestionAutofillResult(
+  root: ParentNode,
+  info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
+): Promise<{ filled: number; message: string }> {
+  let filled = await fillWorkdayApplicationQuestions(root, info)
+  const inputs = Array.from(root.querySelectorAll('input, textarea, select'))
+  for (const node of inputs) {
+    const tag = node.tagName
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') continue
+    const input = node as HTMLInputElement
+    const type = (input.getAttribute('type') || 'text').toLowerCase()
+    if (type === 'hidden' || type === 'submit' || type === 'button') continue
+    if (String(input.value || '').trim()) continue
+    const result = await workdayApplicationApply(input, '', info)
+    if (result === true) filled += 1
+  }
+  return {
+    filled,
+    message: filled > 0 ? `Filled ${filled} fields` : 'No matching fields found',
   }
 }
 

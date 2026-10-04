@@ -6,6 +6,8 @@ import {
   profileHasAutofillData,
 } from '../utils/fillValue.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
+import { isWorkdayApplyHost } from '../utils/siteRules/workdayAccount.ts'
+import { fillWorkdayApplicationQuestions } from '../utils/siteRules/workday.ts'
 import { beginLeverFill, readLeverEeoTelemetry } from '../utils/siteRules/lever.ts'
 import {
   showAutofillNotification,
@@ -201,11 +203,17 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     const fillableInputs = inputs.filter(
       (input) => !isSkippableField(input, activeSiteRule?.includeFilled),
     )
+    // Application Questions are Canvas buttons. The input scan does not see
+    // them, and the years box is the only input, so a skip there used to report
+    // that nothing on the page matched.
+    const questionFills = isWorkdayApplyHost(window.location.hostname)
+      ? await fillWorkdayApplicationQuestions(document, personalInfo)
+      : 0
     beginLeverFill()
 
     await reportAttempt()
 
-    if (fillableInputs.length === 0) {
+    if (fillableInputs.length === 0 && questionFills === 0) {
       await reportFailed('no_fillable_fields')
       return { success: false, message: 'No fillable fields found' }
     }
@@ -215,6 +223,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
 
     const fillRecords: FillRecord[] = []
     const unfilledInputs: FormField[] = []
+    filledCount += questionFills
 
     for (const input of fillableInputs) {
       attemptedCount++
