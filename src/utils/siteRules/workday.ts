@@ -32,6 +32,7 @@ import {
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
   workdayElementIsSource,
+  workdayIsPhoneDeviceTypeOptionList,
   workdayExperienceLocation,
   workdayFieldControl,
   workdayFormerEmployeeListboxButton,
@@ -46,6 +47,9 @@ import {
   workdayOptionLabels,
   workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
+  workdayCompanyOwnedSourceOption,
+  workdayCompanyToken,
+  workdayFolderOptions,
   workdayPreferredSourceOption,
   workdayPromptSearchInput,
   workdaySafeNoOption,
@@ -894,17 +898,180 @@ async function chooseFirstListedOption(
   return null
 }
 
-// Prefer Other, company website, career site, or the tenant careers page.
-// A later pass may use another listed option when those labels are not present.
+function sourceCompanyToken(button: HTMLButtonElement): string {
+  let host = ''
+  try {
+    host = button.ownerDocument?.defaultView?.location?.hostname || ''
+  } catch {
+    host = ''
+  }
+  return workdayCompanyToken(host)
+}
+
+// aria-controls can point at an empty anchor while the rows are in a portal.
+// Country and state stay on the controlled list. Source may read the portal.
+function activeSourcePrompt(button: HTMLButtonElement): ParentNode | null {
+  const prompt = workdayActivePrompt(button)
+  const ownLabels = prompt ? substantivePromptLabels(workdayOptionLabels(prompt)) : []
+  if (ownLabels.length > 0 && !workdayIsPhoneDeviceTypeOptionList(ownLabels)) return prompt
+  const doc = button.ownerDocument
+  if (!doc) return prompt
+  const popups = promptPopups(doc, elementNode(prompt)).filter((node) => !button.contains(node))
+  for (let index = popups.length - 1; index >= 0; index--) {
+    const labels = substantivePromptLabels(workdayOptionLabels(popups[index]))
+    if (labels.length === 0 || workdayIsPhoneDeviceTypeOptionList(labels)) continue
+    return popups[index]
+  }
+  return prompt
+}
+
+function sourceControlShows(button: HTMLButtonElement, label: string): boolean {
+  if (listboxShowsLabel(button, label)) return true
+  const want = label.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!want) return false
+  const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
+  if (!field) return false
+  const pills = field.querySelectorAll(
+    '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]',
+  )
+  for (const pill of Array.from(pills)) {
+    const text = (pill.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    if (text === want) return true
+  }
+  return false
+}
+
+function sourcePromptBackButton(button: HTMLButtonElement): HTMLElement | null {
+  const prompt = activeSourcePrompt(button)
+  const scoped =
+    prompt && 'querySelector' in prompt
+      ? prompt.querySelector('[data-automation-id="backButton"]')
+      : null
+  if (scoped) return scoped as HTMLElement
+  return (button.ownerDocument?.querySelector('[data-automation-id="backButton"]') as HTMLElement | null) || null
+}
+
+async function waitForSourceLabels(
+  button: HTMLButtonElement,
+  accept: (labels: string[]) => boolean,
+  timeout = 1500,
+): Promise<string[] | null> {
+  const started = Date.now()
+  while (Date.now() - started < timeout) {
+    const prompt = activeSourcePrompt(button)
+    const labels = prompt ? substantivePromptLabels(workdayOptionLabels(prompt)) : []
+    if (accept(labels)) return labels
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  }
+  return null
+}
+
+function sourceLabelKey(labels: string[]): string {
+  return labels.join('\n')
+}
+
+async function commitSourceChoice(
+  button: HTMLButtonElement,
+  prompt: ParentNode,
+  label: string,
+): Promise<string | null> {
+  const option = workdayOptionElement(prompt, label)
+  if (!option) return null
+  activateWorkdayOption(promptRowTarget(option))
+  const started = Date.now()
+  while (Date.now() - started < 500) {
+    if (sourceControlShows(button, label)) {
+      openListbox = null
+      return label
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  return null
+}
+
+// Folders are not values. Open each parent, then commit one company-owned leaf.
+// No such leaf means the field stays empty.
+async function selectNestedWorkdaySource(
+  button: HTMLButtonElement,
+  company: string,
+): Promise<string | null | undefined> {
+  const rootLabels = await waitForSourceLabels(button, (labels) => labels.length > 0)
+  const rootPrompt = activeSourcePrompt(button)
+  if (!rootLabels || !rootPrompt || workdayFolderOptions(rootPrompt).length === 0) return undefined
+  const rootKey = sourceLabelKey(rootLabels)
+  const groups: Array<{ parent: string; labels: string[] }> = []
+  const parents = workdayFolderOptions(rootPrompt).slice(0, 12)
+  for (const folder of parents) {
+    const current = activeSourcePrompt(button)
+    const row = current
+      ? workdayFolderOptions(current).find((entry) => entry.label === folder.label)
+      : null
+    if (!row) continue
+    const before = sourceLabelKey(substantivePromptLabels(workdayOptionLabels(current || rootPrompt)))
+    activateWorkdayOption(promptRowTarget(row.element))
+    const children = await waitForSourceLabels(
+      button,
+      (labels) => labels.length > 0 && sourceLabelKey(labels) !== before,
+    )
+    if (children) groups.push({ parent: folder.label, labels: children })
+    const back = sourcePromptBackButton(button)
+    if (back) activateWorkdayOption(back)
+    const restored = await waitForSourceLabels(button, (labels) => sourceLabelKey(labels) === rootKey)
+    if (!restored) break
+  }
+  const best = workdayCompanyOwnedSourceOption(
+    groups.flatMap((group) => group.labels),
+    company,
+  )
+  const group = best ? groups.find((entry) => entry.labels.includes(best)) : null
+  if (!best || !group) {
+    collapseOpenListbox()
+    return null
+  }
+  const again = activeSourcePrompt(button)
+  const parent = again ? workdayFolderOptions(again).find((entry) => entry.label === group.parent) : null
+  if (!parent) {
+    collapseOpenListbox()
+    return null
+  }
+  activateWorkdayOption(promptRowTarget(parent.element))
+  const opened = await waitForSourceLabels(button, (labels) => labels.includes(best))
+  const prompt = opened ? activeSourcePrompt(button) : null
+  if (!prompt) {
+    collapseOpenListbox()
+    return null
+  }
+  const committed = await commitSourceChoice(button, prompt, best)
+  if (!committed) collapseOpenListbox()
+  return committed
+}
+
+// Other, then a career site (including "Career Websites"), then the employer's
+// own site. A nested top row is a folder. A list with none of those stays empty.
 async function chooseWorkdaySource(button: HTMLButtonElement): Promise<string | null> {
-  const preferred = await chooseFirstListedOption(button, workdayPreferredSourceOption, [
-    'other',
-    'company website',
-    'career site',
-    'careers',
-  ])
-  if (preferred) return preferred
-  return chooseWorkdayListOption(button, workdaySourceOption, '')
+  const company = sourceCompanyToken(button)
+  collapseOpenListbox()
+  openListbox = button
+  button.click()
+  const labels = await waitForSourceLabels(button, (rows) => rows.length > 0)
+  const prompt = activeSourcePrompt(button)
+  if (!labels || !prompt) {
+    collapseOpenListbox()
+    return null
+  }
+  if (workdayFolderOptions(prompt).length > 0) return selectNestedWorkdaySource(button, company)
+  const choice = workdayCompanyOwnedSourceOption(labels, company)
+  if (!choice) {
+    collapseOpenListbox()
+    return null
+  }
+  const committed = await commitSourceChoice(button, prompt, choice)
+  if (!committed) collapseOpenListbox()
+  return committed
+}
+
+export async function selectWorkdaySource(button: HTMLButtonElement): Promise<string | null> {
+  return chooseWorkdaySource(button)
 }
 
 function chooseWorkdaySelect(

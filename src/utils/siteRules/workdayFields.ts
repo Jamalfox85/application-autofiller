@@ -1190,6 +1190,57 @@ function isReferralKey(key: string): boolean {
   return key.includes('referral') || key.includes('referred') || key.includes('recruiter')
 }
 
+function isKnowSomeoneKey(key: string): boolean {
+  return key.includes('know someone') || key.includes('someone at')
+}
+
+function isSocialKey(key: string): boolean {
+  if (key.includes('social media') || key.includes('social network')) return true
+  return ['blind', 'github', 'instagram', 'twitter', 'youtube'].some((word) => hasOptionWord(key, word))
+}
+
+function isUniversityOrFairKey(key: string): boolean {
+  return (
+    key.includes('university') ||
+    key.includes('career fair') ||
+    key.includes('job fair') ||
+    key.includes('campus') ||
+    key.includes('conference') ||
+    key.includes('networking')
+  )
+}
+
+function isContingentKey(key: string): boolean {
+  return key.includes('contingent')
+}
+
+// A leaf such as "Adobe.com" is the employer's own site. The company token comes
+// from the career-site host, so the label is not a fixed string.
+function isCompanySiteKey(key: string, company: string): boolean {
+  const name = company.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (!name || !key) return false
+  if (
+    isJobBoardKey(key) ||
+    isReferralKey(key) ||
+    isKnowSomeoneKey(key) ||
+    isSocialKey(key) ||
+    isUniversityOrFairKey(key) ||
+    isContingentKey(key)
+  ) {
+    return false
+  }
+  return (
+    key === `${name} com` ||
+    key === `${name} org` ||
+    key === `${name} net` ||
+    key === `${name} io` ||
+    key === `www ${name} com` ||
+    key === `${name} website` ||
+    key === `${name} site` ||
+    key === `${name} web site`
+  )
+}
+
 function hasOptionWord(key: string, word: string): boolean {
   return key === word || key.startsWith(`${word} `) || key.endsWith(` ${word}`) || key.includes(` ${word} `)
 }
@@ -1273,6 +1324,82 @@ export function workdayPreferredSourceOption(optionTexts: string[]): string | nu
 // listed option is used so a required question is not left blank.
 export function workdaySourceOption(optionTexts: string[]): string | null {
   return rankedSourceOption(optionTexts, 1)
+}
+
+// Other, then company website, career site, careers page, then the employer's
+// own site (Adobe.com on an Adobe host). Job boards, social, university, fairs,
+// contingent workers, referrals, and "know someone" are not a match.
+function companyOwnedRank(key: string, company: string): number {
+  if (!key || isPlaceholderKey(key) || isYesKey(key)) return 0
+  if (
+    isReferralKey(key) ||
+    isKnowSomeoneKey(key) ||
+    isSocialKey(key) ||
+    isUniversityOrFairKey(key) ||
+    isContingentKey(key) ||
+    isJobBoardKey(key)
+  ) {
+    return 0
+  }
+  if (key === 'other' || key === 'other source') return 100
+  if (key.startsWith('other') && !isJobBoardKey(key)) return 96
+  if (isCompanyWebsite(key)) return 90
+  if (isCareerSite(key)) return 80
+  if (isOwnCareersPage(key)) return 70
+  if (isCompanySiteKey(key, company)) return 68
+  return 0
+}
+
+export function workdayCompanyToken(hostname: string): string {
+  const host = hostname.toLowerCase().split(':')[0]
+  if (!host.includes('myworkday')) return ''
+  const first = host.split('.')[0] || ''
+  if (
+    !first ||
+    first === 'www' ||
+    /^wd\d+$/.test(first) ||
+    first === 'myworkdayjobs' ||
+    first === 'myworkday' ||
+    first === 'myworkdaysite'
+  ) {
+    return ''
+  }
+  return first
+}
+
+export function workdayCompanyOwnedSourceOption(optionTexts: string[], companyToken: string): string | null {
+  if (workdayIsPhoneDeviceTypeOptionList(optionTexts)) return null
+  const company = companyToken.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const ranked = optionTexts
+    .map((text, index) => ({ raw: cleanOptionLabel(text), index }))
+    .filter((option) => option.raw)
+    .map((option) => ({ ...option, rank: companyOwnedRank(optionKey(option.raw), company) }))
+    .filter((option) => option.rank >= 68)
+  if (ranked.length === 0) return null
+  ranked.sort((a, b) => b.rank - a.rank || a.index - b.index)
+  return ranked[0].raw
+}
+
+const FOLDER_MARKER =
+  '.wd-icon-chevron-right, .wd-icon-chevron-left, .wd-icon-chevron-right-small, .wd-icon-chevron-left-small, [data-automation-id="promptOptionMore"]'
+
+// A nested source row is a folder. Workday paints a chevron when the row is not
+// selectable. Clicking it opens children; it does not commit a value.
+export function workdayPromptRowIsFolder(element: HTMLElement): boolean {
+  const row =
+    (element.closest(
+      '[role="option"], [data-automation-id="promptOption"], [data-automation-id="menuItem"]',
+    ) as HTMLElement | null) || element
+  if (row.querySelector('[data-automation-id="radioBtn"], [data-automation-id="checkbox"]')) return false
+  if (row.matches(FOLDER_MARKER) || !!row.querySelector(FOLDER_MARKER)) return true
+  const popup = row.getAttribute('aria-haspopup')
+  if (popup && popup !== 'false') return true
+  if (row.hasAttribute('aria-expanded')) return true
+  return false
+}
+
+export function workdayFolderOptions(root: ParentNode): Array<{ label: string; element: HTMLElement }> {
+  return workdayOptionElements(root).filter((choice) => workdayPromptRowIsFolder(choice.element))
 }
 
 function rankedSourceOption(optionTexts: string[], minRank: number): string | null {
