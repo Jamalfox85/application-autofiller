@@ -24,6 +24,7 @@ import {
   workdayActivePrompt,
   workdayContactKey,
   workdayDatePartInput,
+  workdayDegreeOption,
   workdayDisabilityOptionIndex,
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
@@ -46,6 +47,7 @@ import {
   workdaySectionKindFromLabel,
   workdaySourceListboxButton,
   workdaySourceOption,
+  workdaySuggestionOption,
   workdaySelectKind,
   workdaySelectValue,
 } from './workdayFields.ts'
@@ -971,4 +973,73 @@ test('phone device type stays Mobile or Cell and is not a source or former-emplo
   )
   assert.equal(formerSelect.value, 'no')
   assert.notEqual(formerSelect.value, 'yes')
+})
+
+test('education school and degree options match the listed prompt row', () => {
+  assert.equal(
+    workdaySuggestionOption(
+      ['Kenyon College', 'Kennesaw State University'],
+      'Kennesaw State University',
+    ),
+    'Kennesaw State University',
+  )
+  assert.equal(workdaySuggestionOption(['Kenyon College', 'State University'], 'Kennesaw State University'), null)
+  assert.equal(
+    workdaySuggestionOption(['Kennesaw State University - Kennesaw, Georgia'], 'Kennesaw State University'),
+    'Kennesaw State University - Kennesaw, Georgia',
+  )
+  assert.equal(
+    workdayDegreeOption(['Master of Science', 'Bachelor of Science'], 'Bachelor of Science'),
+    'Bachelor of Science',
+  )
+  assert.equal(
+    workdayDegreeOption(["Master's Degree", "Bachelor's Degree"], 'Bachelor of Science'),
+    "Bachelor's Degree",
+  )
+  assert.equal(workdayDegreeOption(['Bachelors', 'Masters'], 'Bachelor of Science'), 'Bachelors')
+  assert.equal(workdayDegreeOption(['B.S.', 'M.S.'], 'Bachelor of Science'), 'B.S.')
+  assert.equal(workdayDegreeOption(['Bachelor of Arts', 'Master of Science'], 'Bachelor of Science'), null)
+  assert.equal(workdayDegreeOption(['Mobile', 'Landline', 'Fax'], 'Bachelor of Science'), null)
+})
+
+test('education prompts select the matching school suggestion and degree list option', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-schoolName">
+      <input id="school" data-automation-id="searchBox" aria-controls="school-menu" value="" />
+    </div>
+    <div id="school-menu" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" id="kenyon" data-automation-label="Kenyon College">Kenyon College</div>
+      <div data-automation-id="promptOption" id="ksu" data-automation-label="Kennesaw State University"></div>
+    </div>
+    <button id="degree" name="degree" aria-haspopup="listbox" aria-controls="degree-list">Select One</button>
+    <div id="degree-list" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" id="ms" data-automation-label="Master of Science">Master of Science</div>
+      <div data-automation-id="promptOption" id="bs" data-automation-label="Bachelor of Science">Bachelor of Science</div>
+    </div>
+    <button id="degree-generic" name="degree" aria-haspopup="listbox" aria-controls="degree-generic-list">Select One</button>
+    <div id="degree-generic-list" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" id="masters" data-automation-label="Masters">Masters</div>
+      <div data-automation-id="promptOption" id="bachelors" data-automation-label="Bachelor's Degree">Bachelor's Degree</div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const clicked: string[] = []
+  for (const id of ['kenyon', 'ksu', 'ms', 'bs', 'masters', 'bachelors']) {
+    doc.getElementById(id)!.addEventListener('click', () => clicked.push(id))
+  }
+  let entered = false
+  doc.getElementById('school')!.addEventListener('keydown', (event) => {
+    if ((event as KeyboardEvent).key === 'Enter') entered = true
+  })
+  const { selectWorkdayListedDegree, selectWorkdayPromptQuery } = await import('./workday.ts')
+  const school = doc.getElementById('school') as HTMLInputElement
+  assert.equal(await selectWorkdayPromptQuery(school, 'Kennesaw State University'), true)
+  assert.deepEqual(clicked, ['ksu'])
+  assert.equal(entered, false)
+  const degree = doc.getElementById('degree') as HTMLButtonElement
+  assert.equal(await selectWorkdayListedDegree(degree, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.deepEqual(clicked, ['ksu', 'bs'])
+  const generic = doc.getElementById('degree-generic') as HTMLButtonElement
+  assert.equal(await selectWorkdayListedDegree(generic, 'Bachelor of Science'), "Bachelor's Degree")
+  assert.deepEqual(clicked, ['ksu', 'bs', 'bachelors'])
 })
