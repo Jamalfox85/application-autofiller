@@ -2065,3 +2065,82 @@ test('work experience autofill does not copy a job into a blank row that is alre
   assert.equal(workdayDatePartInput(fullStackTo, 'month')?.value, '')
   assert.equal(workdayDatePartInput(fullStackTo, 'year')?.value, '')
 })
+
+test('Cisco application questions are not a miss when the closed label is the question plus the answer', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>')
+  const doc = dom.window.document
+  const question = (id: string, text: string) => {
+    const field = doc.createElement('div')
+    field.setAttribute('data-automation-id', `formField-${id}`)
+    const box = doc.createElement('fieldset')
+    const legend = doc.createElement('legend')
+    legend.textContent = text
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.id = id
+    button.setAttribute('aria-haspopup', 'listbox')
+    button.textContent = 'Select One'
+    // SelectField's accessible name is the question, the selected answer, then Required.
+    button.setAttribute('aria-label', `${text} Select One Required`)
+    const input = doc.createElement('input')
+    input.type = 'text'
+    input.id = `${id}-value`
+    input.style.display = 'none'
+    box.append(legend, button, input)
+    field.appendChild(box)
+    doc.body.appendChild(field)
+    button.addEventListener('click', (event) => event.preventDefault())
+    button.addEventListener('keydown', (event) => {
+      const key = (event as KeyboardEvent).key
+      if (key === 'Y') {
+        button.textContent = `${text} Yes Required`
+        button.setAttribute('aria-label', `${text} Yes Required`)
+      }
+      if (key === 'N') {
+        button.textContent = `${text} No Required`
+        button.setAttribute('aria-label', `${text} No Required`)
+      }
+    })
+    return { button, input }
+  }
+  const authorized = question(
+    'authorized',
+    'Are you legally authorized to work in any of the posted location for this requisition?',
+  )
+  const sponsorship = question(
+    'sponsorship',
+    'Will you now or in the future require sponsorship for an employment visa for any of the posted locations?',
+  )
+  const government = question(
+    'government',
+    'Have you ever been employed by a foreign government entity in any capacity?',
+  )
+  const family = question(
+    'family',
+    'Do you have a family relationship with a U.S. Government or Foreign Government Official?',
+  )
+  const yearsField = doc.createElement('div')
+  yearsField.setAttribute('data-automation-id', 'formField-years')
+  const yearsLegend = doc.createElement('legend')
+  yearsLegend.textContent = 'How many years of relevant work experience related to this position do you have?'
+  const years = doc.createElement('input')
+  years.type = 'text'
+  years.id = 'years'
+  yearsField.append(yearsLegend, years)
+  doc.body.appendChild(yearsField)
+  const { workdayQuestionAutofillResult } = await import('./workday.ts')
+  const profile = { workAuthorization: 'us_citizen', sponsorshipRequired: 'No' }
+  const result = await workdayQuestionAutofillResult(doc.body, profile)
+  assert.notEqual(result.message, 'No matching fields found')
+  assert.match(authorized.button.textContent || '', /\bYes\b/)
+  assert.match(sponsorship.button.textContent || '', /\bNo\b/)
+  assert.equal(government.button.textContent, 'Select One')
+  assert.equal(family.button.textContent, 'Select One')
+  assert.equal(years.value, '')
+  assert.doesNotMatch(government.button.textContent || '', /\bYes\b|\bNo\b/)
+  const again = await workdayQuestionAutofillResult(doc.body, profile)
+  assert.notEqual(again.message, 'No matching fields found')
+  assert.equal(government.button.textContent, 'Select One')
+  assert.equal(family.button.textContent, 'Select One')
+  assert.equal(years.value, '')
+})
