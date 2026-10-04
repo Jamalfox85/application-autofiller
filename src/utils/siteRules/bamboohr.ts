@@ -11,18 +11,18 @@ import {
   isBambooCountryControl,
   pickBambooCountryOption,
 } from './bamboohrFields.ts'
-import { requestSavedResume } from './bamboohrResume.ts'
+import { requestBambooSavedResume } from './bamboohrResume.ts'
 
 let bambooHRFormLoaded = false
 let lastBambooHRFormSignature = ''
 
 type ResumeLoader = () => Promise<File | null>
-let resumeLoader: ResumeLoader = requestSavedResume
+let resumeLoader: ResumeLoader = requestBambooSavedResume
 let resumeTask: Promise<File | null> | null = null
 
 // Tests pass the already-saved file here. Production reads the resumes bucket.
 export function setBambooResumeLoader(loader: ResumeLoader | null) {
-  resumeLoader = loader ?? requestSavedResume
+  resumeLoader = loader ?? requestBambooSavedResume
   resumeTask = null
 }
 

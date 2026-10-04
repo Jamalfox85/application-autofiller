@@ -12,7 +12,11 @@ import {
   isBambooCountryControl,
   pickBambooCountryOption,
 } from './bamboohrFields.ts'
-import { fileFromSavedResumeMessage, loadSavedResumeFile } from './bamboohrResume.ts'
+import {
+  fileFromBambooSavedResumeMessage,
+  fileFromSavedResumeMessage,
+  loadSavedResumeFile,
+} from './bamboohrResume.ts'
 
 const require = createRequire(import.meta.url)
 const FileListIdl = require('jsdom/lib/generated/idl/FileList.js')
@@ -281,7 +285,11 @@ test('the service worker downloads the saved resume for the content script', () 
   assert.equal(emit.includes('src/utils/siteRules/bamboohrResumeWorker.ts'), true)
   const resumeModule = readFileSync(new URL('./bamboohrResume.ts', import.meta.url), 'utf8')
   assert.equal(resumeModule.includes("action: 'loadSavedResume'"), true)
-  assert.equal(readFileSync(new URL('./bamboohr.ts', import.meta.url), 'utf8').includes('requestSavedResume'), true)
+  assert.equal(resumeModule.includes('fileFromBambooSavedResumeMessage'), true)
+  assert.equal(
+    readFileSync(new URL('./bamboohr.ts', import.meta.url), 'utf8').includes('requestBambooSavedResume'),
+    true,
+  )
 })
 
 test('no saved resume leaves the BambooHR resume file input empty', async () => {
@@ -345,6 +353,176 @@ test('no saved resume leaves the BambooHR resume file input empty', async () => 
     assert.equal(await assignResumeFile(resume, null), false)
     assert.equal(resume.files?.length ?? 0, 0)
   } finally {
+    setBambooResumeLoader(null)
+  }
+})
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+// Piano careers form: the file input has no name or id. "Resume*" is a caption
+// beside a hidden resumeFileId. The Choose File button is a sibling, not the input.
+const FABRIC_FORM = `<!doctype html><body>
+  <form>
+    <div data-fabric-component="Flex">
+      <p data-fabric-component="BodyText">Cover Letter</p>
+      <div data-fabric-component="FileUpload">
+        <div data-fabric-component="FileUploadInput">
+          <button type="button" id="cover-choose">Choose File</button>
+          <span id="cover-status">No file selected</span>
+          <input type="file" aria-label="file-input" />
+        </div>
+        <input type="hidden" name="coverLetterFileId" />
+      </div>
+    </div>
+    <div data-fabric-component="Flex">
+      <p data-fabric-component="BodyText">Resume*</p>
+      <div data-fabric-component="FileUpload">
+        <div data-fabric-component="FileUploadInput">
+          <button type="button" id="resume-choose">Choose File*</button>
+          <span id="resume-status">No file selected</span>
+          <input type="file" aria-label="file-input" required />
+        </div>
+        <input type="hidden" name="resumeFileId" />
+      </div>
+    </div>
+    <button type="button" id="autofill">Autofill with resume</button>
+    <input type="button" id="autofill-input" value="Autofill from resume" />
+  </form>
+</body>`
+
+test('the Fabric resume choose-file receives admin-resume.docx and not the leftover pdf', async () => {
+  const docx = new Uint8Array(24319)
+  docx[0] = 0x50
+  docx[1] = 0x4b
+  docx[2] = 0x03
+  docx[3] = 0x04
+  const leftoverPdf = new Uint8Array(400)
+  leftoverPdf[0] = 0x25
+  leftoverPdf[1] = 0x50
+  leftoverPdf[2] = 0x44
+  leftoverPdf[3] = 0x46
+
+  const calls: string[] = []
+  const saved = await loadSavedResumeFile({
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    nowMs: 1_700_000_000_000,
+    readStorage: async () => storedSession(),
+    fetchImpl: async (url) => {
+      calls.push(url)
+      if (url.includes('/rest/v1/profiles')) {
+        return new Response(
+          JSON.stringify([
+            {
+              resume_file_path: `${USER_ID}/resume.pdf`,
+              resume_file_name: 'admin-resume.docx',
+            },
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      if (url.endsWith('/resume.pdf')) {
+        return new Response(leftoverPdf, { status: 200, headers: { 'content-type': 'application/pdf' } })
+      }
+      assert.equal(url, `${SUPABASE_URL}/storage/v1/object/authenticated/resumes/${USER_ID}/resume.docx`)
+      return new Response(docx, {
+        status: 200,
+        headers: {
+          'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        },
+      })
+    },
+  })
+  assert.ok(saved)
+  assert.equal(saved.name, 'admin-resume.docx')
+  assert.equal(saved.size, 24319)
+  assert.equal(saved.size === leftoverPdf.byteLength, false)
+  assert.equal(calls.some((url) => url.endsWith('/resume.pdf')), false)
+  assert.deepEqual(new Uint8Array(await saved.arrayBuffer()).slice(0, 4), docx.slice(0, 4))
+
+  const wire = {
+    ok: true as const,
+    fileName: saved.name,
+    mimeType: saved.type,
+    bytes: new Uint8Array(await saved.arrayBuffer()),
+    bytesBase64: bytesToBase64(new Uint8Array(await saved.arrayBuffer())),
+  }
+  const delivered = JSON.parse(JSON.stringify(wire)) as { bytes?: unknown; bytesBase64?: unknown }
+  assert.equal(delivered.bytes instanceof Uint8Array, false)
+  assert.equal(Array.isArray(delivered.bytes), false)
+  const fromWire = fileFromBambooSavedResumeMessage(delivered)
+  assert.ok(fromWire)
+  assert.equal(fromWire.name, 'admin-resume.docx')
+  assert.equal(fromWire.size, 24319)
+  assert.equal(
+    fileFromBambooSavedResumeMessage({ ...delivered, bytesBase64: undefined }),
+    null,
+  )
+  const pdfOnly = fileFromSavedResumeMessage({
+    ok: true,
+    fileName: 'resume.pdf',
+    mimeType: 'application/pdf',
+    bytes: leftoverPdf,
+  })
+  assert.equal(pdfOnly?.size, 400)
+  assert.equal(fromWire.size === pdfOnly?.size, false)
+
+  const dom = new JSDOM(FABRIC_FORM)
+  const window = dom.window
+  installDataTransfer(window as JSDOM['window'] & Window)
+  const doc = window.document
+  const clicks: string[] = []
+  for (const id of ['cover-choose', 'resume-choose', 'autofill', 'autofill-input']) {
+    doc.getElementById(id)?.addEventListener('click', () => clicks.push(id))
+  }
+  const resume = doc.querySelector('input[type="file"][required]') as HTMLInputElement
+  const cover = doc.querySelector('input[type="file"]:not([required])') as HTMLInputElement
+  const resumeStatus = doc.getElementById('resume-status')
+  const coverStatus = doc.getElementById('cover-status')
+  resume.addEventListener('change', () => {
+    const file = resume.files?.[0]
+    if (resumeStatus) resumeStatus.textContent = file?.name || 'No file selected'
+  })
+  cover.addEventListener('change', () => {
+    const file = cover.files?.[0]
+    if (coverStatus) coverStatus.textContent = file?.name || 'No file selected'
+  })
+
+  const previousChrome = (globalThis as { chrome?: unknown }).chrome
+  ;(globalThis as { chrome?: unknown }).chrome = {
+    runtime: {
+      async sendMessage(message: unknown) {
+        assert.deepEqual(message, { action: 'loadSavedResume' })
+        return delivered
+      },
+    },
+  }
+  setBambooResumeLoader(null)
+  try {
+    const rule = bambooHrConfig()
+    rule.prepareFill?.()
+    const info = cloneDefaultPersonalInfo()
+    assert.equal(describeBambooUpload(resume, 'file input file').name, 'resumeFileId')
+    assert.equal(bambooUploadRole(describeBambooUpload(resume, 'file input file')), 'resume')
+    assert.equal(bambooUploadRole(describeBambooUpload(cover, 'file input file')), 'cover')
+    assert.equal(await rule.apply(cover, 'file input file', info), 'skip')
+    assert.equal(await rule.apply(resume, 'file input file', info), true)
+    assert.equal(await rule.apply(doc.getElementById('autofill') as HTMLInputElement, '', info), 'skip')
+    assert.equal(await rule.apply(doc.getElementById('autofill-input') as HTMLInputElement, '', info), 'skip')
+    assert.equal(resume.files?.[0]?.name, 'admin-resume.docx')
+    assert.equal(resume.files?.[0]?.size, 24319)
+    assert.equal(resume.value, 'C:\\fakepath\\admin-resume.docx')
+    assert.equal(resumeStatus?.textContent, 'admin-resume.docx')
+    assert.equal(cover.files?.length ?? 0, 0)
+    assert.equal(cover.value, '')
+    assert.equal(coverStatus?.textContent, 'No file selected')
+    assert.deepEqual(clicks, [])
+  } finally {
+    ;(globalThis as { chrome?: unknown }).chrome = previousChrome
     setBambooResumeLoader(null)
   }
 })
