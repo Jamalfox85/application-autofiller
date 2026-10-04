@@ -22,7 +22,7 @@ After Apply, the career host navigates to `…/jobs/{id}/…/login`, often insid
 - One current experience (no end date) and one past experience.
 - One education row: school, degree, field of study, start year, graduation year.
 - Work authorization and, if you want EEO checked, EEO answers on.
-- Resume: the vault stores a filename only. GoFillr will not upload the file.
+- Resume: upload it in GoFillr first (Links & files shows the filename). The profile mirror stores that name; the file bytes are in the private `resumes` bucket at `profiles.resume_file_path`. Autofill downloads that object and selects it on a plain Resume / upload / choose-file input. It does not drive an “Autofill with resume” control.
 
 ## Steps
 
@@ -32,7 +32,7 @@ After Apply, the career host navigates to `…/jobs/{id}/…/login`, often insid
 4. **No iCIMS account.** Remove or blank the iCIMS Application Accounts row, reload the login gate, and confirm the missing-login notice still appears (page toast, toolbar badge, and the Application Accounts sheet). No popup tells you to create an account on this site. The password stays empty (the legacy Workday account password is not used). Do not click **Next**.
 5. **Application, after you pass the gate yourself.** Contact fields fill when the control id or label is a standard iCIMS field: first and last name, profile email, phone, street, city, state, postal code, country, LinkedIn. Address line 2 stays empty. Phone type stays empty. Country is selected before State/Province. A profile country of United States selects United States on the country menu (including the searchable menu that starts on “— Make a Selection —”). The state menu then shows the full state name (New Jersey when the profile says NJ), not “Please select a country”.
 6. **Later sections, only where the field id is clearly that section.** Experience row 0 gets the current role and does not gain an end date. Row 1 gets the past role. Education gets school, degree, major, and years. Work authorization and sponsorship follow the profile when those menus are standard selects. EEO fills only when EEO answers are on. `rcf` custom questions and “how did you hear” stay blank.
-7. Stop before Submit. The resume file input stays empty until you attach a file.
+7. Stop before Submit. On a plain resume choose-file input (a real `input[type=file]` labeled Resume, upload, or choose file), the selected file is the resume already uploaded in GoFillr — same filename and bytes. An “Autofill with resume” control stays untouched. The extension does not click that control, Next, or Submit. If the saved resume cannot be downloaded, the file input stays empty.
 
 ## Pass
 
@@ -41,4 +41,5 @@ After Apply, the career host navigates to `…/jobs/{id}/…/login`, often insid
 - hCaptcha was not clicked or solved. Next, Log In, Create Account, and Submit were not clicked by the extension.
 - The EU/UK checkbox was not changed.
 - Supported application fields behind the gate match the profile. Country shows United States and State/Province shows New Jersey when the profile country is United States and the state is NJ. Custom questions are blank.
+- The plain resume file input shows the saved resume as its selected file. Submit was not clicked. “Autofill with resume” was not clicked.
 - The missing-account notice still appears when the iCIMS row is absent.

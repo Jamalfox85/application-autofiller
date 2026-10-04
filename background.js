@@ -448,9 +448,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
-  // BambooHR apply pages block a content-script fetch to Supabase. Download the
-  // saved resume here and return the bytes. This does not click Apply or any
-  // autofill-from-resume control.
+  // Apply pages block a content-script fetch to Supabase. Download the saved
+  // resume here and return the bytes. Callers assign a plain file input.
+  // This does not click Apply, Next, Submit, or an autofill-from-resume control.
   if (request.action === 'loadSavedResume') {
     loadSavedResumeForWorker()
       .then((result) => sendResponse(result))

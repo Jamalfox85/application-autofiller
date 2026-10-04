@@ -43,6 +43,8 @@ export type IcimsControl = {
   ariaLabel?: string | null
   autocomplete?: string | null
   fieldText?: string | null
+  // Nearby row text (the Resume label, "Choose File", or "Autofill with resume").
+  contextText?: string | null
 }
 
 export type IcimsOption = {
@@ -97,6 +99,7 @@ export type IcimsLeaveReason =
   | 'address-line-2'
   | 'custom'
   | 'resume'
+  | 'resume-autofill'
   | 'phone-type'
   | 'password-missing'
   | 'no-vault-value'
@@ -125,6 +128,9 @@ export type IcimsFillPlan =
   | { field: IcimsFieldKind; action: 'text'; value: string }
   | { field: IcimsFieldKind; action: 'check'; checked: true }
   | { field: IcimsFieldKind; action: 'select'; mode: IcimsSelectMode; query: string; text?: string }
+  // A plain resume choose-file input. The saved file is attached later; this
+  // plan does not submit the form or click an autofill-with-resume control.
+  | { field: IcimsFieldKind; action: 'file' }
 
 type GateElement = {
   tagName?: string
@@ -198,6 +204,7 @@ function controlBlob(control: IcimsControl): string {
       control.ariaLabel,
       control.autocomplete,
       control.fieldText,
+      control.contextText,
       control.type,
       control.tagName,
     ]
@@ -267,6 +274,35 @@ function blockedPersonName(blob: string): boolean {
   return blob.includes('emergency') || blob.includes('reference') || blob.includes('referral')
 }
 
+// "Autofill with resume" parses the file into the application. GoFillr already
+// fills those fields, so that control is never driven.
+function isResumeAutofillFile(blob: string): boolean {
+  if (!blob.includes('autofill')) return false
+  return blob.includes('resume') || blob.includes('cv') || blob.includes('upload') || blob.includes('file')
+}
+
+function isNonResumeUpload(blob: string): boolean {
+  if (blob.includes('resume') || blob.includes('cv')) return false
+  return (
+    blob.includes('coverletter') ||
+    blob.includes('portfolio') ||
+    blob.includes('transcript') ||
+    blob.includes('photo') ||
+    blob.includes('headshot') ||
+    blob.includes('writingsample') ||
+    blob.includes('recommendation')
+  )
+}
+
+// Plain choose-file / file input for the resume. Labels look like Resume,
+// upload, or choose file. Cover letters and the autofill-with-resume widget
+// are not this control.
+export function isPlainIcimsResumeFile(blob: string): boolean {
+  if (isResumeAutofillFile(blob) || isNonResumeUpload(blob)) return false
+  if (blob.includes('resume') || blob.includes('cv')) return true
+  return blob.includes('choosefile') || blob.includes('upload')
+}
+
 export function classifyIcimsControl(control: IcimsControl, loginSurface: boolean): IcimsFieldKind {
   const blob = controlBlob(control)
   const type = controlType(control)
@@ -278,7 +314,7 @@ export function classifyIcimsControl(control: IcimsControl, loginSurface: boolea
   }
   if (type === 'hidden' || type === 'submit' || type === 'button') return 'unknown'
   if (isCustomField(blob)) return 'custom'
-  if (type === 'file' && (blob.includes('resume') || blob.includes('cv'))) return 'resumeFile'
+  if (type === 'file' && (isResumeAutofillFile(blob) || isPlainIcimsResumeFile(blob))) return 'resumeFile'
   if (isAddressLine2(blob)) return 'addressLine2'
   if (blob.includes('phonetype') || blob.includes('phonedevicetype')) return 'phoneType'
   if (blob.includes('fax')) return 'unknown'
@@ -481,7 +517,10 @@ export function planIcimsFill(
   if (field === 'euUkResident') return { field, action: 'leave', reason: 'eu-uk' }
   if (field === 'addressLine2') return { field, action: 'leave', reason: 'address-line-2' }
   if (field === 'custom') return { field, action: 'leave', reason: 'custom' }
-  if (field === 'resumeFile') return { field, action: 'leave', reason: 'resume' }
+  if (field === 'resumeFile') {
+    if (isResumeAutofillFile(blob)) return { field, action: 'leave', reason: 'resume-autofill' }
+    return { field, action: 'file' }
+  }
   if (field === 'phoneType') return { field, action: 'leave', reason: 'phone-type' }
 
   if (field === 'gatePassword') {
@@ -1272,6 +1311,9 @@ export function icimsLocationMenuCommitted(element: object): boolean {
 export function applyIcimsPlan(input: Writable, plan: IcimsFillPlan): boolean {
   if (plan.action === 'ignore') return false
   if (plan.action === 'leave') return true
+  // The file itself is assigned by applyIcimsResumeFile. Leaving the input
+  // untouched here keeps a missing download from typing a filename or submitting.
+  if (plan.action === 'file') return true
   if (plan.action === 'check') {
     if (input.checked === true) return true
     input.checked = true
