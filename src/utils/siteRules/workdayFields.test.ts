@@ -2447,13 +2447,8 @@ test('Blue Origin source multiselect with a Search box and 0 items selected sele
   icon.addEventListener('mouseup', (event) => {
     if (event.button !== 0) pointerDown = false
   })
-  icon.addEventListener('click', () => {
-    if (!pointerDown) return
-    pointerDown = false
-    if (doc.getElementById('source-popup')) return
-    const popup = doc.createElement('div')
-    popup.id = 'source-popup'
-    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+  const paintCatalog = (popup: HTMLElement) => {
+    popup.replaceChildren()
     for (const label of BLUE_ORIGIN_SOURCES) {
       popup.appendChild(
         sourceLeaf(doc, label, (chosen) => {
@@ -2467,6 +2462,29 @@ test('Blue Origin source multiselect with a Search box and 0 items selected sele
         }),
       )
     }
+  }
+  // Focusing the search box replaces the catalog with a typeahead. Those rows
+  // stay unselected: a click does not commit Amazon Career Choice or Other.
+  input.addEventListener('focus', () => {
+    const popup = doc.getElementById('source-popup')
+    if (!popup) return
+    popup.replaceChildren()
+    for (const label of ['Amazon Career Choice', 'Other']) {
+      popup.appendChild(
+        sourceLeaf(doc, label, () => {
+          selected.push(label)
+        }),
+      )
+    }
+  })
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    if (doc.getElementById('source-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    paintCatalog(popup)
     doc.body.appendChild(popup)
   })
   const { default: workdayConfig } = await import('./workday.ts')
@@ -2478,7 +2496,9 @@ test('Blue Origin source multiselect with a Search box and 0 items selected sele
   assert.equal(input.value, '')
   assert.equal(input.hasAttribute('data-clicked'), false)
   assert.equal(decoyPressed, false)
+  assert.equal(doc.activeElement === input, false)
   assert.deepEqual(selected, ['Other'])
+  assert.equal(selected.includes('Amazon Career Choice'), false)
   assert.equal(doc.querySelector('[data-automation-id="selectedItem"]')?.textContent, 'Other')
   for (const forbidden of ['Career Websites', 'College/University', 'Event', 'Job Sites', 'Military/Veteran', 'News']) {
     assert.equal(selected.includes(forbidden), false)
