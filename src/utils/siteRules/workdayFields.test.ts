@@ -2989,6 +2989,340 @@ test('Blue Origin catalog commits Indeed as a pill after Job Sites opens, not a 
   assert.equal(workdayPromptFaceIsEmpty(input), false)
 })
 
+test('a highlighted Adobe catalog row is not a selection and Job Board still commits Indeed', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source" data-fkit-id="source--source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" aria-required="true" />
+          <div data-automation-id="promptAriaInstruction">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  const opened: string[] = []
+  let pointerDown = false
+  const catalogRow = (label: string, onLeaf: () => void) => {
+    const item = doc.createElement('div')
+    item.setAttribute('data-automation-id', 'menuItem')
+    item.setAttribute('role', 'option')
+    item.setAttribute('aria-selected', label === 'Adobe Source' ? 'true' : 'false')
+    const leaf = doc.createElement('div')
+    leaf.setAttribute('data-automation-id', 'promptLeafNode')
+    const option = doc.createElement('div')
+    option.setAttribute('data-automation-id', 'promptOption')
+    option.setAttribute('data-automation-label', label)
+    option.textContent = label
+    const iconMark = doc.createElement('svg')
+    iconMark.setAttribute('class', 'wd-icon-chevron-right wd-icon')
+    leaf.append(option, iconMark)
+    leaf.addEventListener('click', () => {
+      opened.push(label)
+      onLeaf()
+    })
+    item.appendChild(leaf)
+    return item
+  }
+  const paintIndeed = (popup: HTMLElement) => {
+    popup.replaceChildren()
+    popup.setAttribute('aria-label', 'Options Expanded')
+    const linkedIn = sourceLeaf(doc, 'LinkedIn', () => {})
+    linkedIn.setAttribute('aria-selected', 'true')
+    popup.appendChild(linkedIn)
+    popup.appendChild(
+      sourceLeaf(doc, 'Indeed', () => {
+        opened.push('Indeed')
+        const pill = doc.createElement('div')
+        pill.setAttribute('data-automation-id', 'selectedItem')
+        const charm = doc.createElement('span')
+        charm.setAttribute('data-automation-id', 'DELETE_charm')
+        charm.textContent = 'Delete'
+        const text = doc.createElement('p')
+        text.setAttribute('data-automation-id', 'promptOption')
+        text.setAttribute('data-automation-label', 'Indeed')
+        text.textContent = 'Indeed'
+        pill.append(charm, text)
+        icon.parentElement?.appendChild(pill)
+        instruction.textContent = '1 item selected, Indeed'
+        popup.remove()
+      }),
+    )
+  }
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    if (doc.getElementById('source-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('role', 'listbox')
+    popup.setAttribute('aria-label', 'Options Expanded')
+    for (const label of [
+      'Adobe Source',
+      'Contingent Worker-Specific',
+      'External Organizations / Events',
+      'Job Board',
+      'Social Media',
+      'Through my University',
+    ]) {
+      popup.appendChild(
+        catalogRow(label, () => {
+          if (label === 'Job Board') paintIndeed(popup)
+        }),
+      )
+    }
+    doc.body.appendChild(popup)
+  })
+  const { selectWorkdaySource } = await import('./workday.ts')
+  assert.equal(await selectWorkdaySource(input), 'Indeed')
+  assert.deepEqual(opened, ['Job Board', 'Indeed'])
+  assert.equal(
+    doc.querySelector('[data-automation-id="selectedItem"] [data-automation-id="promptOption"]')?.textContent,
+    'Indeed',
+  )
+  assert.equal(doc.getElementById('source-popup'), null)
+  assert.notEqual(instruction.textContent, '0 items selected')
+  assert.equal(input.value, '')
+})
+
+test('Job Board stays open through the loading row and still commits the Indeed pill', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" />
+          <div data-automation-id="promptAriaInstruction">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  let pointerDown = false
+  let aborted = false
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    aborted = true
+    doc.getElementById('source-popup')?.remove()
+  })
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('role', 'listbox')
+    popup.setAttribute('aria-label', 'Options Expanded')
+    popup.appendChild(
+      sourceLeaf(doc, 'Job Board', () => {
+        popup.replaceChildren()
+        popup.setAttribute('aria-busy', 'true')
+        const panel = doc.createElement('div')
+        panel.setAttribute('data-automation-id', 'wd-LoadingPanel')
+        popup.appendChild(panel)
+        popup.appendChild(sourceLeaf(doc, 'Loading', () => {}))
+        doc.defaultView?.setTimeout(() => {
+          if (aborted || !popup.isConnected) return
+          popup.removeAttribute('aria-busy')
+          popup.replaceChildren()
+          const linkedIn = sourceLeaf(doc, 'LinkedIn', () => {})
+          linkedIn.setAttribute('aria-selected', 'true')
+          popup.appendChild(linkedIn)
+          popup.appendChild(
+            sourceLeaf(doc, 'Indeed', () => {
+              const pill = doc.createElement('div')
+              pill.setAttribute('data-automation-id', 'selectedItem')
+              const text = doc.createElement('p')
+              text.setAttribute('data-automation-id', 'promptOption')
+              text.setAttribute('data-automation-label', 'Indeed')
+              text.textContent = 'Indeed'
+              pill.appendChild(text)
+              icon.parentElement?.appendChild(pill)
+              instruction.textContent = '1 item selected, Indeed'
+              popup.remove()
+            }),
+          )
+        }, 40)
+      }),
+    )
+    doc.body.appendChild(popup)
+  })
+  const { selectWorkdaySource } = await import('./workday.ts')
+  assert.equal(await selectWorkdaySource(input), 'Indeed')
+  assert.equal(aborted, false)
+  assert.equal(
+    doc.querySelector('[data-automation-id="selectedItem"] [data-automation-id="promptOption"]')?.textContent,
+    'Indeed',
+  )
+  assert.equal(doc.getElementById('source-popup'), null)
+  assert.notEqual(instruction.textContent, '0 items selected')
+})
+
+test('a search-results flash inside Job Board does not discard the Indeed pill', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source">
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" />
+          <div data-automation-id="promptAriaInstruction">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  let pointerDown = false
+  let aborted = false
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    aborted = true
+    doc.getElementById('source-popup')?.remove()
+  })
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('role', 'listbox')
+    popup.setAttribute('aria-label', 'Options Expanded')
+    popup.appendChild(
+      sourceLeaf(doc, 'Job Board', () => {
+        popup.replaceChildren()
+        const header = doc.createElement('div')
+        header.textContent = 'Search Results'
+        popup.appendChild(header)
+        const other = sourceLeaf(doc, 'Other', () => {})
+        other.setAttribute('aria-selected', 'true')
+        popup.appendChild(other)
+        doc.defaultView?.setTimeout(() => {
+          if (aborted || !popup.isConnected) return
+          popup.replaceChildren()
+          popup.appendChild(
+            sourceLeaf(doc, 'Indeed', () => {
+              const pill = doc.createElement('div')
+              pill.setAttribute('data-automation-id', 'selectedItem')
+              const text = doc.createElement('p')
+              text.setAttribute('data-automation-id', 'promptOption')
+              text.setAttribute('data-automation-label', 'Indeed')
+              text.textContent = 'Indeed'
+              pill.appendChild(text)
+              icon.parentElement?.appendChild(pill)
+              instruction.textContent = '1 item selected, Indeed'
+              popup.remove()
+            }),
+          )
+        }, 40)
+      }),
+    )
+    doc.body.appendChild(popup)
+  })
+  const { selectWorkdaySource } = await import('./workday.ts')
+  assert.equal(await selectWorkdaySource(input), 'Indeed')
+  assert.equal(aborted, false)
+  assert.equal(
+    doc.querySelector('[data-automation-id="selectedItem"] [data-automation-id="promptOption"]')?.textContent,
+    'Indeed',
+  )
+  assert.notEqual(instruction.textContent, '0 items selected')
+  assert.equal(doc.getElementById('source-popup'), null)
+})
+
+test('Indeed click still commits the pill when the list changes before the pill is painted', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source">
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" />
+          <div data-automation-id="promptAriaInstruction">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://adobe.wd5.myworkdayjobs.com/en-US/external_experienced/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  let pointerDown = false
+  let pillTimer = 0
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    doc.defaultView?.clearTimeout(pillTimer)
+    doc.getElementById('source-popup')?.remove()
+  })
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('role', 'listbox')
+    popup.setAttribute('aria-label', 'Options Expanded')
+    popup.appendChild(
+      sourceLeaf(doc, 'Job Board', () => {
+        popup.replaceChildren()
+        const linkedIn = sourceLeaf(doc, 'LinkedIn', () => {})
+        linkedIn.setAttribute('aria-selected', 'true')
+        popup.appendChild(linkedIn)
+        popup.appendChild(
+          sourceLeaf(doc, 'Indeed', () => {
+            popup.replaceChildren()
+            popup.appendChild(linkedIn)
+            pillTimer = doc.defaultView?.setTimeout(() => {
+              if (!popup.isConnected) return
+              const pill = doc.createElement('div')
+              pill.setAttribute('data-automation-id', 'selectedItem')
+              const text = doc.createElement('p')
+              text.setAttribute('data-automation-id', 'promptOption')
+              text.setAttribute('data-automation-label', 'Indeed')
+              text.textContent = 'Indeed'
+              pill.appendChild(text)
+              icon.parentElement?.appendChild(pill)
+              instruction.textContent = '1 item selected, Indeed'
+              popup.remove()
+            }, 40) as unknown as number
+          }),
+        )
+      }),
+    )
+    doc.body.appendChild(popup)
+  })
+  const { selectWorkdaySource } = await import('./workday.ts')
+  assert.equal(await selectWorkdaySource(input), 'Indeed')
+  assert.equal(
+    doc.querySelector('[data-automation-id="selectedItem"] [data-automation-id="promptOption"]')?.textContent,
+    'Indeed',
+  )
+  assert.notEqual(instruction.textContent, '0 items selected')
+  assert.equal(doc.getElementById('source-popup'), null)
+})
+
 test('previously been employed or worked as a contractor selects No', async () => {
   const question = 'Have you previously been employed or worked as a contractor at Blue Origin?'
   assert.equal(workdayIsFormerEmployeeQuestion(question), true)
