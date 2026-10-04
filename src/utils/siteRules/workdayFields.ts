@@ -1172,6 +1172,12 @@ function isEmptyPromptKey(key: string): boolean {
   return /^(?:0|no|none) items? selected$/.test(key)
 }
 
+// The multiselect search box always says Search. That hint is not a selection.
+function isSearchPromptPlaceholder(value: string): boolean {
+  const key = optionKey(value)
+  return key === 'search' || key.startsWith('search ')
+}
+
 function isYesKey(key: string): boolean {
   return key === 'yes' || key.startsWith('yes ')
 }
@@ -1542,22 +1548,29 @@ export function workdayListboxIsEmpty(button: HTMLElement): boolean {
   return !!question && key === question
 }
 
-// A custom source input can show the empty face in its value, its placeholder,
-// or a sibling prompt label. A real answer such as Other is not empty.
+// A custom source input can show the empty face in its value, a selection
+// placeholder, or promptAriaInstruction ("0 items selected"). The search box
+// placeholder "Search" is not a selection. A pill or "1 item selected" is.
 export function workdayPromptFaceIsEmpty(control: HTMLElement): boolean {
   const faces: string[] = []
   if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA') {
     const field = control as HTMLInputElement
     faces.push(field.value || '')
-    faces.push(field.getAttribute('placeholder') || '')
+    const placeholder = field.getAttribute('placeholder') || ''
+    if (!isSearchPromptPlaceholder(placeholder)) faces.push(placeholder)
   }
   faces.push(workdayListboxValue(control))
   const scope = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
   if (scope && scope !== control) {
-    const selected = scope.querySelector(
-      '[data-automation-id="promptSelectionLabel"], [data-automation-id="selectedItemLabel"]',
-    )
-    if (selected && !control.contains(selected)) faces.push(selected.textContent || '')
+    const instruction = scope.querySelector('[data-automation-id="promptAriaInstruction"]')
+    if (instruction && !control.contains(instruction)) faces.push(instruction.textContent || '')
+    scope
+      .querySelectorAll(
+        '[data-automation-id="promptSelectionLabel"], [data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]',
+      )
+      .forEach((node) => {
+        if (!control.contains(node)) faces.push(node.textContent || '')
+      })
   }
   const shown = faces
     .map((value) => value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim())

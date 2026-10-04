@@ -48,6 +48,7 @@ import {
   workdayPhoneTypeOption,
   workdayPreferredSourceOption,
   workdayProfileChoice,
+  workdayPromptFaceIsEmpty,
   workdaySafeNoOption,
   workdaySectionKindFromLabel,
   workdaySourceListboxButton,
@@ -2404,6 +2405,64 @@ test('Autofill opens a 0 items selected How Did You Hear input and selects Other
     assert.equal(selected.includes(forbidden), false)
   }
   assert.equal(rule.includeFilled?.(input), false)
+})
+
+test('Blue Origin source multiselect with a Search box and 0 items selected selects Other', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <div data-automation-id="multiSelectContainer" data-uxi-widget-type="multiselect">
+          <input id="source--source" type="text" placeholder="Search" value="" />
+          <div data-automation-id="promptAriaInstruction">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  const selected: string[] = []
+  input.addEventListener('click', () => {
+    input.dataset.clicked = 'true'
+  })
+  icon.addEventListener('click', () => {
+    if (doc.getElementById('source-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    for (const label of BLUE_ORIGIN_SOURCES) {
+      popup.appendChild(
+        sourceLeaf(doc, label, (chosen) => {
+          selected.push(chosen)
+          const pill = doc.createElement('div')
+          pill.setAttribute('data-automation-id', 'selectedItem')
+          pill.textContent = chosen
+          icon.parentElement?.appendChild(pill)
+          instruction.textContent = '1 item selected'
+          popup.remove()
+        }),
+      )
+    }
+    doc.body.appendChild(popup)
+  })
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  assert.equal(workdayPromptFaceIsEmpty(input), true)
+  assert.equal(rule.includeFilled?.(input), true)
+  const info = {} as PersonalInfo
+  assert.equal(await rule.apply(input, 'howdidyouhearaboutus', info), true)
+  assert.equal(input.value, '')
+  assert.equal(input.hasAttribute('data-clicked'), false)
+  assert.deepEqual(selected, ['Other'])
+  assert.equal(doc.querySelector('[data-automation-id="selectedItem"]')?.textContent, 'Other')
+  for (const forbidden of ['Career Websites', 'College/University', 'Event', 'Job Sites', 'Military/Veteran', 'News']) {
+    assert.equal(selected.includes(forbidden), false)
+  }
+  assert.equal(workdayPromptFaceIsEmpty(input), false)
 })
 
 test('previously been employed or worked as a contractor selects No', async () => {

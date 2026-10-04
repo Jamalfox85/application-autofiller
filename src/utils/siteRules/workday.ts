@@ -1060,7 +1060,9 @@ async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> 
   const company = sourceCompanyToken(button)
   collapseOpenListbox()
   openListbox = button
-  button.click()
+  // A multiselect search input does not open the list. The prompt icon does.
+  // A listbox button has no icon, so this still clicks that button.
+  openWorkdayPrompt(button)
   const labels = await waitForSourceLabels(button, (rows) => rows.length > 0)
   const prompt = activeSourcePrompt(button)
   if (!labels || !prompt) {
