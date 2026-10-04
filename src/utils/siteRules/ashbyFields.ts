@@ -795,7 +795,7 @@ function isNameTitle(title: string): boolean {
 
 // Hosted apply forms put the resume on `_systemfield_resume` (a hidden file input
 // inside the dropzone). Cover letters and other uploads are separate file fields.
-// The profile mirror stores resumeFileName only, so callers must not invent a file.
+// This only recognizes the field. The stored file is attached in ashby.ts.
 export function isAshbyResumeField(target: AshbyTextTarget): boolean {
   if ((target.path || '') === '_systemfield_resume') return true
   const type = (target.type || '').toLowerCase()

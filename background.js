@@ -14,6 +14,7 @@ import {
 } from './src/services/installAttribution.js'
 import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
+import { readSavedResumeForFill } from './src/services/savedResumeWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
 
@@ -432,6 +433,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           error: error instanceof Error ? error.message : 'Sign-in failed. Please try again.',
         }),
       )
+    return true
+  }
+
+  // Ashby content script only. Other ATS never send this. The worker reads the
+  // resume already stored on the profile; it does not upload or submit anything.
+  if (request.action === 'readSavedResume') {
+    readSavedResumeForFill()
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false }))
     return true
   }
 

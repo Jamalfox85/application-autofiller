@@ -26,6 +26,13 @@ import {
   ashbyEeoTelemetry,
   type AshbyYesNo,
 } from './ashbyFields.ts'
+import {
+  attachResumeToFileInput,
+  isAshbyAutofillResumeInput,
+  isAshbyPlainResumeFile,
+  loadSavedResumeFile,
+  resetAshbySavedResumeRequest,
+} from './ashbyResumeFile.ts'
 
 // One click per page. formChanged sees the new inputs and runs autofill again.
 let revealedSecondEducation = false
@@ -54,6 +61,7 @@ export default function ashbyConfig(): SiteRule {
       }) === 'ashby',
     prepareFill: () => {
       eeoTally = freshAshbyEeoTally()
+      resetAshbySavedResumeRequest()
     },
     fillTelemetry: () => ashbyEeoTelemetry(eeoTally),
     apply: async (input, _fieldText, personalInfo) => {
@@ -63,23 +71,38 @@ export default function ashbyConfig(): SiteRule {
       const eeoKind: AshbyEeoKind | null = ashbyEeoKind(context.title)
       if (eeoKind) observeAshbyEeoField(eeoTally, eeoKind, personalInfo)
 
-      if (input instanceof HTMLSelectElement) {
-        return fillEducationDate(input, context, personalInfo)
+      // Compare against the document that owns the control. An iframe has its
+      // own HTMLInputElement, so a parent-window instanceof check would miss it.
+      if (isElement(input, 'HTMLSelectElement')) {
+        return fillEducationDate(input as HTMLSelectElement, context, personalInfo)
       }
 
-      if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+      if (!isElement(input, 'HTMLInputElement') && !isElement(input, 'HTMLTextAreaElement')) {
         return false
+      }
+
+      if (isElement(input, 'HTMLInputElement') && (input as HTMLInputElement).type === 'file') {
+        // "Autofill from resume" is a second file input. It parses the file and
+        // fills the application. Leave it alone; the fields are filled directly.
+        if (isAshbyAutofillResumeInput(input)) return 'skip'
+        const plainResume = isAshbyPlainResumeFile({
+          path: context.path,
+          title: context.title,
+          id: input.id,
+          name: input.name,
+          type: input.type,
+        })
+        if (!plainResume) return false
+        const saved = await loadSavedResumeFile(input)
+        if (!saved) return 'skip'
+        return attachResumeToFileInput(input, saved) ? true : 'skip'
       }
 
       if (
         isAshbyResumeField({ path: context.path, title: context.title, type: input.type, id: input.id })
       ) {
-        // Resume hook: the dropzone is `_systemfield_resume`. personalInfo only
-        // has resumeFileName, so there is no file to attach. Leave it for the user.
         return false
       }
-
-      if (input.type === 'file') return false
 
       const educationIndex = educationEntryIndex(input, context.path)
 
@@ -179,6 +202,14 @@ export default function ashbyConfig(): SiteRule {
       return false
     },
   }
+}
+
+function isElement(
+  value: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  name: 'HTMLInputElement' | 'HTMLTextAreaElement' | 'HTMLSelectElement',
+): boolean {
+  const ctor = value.ownerDocument?.defaultView?.[name]
+  return typeof ctor === 'function' && value instanceof ctor
 }
 
 function countAshbyFillableFields(): number {
