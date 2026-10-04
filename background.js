@@ -17,6 +17,7 @@ import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { persistUploadedResume } from './src/services/resumeVaultWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
+import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 
 startExtensionPay()
@@ -451,6 +452,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       updateBadge('!', '#b05454')
     }
     sendResponse({ ok: true })
+    return true
+  }
+
+  // The apply form is in an iframe. The outer career shell only has hidden
+  // inputs, and a tab-level autofill message reports that nothing is fillable.
+  // Answer from the frame that contains PortalProfileFields.Resume_File.
+  if (request.action === 'autofillIcimsTab') {
+    const tabId = request.tabId
+    if (typeof tabId !== 'number') {
+      sendResponse({ success: false, message: 'No fillable fields found' })
+      return true
+    }
+    deliverIcimsAutofill(tabId, { scripting: chrome.scripting, tabs: chrome.tabs })
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ success: false, message: 'Unable to autofill this page' }))
     return true
   }
 

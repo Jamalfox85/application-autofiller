@@ -1,4 +1,5 @@
 import { matchFieldToData } from './fieldMatch.ts'
+import { embeddedIcimsFillableFields } from '../utils/siteRules/icimsFrameAutofill.js'
 import { icimsSelectNeedsFill } from '../utils/siteRules/icimsFields.ts'
 import {
   EMPTY_PROFILE_FILL_MESSAGE,
@@ -212,9 +213,24 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     const experienceFills = onWorkday ? await fillWorkdayWorkExperience(document, personalInfo) : 0
     beginLeverFill()
 
+    // The iCIMS career shell counts hidden inputs and has no application fields.
+    // PortalProfileFields.Resume_File lives in the same-origin content iframe.
+    // Include that frame before reporting that nothing can be filled.
+    let embeddedInputs: FormField[] = []
+    if (
+      fillableInputs.length === 0 &&
+      _triggerSource === 'user_clicked_button' &&
+      window.location.hostname.toLowerCase().includes('icims.com')
+    ) {
+      embeddedInputs = embeddedIcimsFillableFields(document, (input) =>
+        isSkippableField(input as FormField, activeSiteRule?.includeFilled),
+      ) as FormField[]
+    }
+    const inputsToFill = fillableInputs.length > 0 ? fillableInputs : embeddedInputs
+
     await reportAttempt()
 
-    if (fillableInputs.length === 0 && questionFills === 0 && experienceFills === 0) {
+    if (inputsToFill.length === 0 && questionFills === 0 && experienceFills === 0) {
       await reportFailed('no_fillable_fields')
       return { success: false, message: 'No fillable fields found' }
     }
@@ -226,7 +242,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     const unfilledInputs: FormField[] = []
     filledCount += questionFills + experienceFills
 
-    for (const input of fillableInputs) {
+    for (const input of inputsToFill) {
       attemptedCount++
       const fieldText = constructFieldText(input)
       const snapshot = captureFieldSnapshot(input)

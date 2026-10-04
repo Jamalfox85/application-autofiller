@@ -4,7 +4,7 @@
 // This does not click the control, does not click "Autofill with resume",
 // and does not submit the form.
 
-import { requestSavedResume } from './bamboohrResume.ts'
+import { fileFromSavedResumeMessage } from './bamboohrResume.ts'
 
 type PageRealm = {
   File?: typeof File
@@ -60,9 +60,45 @@ export function resetIcimsSavedResumeCache() {
   inflight = null
 }
 
+// loadSavedResume JSON-serializes its Uint8Array into a plain object. The file
+// that survives the message is bytesBase64. A typed array still in this realm
+// is accepted too. This decoder is only used for the iCIMS resume input.
+function bytesFromBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value.trim())
+    if (!binary.length) return null
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
+}
+
+export function fileFromIcimsSavedResumeMessage(message: unknown): File | null {
+  const direct = fileFromSavedResumeMessage(message)
+  if (direct) return direct
+  if (!message || typeof message !== 'object') return null
+  const record = message as { bytesBase64?: unknown }
+  if (typeof record.bytesBase64 !== 'string' || !record.bytesBase64.trim()) return null
+  const bytes = bytesFromBase64(record.bytesBase64)
+  if (!bytes) return null
+  return fileFromSavedResumeMessage({ ...record, bytes })
+}
+
+async function requestIcimsSavedResume(): Promise<File | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
+    const message = await chrome.runtime.sendMessage({ action: 'loadSavedResume' })
+    return fileFromIcimsSavedResumeMessage(message)
+  } catch {
+    return null
+  }
+}
+
 export function loadIcimsSavedResume(): Promise<File | null> {
   if (!inflight) {
-    inflight = requestSavedResume()
+    inflight = requestIcimsSavedResume()
       .then((file) => {
         if (!file) inflight = null
         return file
