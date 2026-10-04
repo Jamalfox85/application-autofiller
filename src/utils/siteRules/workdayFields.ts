@@ -1235,6 +1235,39 @@ export function workdayElementIsSchool(input: Element, fieldText = ''): boolean 
   return label.includes('school') || label.includes('university') || label.includes('college')
 }
 
+// Degree is the Canvas list next to School. Field of Study, LinkedIn, and the
+// school prompt are different controls. A degree search box must not receive
+// the raw profile string: typing "Bachelor of Science" into a list whose
+// option is "Bachelors" clears a committed face back to Select One.
+export function workdayElementIsDegree(input: Element, fieldText = ''): boolean {
+  if (workdayElementIsPhoneDeviceType(input)) return false
+  if (workdayElementIsSource(input, fieldText)) return false
+  if (workdayElementIsFormerEmployee(input, fieldText)) return false
+  if (workdayElementIsSchool(input, fieldText)) return false
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  const idBlob = compactIdBlob([
+    input.id,
+    input.getAttribute('name'),
+    input.getAttribute('data-automation-id'),
+    field?.getAttribute('data-automation-id'),
+    field?.getAttribute('data-fkit-id'),
+  ])
+  if (
+    idBlob.includes('fieldofstudy') ||
+    idBlob.includes('major') ||
+    idBlob.includes('linkedin') ||
+    idBlob.includes('school') ||
+    idBlob.includes('university') ||
+    idBlob.includes('college')
+  ) {
+    return false
+  }
+  if (idBlob.includes('degree')) return true
+  const label = `${fieldText} ${workdayChoiceQuestionText(input)}`.toLowerCase().replace(/[^a-z]/g, '')
+  if (!label || label.includes('fieldofstudy') || label.includes('major') || label.includes('school')) return false
+  return label.includes('degree')
+}
+
 // A prompt with no selected school is still empty when the input shows the
 // profile name. Autofill has to open it again. A committed pill stays as it is.
 export function workdaySchoolPromptNeedsFill(input: Element): boolean {

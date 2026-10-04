@@ -27,6 +27,7 @@ import {
   workdayDatePartInput,
   workdayDegreeOption,
   workdayDisabilityOptionIndex,
+  workdayElementIsDegree,
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
   workdayElementIsSchool,
@@ -1710,6 +1711,127 @@ test('Adobe school prompt leaves the field empty when that school is not offered
   assert.equal(doc.getElementById('school-instruction')?.textContent, '0 items selected')
 })
 
+// Adobe My Experience renders School or University as the typeahead input.
+// There is no prompt icon on that field. Field of Study has the list icon.
+// Setting the input's value shows the name and does not select a school.
+// The committed value is the pill from the suggestion row.
+function adobeSchoolTypeahead(catalog: string[], preset = '') {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div role="group" aria-labelledby="education-1-panel">
+      <div id="education-1-panel">Education 1</div>
+      <div data-automation-id="formField-school" data-fkit-id="education-1--school">
+        <label for="school-input">School or University</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="school-input" data-automation-id="searchBox" value="" />
+        </div>
+        <div data-automation-id="selectedItemList" id="school-pills"></div>
+      </div>
+      <div data-automation-id="formField-fieldOfStudy" data-fkit-id="education-1--fieldOfStudy">
+        <label for="study-input">Field of Study</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="study-input" value="" />
+          <span data-automation-id="promptIcon" id="study-icon"></span>
+        </div>
+      </div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const input = doc.getElementById('school-input') as HTMLInputElement
+  input.value = preset
+  const clicked: string[] = []
+  let iconPressed = false
+  doc.getElementById('study-icon')!.addEventListener('mousedown', () => {
+    iconPressed = true
+  })
+  doc.getElementById('study-icon')!.addEventListener('click', () => {
+    iconPressed = true
+  })
+  input.addEventListener('input', () => {
+    doc.getElementById('school-popup')?.remove()
+    const query = input.value.trim()
+    if (!query) return
+    const popup = doc.createElement('div')
+    popup.id = 'school-popup'
+    popup.setAttribute('role', 'listbox')
+    const schools = catalog.filter((label) => label.toLowerCase().includes(query.toLowerCase()))
+    const rows = schools.length > 0 ? schools : ['No Items.']
+    for (const label of rows) {
+      const leaf = doc.createElement('div')
+      leaf.setAttribute('data-automation-id', 'promptLeafNode')
+      const option = doc.createElement('div')
+      option.setAttribute('data-automation-id', 'promptOption')
+      option.setAttribute('data-automation-label', label)
+      const text = doc.createElement('div')
+      text.textContent = label
+      text.addEventListener('mousedown', (event) => event.stopPropagation())
+      text.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      })
+      option.appendChild(text)
+      leaf.appendChild(option)
+      if (label !== 'No Items.') {
+        leaf.addEventListener('click', () => {
+          clicked.push(label)
+          const pill = doc.createElement('div')
+          pill.setAttribute('data-automation-id', 'selectedItem')
+          const chosen = doc.createElement('div')
+          chosen.setAttribute('data-automation-id', 'promptOption')
+          chosen.setAttribute('data-automation-label', label)
+          chosen.textContent = label
+          pill.appendChild(chosen)
+          doc.getElementById('school-pills')!.replaceChildren(pill)
+          input.value = ''
+          popup.remove()
+        })
+      }
+      popup.appendChild(leaf)
+    }
+    doc.body.appendChild(popup)
+  })
+  return { doc, input, clicked, iconPressed: () => iconPressed }
+}
+
+test('Adobe school typeahead commits Kennesaw as a pill and does not keep typed text', async () => {
+  const { doc, input, clicked, iconPressed } = adobeSchoolTypeahead(
+    ['Kenyon College', 'Kennesaw State University'],
+    'Kennesaw State University',
+  )
+  assert.equal(workdaySchoolPromptNeedsFill(input), true)
+  assert.equal(doc.querySelector('[data-automation-id="selectedItem"]'), null)
+  assert.equal(input.value, 'Kennesaw State University')
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const info = {
+    education: [{ schoolName: 'Kennesaw State University', degreeType: 'Bachelor of Science' }],
+  } as PersonalInfo
+  assert.equal(await rule.apply(input, 'school or university', info), true)
+  assert.deepEqual(clicked, ['Kennesaw State University'])
+  assert.equal(clicked.includes('Kenyon College'), false)
+  assert.equal(iconPressed(), false)
+  const pill = doc.querySelector('[data-automation-id="selectedItem"] [data-automation-id="promptOption"]')
+  assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
+  assert.equal(input.value, '')
+  assert.equal(workdaySchoolPromptNeedsFill(input), false)
+})
+
+test('Adobe school typeahead leaves the field empty when that school is not offered', async () => {
+  const { doc, input, clicked, iconPressed } = adobeSchoolTypeahead(
+    ['Kenyon College'],
+    'Kennesaw State University',
+  )
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const info = {
+    education: [{ schoolName: 'Kennesaw State University' }],
+  } as PersonalInfo
+  assert.equal(await rule.apply(input, 'school or university', info), 'skip')
+  assert.deepEqual(clicked, [])
+  assert.equal(iconPressed(), false)
+  assert.equal(doc.querySelector('[data-automation-id="selectedItem"]'), null)
+  assert.equal(input.value, '')
+})
+
 test('school prompt detection does not claim LinkedIn, degree, or former employee', () => {
   const dom = new JSDOM(`<!doctype html><body>
     <div data-automation-id="formField-linkedIn">
@@ -1733,6 +1855,52 @@ test('school prompt detection does not claim LinkedIn, degree, or former employe
     workdayElementIsSchool(doc.getElementById('school')!, 'have you previously been employed'),
     false,
   )
+  assert.equal(workdayElementIsDegree(doc.getElementById('degree')!, 'degree'), true)
+  assert.equal(workdayElementIsDegree(doc.getElementById('school')!, 'school or university'), false)
+  assert.equal(workdayElementIsDegree(doc.getElementById('linkedin')!, 'linkedin'), false)
+})
+
+// The Canvas degree face is already Bachelors. A later pass that types
+// "Bachelor of Science" is not a prefix, so the select drops back to Select One.
+test('a later autofill does not clear a degree that already shows Bachelors', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div role="group" aria-labelledby="education-1-panel">
+      <div id="education-1-panel">Education 1</div>
+      <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+        <label for="degree-input">Degree</label>
+        <button id="degree" type="button" aria-haspopup="listbox">Bachelors</button>
+        <input id="degree-input" value="" />
+      </div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const input = doc.getElementById('degree-input') as HTMLInputElement
+  let keydowns = 0
+  button.addEventListener('keydown', () => {
+    keydowns += 1
+    button.textContent = 'Select One'
+  })
+  button.addEventListener('click', () => {
+    button.textContent = 'Select One'
+  })
+  input.addEventListener('input', () => {
+    if (input.value.toLowerCase().includes('science')) button.textContent = 'Select One'
+  })
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelors')
+  assert.equal(button.textContent, 'Bachelors')
+  assert.equal(keydowns, 0)
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const info = {
+    education: [{ schoolName: 'Kennesaw State University', degreeType: 'Bachelor of Science' }],
+  } as PersonalInfo
+  assert.equal(await rule.apply(input, 'degree', info), true)
+  assert.equal(button.textContent, 'Bachelors')
+  assert.notEqual(button.textContent, 'Select One')
+  assert.equal(input.value, '')
+  assert.equal(keydowns, 0)
 })
 
 // A selected-pill listbox is already on the page (source, company, school).
