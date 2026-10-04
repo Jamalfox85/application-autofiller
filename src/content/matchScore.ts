@@ -5,6 +5,11 @@ import { matchScoreEnabled } from '../services/matchScore/flags.ts'
 import { matchScoreIntent } from '../services/matchScore/intent.ts'
 import { matchScoreDismissedKey } from '../services/matchScore/cache.ts'
 import {
+  readResumeMatchingEnabled,
+  RESUME_MATCHING_KEY,
+  resumeMatchingEnabled,
+} from '../services/matchScore/setting.ts'
+import {
   quickAnswerFor,
   type JdSource,
   type MatchAts,
@@ -52,6 +57,9 @@ let lastJd = ''
 let profileWatchInstalled = false
 let suppressProfileWatch = 0
 let urlWatchInstalled = false
+let settingWatchInstalled = false
+// Mirrors the popup switch so a render already in flight is dropped once it is off.
+let userDisabled = false
 
 function isTopFrame(): boolean {
   try {
@@ -138,7 +146,7 @@ function showModel(model: MatchScoreCardModel) {
 }
 
 export function onMatchScoreRender(message: RenderMessage) {
-  if (!isTopFrame()) return
+  if (!isTopFrame() || userDisabled) return
   installProfileWatch()
   if (typeof message.seq === 'number') {
     if (message.seq < seenSeq) return
@@ -244,6 +252,7 @@ function whenFormReady(run: () => void) {
 
 async function requestScore() {
   if (!activeJobUrl || !activeAts || !activeSource) return
+  if (!(await readResumeMatchingEnabled())) return
   await chrome.runtime.sendMessage({
     action: 'matchScore',
     jobUrl: activeJobUrl,
@@ -347,6 +356,10 @@ async function undoSkillAdd(skill: string) {
 
 async function runOnce() {
   if (!matchScoreEnabled()) return
+  // Read the popup switch on every run so a change applies without a reload.
+  const userEnabled = await readResumeMatchingEnabled()
+  userDisabled = !userEnabled
+  if (!userEnabled) return
   const session = await getProfileSetupSession()
   if (session) return
   const completedAt = await getProfileSetupCompletedAt()
@@ -360,7 +373,7 @@ async function runOnce() {
   )
   const entitlement = await readEntitlement()
   const intent = matchScoreIntent({
-    enabled: true,
+    enabled: userEnabled,
     onboarding: false,
     extraction,
     isPro: entitlement.isPro,
@@ -411,8 +424,26 @@ function resetCardForNavigation() {
   hideMatchScoreCard()
 }
 
+function installSettingWatch() {
+  if (settingWatchInstalled) return
+  settingWatchInstalled = true
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes[RESUME_MATCHING_KEY]) return
+    const enabled = resumeMatchingEnabled(changes[RESUME_MATCHING_KEY].newValue)
+    userDisabled = !enabled
+    if (enabled) {
+      whenFormReady(scoreCurrentPage)
+    } else {
+      formObserver?.disconnect()
+      formObserver = null
+      resetCardForNavigation()
+    }
+  })
+}
+
 export function startMatchScore(): void {
   whenFormReady(scoreCurrentPage)
+  installSettingWatch()
   if (urlWatchInstalled || !isTopFrame()) return
   urlWatchInstalled = true
   let href = window.location.href

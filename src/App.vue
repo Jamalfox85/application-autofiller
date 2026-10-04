@@ -27,6 +27,7 @@ import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDia
 import PaywallDialog from './components/PaywallDialog.vue'
 import ResumeAiDialog from './components/ResumeAiDialog.vue'
 import ProfileRosterDialog from './components/ProfileRosterDialog.vue'
+import ProFeatures from './components/ProFeatures.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
 import { rememberActiveProfile } from '@/services/billing/profileRoster'
 import {
@@ -531,27 +532,14 @@ watch(authStatus, (next, previous) => {
 
       <AutoDetectSwitch class="section" />
 
-      <p v-if="billing" class="quota-note">
-        {{ billing.isPro ? 'Pro · unlimited fills' : `${billing.fillCount} of 25 free fills this week` }}
+      <p v-if="billing && !billing.isPro" class="quota-note">
+        {{ billing.fillCount }} of 25 free fills this week
       </p>
 
       <div class="section-header-row">
         <span class="section-header-label">Pro</span>
       </div>
-      <div class="section-list">
-        <button class="section-row" type="button" @click="billing?.isPro ? (resumeOpen = true) : openPaywall('resume_ai')">
-          <span class="section-num">AI</span>
-          <span class="section-label">Resume tailor</span>
-          <span class="section-meta">{{ billing?.isPro ? 'Included' : 'Pro feature' }}</span>
-          <span class="section-dot" :class="{ done: billing?.isPro }"></span>
-        </button>
-        <button class="section-row" type="button" @click="billing?.isPro ? (profilesOpen = true) : openPaywall('multi_profile')">
-          <span class="section-num">PR</span>
-          <span class="section-label">Profiles</span>
-          <span class="section-meta">{{ billing?.isPro ? 'Multiple' : 'Pro feature' }}</span>
-          <span class="section-dot" :class="{ done: billing?.isPro }"></span>
-        </button>
-      </div>
+      <ProFeatures :isPro="billing?.isPro === true" @upgrade="openPaywall('resume_ai')" />
 
       <div class="section-header-row">
         <span class="section-header-label">Your information</span>
