@@ -67,8 +67,8 @@ function element(doc: PopupRoot, tag: string, cssText: string): PopupElement | n
   return node
 }
 
-// Corner card, not a full-screen overlay, so the email field and the captcha
-// puzzle stay usable. Nothing in this tree is a page Next / Log In / Submit control.
+// Bottom-right corner card, not a full-screen overlay, so the email field and the
+// captcha puzzle stay usable. Nothing in this tree is a page Next / Log In / Submit control.
 export function mountIcimsAccountCreationPopup(doc: PopupRoot | null | undefined): boolean {
   if (!doc?.querySelector || !doc.createElement || !doc.body?.appendChild) return false
   if (doc.querySelector(`.${ICIMS_ACCOUNT_HANDOFF_POPUP_CLASS}`)) return false
@@ -78,7 +78,7 @@ export function mountIcimsAccountCreationPopup(doc: PopupRoot | null | undefined
     'div',
     `
       position: fixed;
-      left: 24px;
+      right: 24px;
       bottom: 24px;
       z-index: 2147483647;
       width: min(340px, calc(100vw - 32px));

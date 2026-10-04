@@ -57,6 +57,7 @@ function button(label: string, variant: 'primary' | 'secondary' | 'text'): HTMLB
 
 // On-page gate for auto-fill and the shortcut. The popup draws its own sheet
 // when it initiated the fill, so this is not also shown in that case.
+// The card sits in the bottom-right. The dimmed backdrop stays so a click outside still dismisses.
 export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywallResult): Promise<void> {
   document.querySelector('.gofillr-paywall')?.remove()
 
@@ -74,14 +75,14 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
     inset: 0;
     z-index: 2147483647;
     background: rgba(0, 0, 0, 0.45);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   `
 
   const card = document.createElement('div')
   card.style.cssText = `
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
     width: min(340px, calc(100vw - 32px));
     background: #16161a;
     color: #ebebee;

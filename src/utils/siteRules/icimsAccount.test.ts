@@ -638,9 +638,13 @@ test('creation handoff popup tells the person to finish email, captcha, and pass
 
   assert.equal(mountIcimsAccountCreationPopup(document), true)
   assert.equal(mountIcimsAccountCreationPopup(document), false)
-  const popup = document.querySelector(`.${ICIMS_ACCOUNT_HANDOFF_POPUP_CLASS}`)
+  const popup = document.querySelector(`.${ICIMS_ACCOUNT_HANDOFF_POPUP_CLASS}`) as HTMLElement | null
   assert.ok(popup)
   assert.equal(popup?.getAttribute('role'), 'dialog')
+  assert.equal(popup?.style.right, '24px')
+  assert.equal(popup?.style.bottom, '24px')
+  assert.equal(popup?.style.left, '')
+  assert.equal(popup?.style.top, '')
   const text = popup?.textContent || ''
   assert.match(text, new RegExp(ICIMS_ACCOUNT_HANDOFF_TITLE))
   assert.match(text, /email/i)
