@@ -292,6 +292,64 @@ test('a heading above the dropzone counts, and a bare Select files input does no
   assert.equal(bare.files?.length ?? 0, 0)
 })
 
+function clearInputFiles(input: HTMLInputElement) {
+  const list = input.files
+  if (!list || list.length === 0) return
+  const symbol = Object.getOwnPropertySymbols(list).find((candidate) => {
+    const impl = (list as unknown as Record<symbol, { push?: (file: File) => void }>)[candidate]
+    return !!impl && typeof impl.push === 'function'
+  })
+  if (!symbol) throw new Error('jsdom FileList has no impl')
+  const impl = (list as unknown as Record<symbol, { length: number }>)[symbol]
+  impl.length = 0
+}
+
+test('a resume input is not assigned again after Workday clears its files', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <label for="resume-a">Resume/CV</label>
+    <input id="resume-a" type="file" data-automation-id="file-upload-input-ref" />
+    <label for="resume-b">Resume</label>
+    <input id="resume-b" type="file" data-automation-id="file-upload-input-ref" />
+    <label for="cover">Cover Letter</label>
+    <input id="cover" type="file" data-automation-id="file-upload-input-ref" />
+    <button type="button" id="select-files">Select files</button>
+    <button type="button" id="autofill">Autofill with Resume</button>
+    <button type="button" id="last">Use My Last Application</button>
+    <button type="button" id="next">Next</button>
+    <button type="button" id="submit">Submit</button>
+  </body>`)
+  installDataTransfer(dom.window)
+  const doc = dom.window.document
+  const clicks = trackClicks(doc)
+  const first = doc.getElementById('resume-a') as HTMLInputElement
+  const second = doc.getElementById('resume-b') as HTMLInputElement
+  const cover = doc.getElementById('cover') as HTMLInputElement
+  const file = savedFile(dom.window, STORED_BYTES)
+  setWorkdayResumeLoader(async () => file)
+  const rule = workdayConfig()
+
+  assert.equal(await rule.apply(first, 'file', profile), true)
+  assert.equal(first.files?.length, 1)
+  assert.equal(first.files?.[0]?.name, file.name)
+  clearInputFiles(first)
+  assert.equal(first.files?.length ?? 0, 0)
+  assert.equal(await rule.apply(first, 'file', profile), 'skip')
+  assert.equal(await attachWorkdaySavedResume(first, file), false)
+  assert.equal(first.files?.length ?? 0, 0)
+
+  assert.equal(await rule.apply(second, 'file', profile), true)
+  assert.equal(second.files?.length, 1)
+  assert.equal(second.files?.[0]?.name, file.name)
+  clearInputFiles(second)
+  assert.equal(await rule.apply(second, 'file', profile), 'skip')
+  assert.equal(second.files?.length ?? 0, 0)
+
+  assert.equal(await rule.apply(cover, 'file', profile), 'skip')
+  assert.equal(cover.files?.length ?? 0, 0)
+  assert.deepEqual(clicks, [])
+  setWorkdayResumeLoader(null)
+})
+
 test('a missing file is not a finished attach, so the dropzone that appears next still receives it', async () => {
   const early = new JSDOM(`<!doctype html><body><input id="early" type="file" aria-label="Upload" /></body>`)
   installDataTransfer(early.window)
