@@ -392,11 +392,14 @@ function looksLikeVeteran(field: JobviteField): boolean {
 
 function isHispanicYesNo(field: JobviteField, norm: string): boolean {
   if (!norm.includes('hispanic') && !norm.includes('latino')) return false
+  // "If no, what race" is the follow-up race list, not the Yes/No question.
+  if (isConditionalRace(norm)) return false
   const choices = [field.optionLabel, ...(field.options || []).map((option) => option.text)]
     .map((value) => normalizeJobviteLabel(value))
     .filter(Boolean)
+  // A radio only carries its own answer, so a lone Yes or No still counts.
   if (choices.length === 0) return norm.startsWith('areyouhispanic') || norm.startsWith('areyoulatino')
-  return choices.some((choice) => choice === 'yes') && choices.some((choice) => choice === 'no')
+  return choices.every((choice) => choice === 'yes' || choice === 'no' || isDeclineLabel(choice))
 }
 
 function isConditionalRace(norm: string): boolean {
