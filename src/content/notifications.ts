@@ -15,13 +15,14 @@ function brandIcon(size: number) {
 // stay legible when injected into an arbitrary page's own styles/zoom level. Uses the system
 // font stack (not IBM Plex, which the popup uses) since loading a webfont into every page a
 // user visits isn't worth the privacy/perf cost for a small toast.
+// Bottom-right, same corner as the other in-page cards. The browser-action popup is separate.
 function createToast(accentColor: string, title: string, subtitle?: string) {
   const toast = document.createElement('div')
   toast.className = 'gofillr-autofill-notification'
   toast.style.cssText = `
     position: fixed;
-    top: 80px;
     right: 20px;
+    bottom: 20px;
     z-index: 2147483647;
     display: flex;
     align-items: center;
@@ -35,7 +36,7 @@ function createToast(accentColor: string, title: string, subtitle?: string) {
     color: #ebebee;
     max-width: 300px;
     opacity: 0;
-    transform: translateY(-20px);
+    transform: translateY(20px);
     transition: opacity 0.3s ease, transform 0.3s ease;
   `
 
@@ -63,7 +64,7 @@ function showToast(toast: HTMLElement) {
 
   setTimeout(() => {
     toast.style.opacity = '0'
-    toast.style.transform = 'translateY(-20px)'
+    toast.style.transform = 'translateY(20px)'
     setTimeout(() => toast.remove(), 300)
   }, 4000)
 }
