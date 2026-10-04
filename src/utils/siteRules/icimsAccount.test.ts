@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { JSDOM } from 'jsdom'
 import type { ApplicationAccount } from '../../types/index.ts'
 import {
   getIcimsAccount,
   hasIcimsAccountCredentials,
+  isIcimsAccountCreationEmailStep,
   isIcimsCandidateHost,
   isIcimsLoginPath,
   isIcimsLoginSurface,
   pageHasEmailGate,
 } from './icimsAccount.ts'
+import {
+  ICIMS_ACCOUNT_HANDOFF_DISMISS,
+  ICIMS_ACCOUNT_HANDOFF_MESSAGE,
+  ICIMS_ACCOUNT_HANDOFF_POPUP_CLASS,
+  ICIMS_ACCOUNT_HANDOFF_TITLE,
+  configureIcimsAccountHandoff,
+  mountIcimsAccountCreationPopup,
+  publishIcimsAccountCreationHandoff,
+  resetIcimsAccountHandoffState,
+} from './icimsAccountHandoff.ts'
 import {
   ICIMS_ACCOUNT_MISSING_MESSAGE,
   ICIMS_ACCOUNT_NOTICE_KEY,
@@ -18,7 +30,11 @@ import {
   readPersonalInfoForIcims,
   resetIcimsAccountNoticeState,
 } from './icimsAccountNotice.ts'
-import { maybeWarnMissingIcimsAccount } from './icims.ts'
+import {
+  maybeShowIcimsAccountCreationHandoff,
+  maybeWarnMissingIcimsAccount,
+  planIcimsLoginPass,
+} from './icims.ts'
 
 const account = (overrides: Partial<ApplicationAccount> = {}): ApplicationAccount => ({
   id: 1,
@@ -417,6 +433,280 @@ test('maybeWarn publishes for the email gate with no password and no application
     assert.equal((messages[0] as { action: string }).action, 'icimsAccountRequired')
   } finally {
     resetIcimsAccountNoticeState()
+  }
+})
+
+const jobyEmailStep = {
+  hostname: 'careers-jobyaviation.icims.com',
+  pathname: '/jobs/5424/autonomy-embedded-engineer/login',
+  search: '?mobile=false&in_iframe=1',
+  hasPasswordField: false,
+  hasEmailGate: true,
+}
+
+const hireRightEmailStep = {
+  hostname: 'careersintl-hireright1.icims.com',
+  pathname: '/jobs/6855/software-engineer/login',
+  search: '',
+  hasPasswordField: false,
+  hasEmailGate: true,
+}
+
+test('account-creation handoff is the email step, before any password field', () => {
+  assert.equal(isIcimsAccountCreationEmailStep(jobyEmailStep), true)
+  assert.equal(isIcimsAccountCreationEmailStep(hireRightEmailStep), true)
+  assert.equal(
+    isIcimsAccountCreationEmailStep({
+      hostname: 'careers-acme.icims.com',
+      pathname: '/jobs/123/role/job',
+      hasPasswordField: false,
+      hasEmailGate: true,
+    }),
+    true,
+  )
+  assert.equal(
+    isIcimsAccountCreationEmailStep({
+      ...jobyEmailStep,
+      hasPasswordField: true,
+    }),
+    false,
+  )
+  assert.equal(
+    isIcimsAccountCreationEmailStep({
+      hostname: 'careers-jobyaviation.icims.com',
+      pathname: '/jobs/5424/autonomy-embedded-engineer/job',
+      hasPasswordField: false,
+      hasEmailGate: false,
+    }),
+    false,
+  )
+  assert.equal(
+    isIcimsAccountCreationEmailStep({
+      hostname: 'www.icims.com',
+      pathname: '/jobs/5424/login',
+      hasPasswordField: false,
+      hasEmailGate: true,
+    }),
+    false,
+  )
+})
+
+test('login pass shows the handoff once on the email step and still writes the password step', () => {
+  assert.deepEqual(planIcimsLoginPass(jobyEmailStep, false), {
+    handoff: true,
+    warnIfMissing: true,
+    writeGate: true,
+  })
+  assert.deepEqual(planIcimsLoginPass(jobyEmailStep, true), {
+    handoff: true,
+    warnIfMissing: true,
+    writeGate: false,
+  })
+  assert.deepEqual(planIcimsLoginPass({ ...hireRightEmailStep, hasPasswordField: true }, true), {
+    handoff: false,
+    warnIfMissing: true,
+    writeGate: true,
+  })
+  assert.deepEqual(
+    planIcimsLoginPass(
+      {
+        hostname: 'careers-jobyaviation.icims.com',
+        pathname: '/jobs/5424/autonomy-embedded-engineer/job',
+        hasPasswordField: false,
+        hasEmailGate: false,
+      },
+      false,
+    ),
+    { handoff: false, warnIfMissing: false, writeGate: false },
+  )
+})
+
+test('creation handoff popup is published once on the email step', () => {
+  resetIcimsAccountHandoffState()
+  const shown: string[] = []
+  const infos: string[] = []
+  const original = console.info
+  console.info = (...args: unknown[]) => {
+    infos.push(args.map(String).join(' '))
+  }
+  configureIcimsAccountHandoff({
+    showPopup: () => {
+      shown.push(ICIMS_ACCOUNT_HANDOFF_MESSAGE)
+    },
+  })
+  try {
+    assert.equal(maybeShowIcimsAccountCreationHandoff(jobyEmailStep), true)
+    assert.equal(maybeShowIcimsAccountCreationHandoff(hireRightEmailStep), false)
+    assert.equal(publishIcimsAccountCreationHandoff(), false)
+    assert.equal(
+      maybeShowIcimsAccountCreationHandoff({ ...jobyEmailStep, hasPasswordField: true }),
+      false,
+    )
+  } finally {
+    console.info = original
+    resetIcimsAccountHandoffState()
+  }
+  assert.deepEqual(shown, [ICIMS_ACCOUNT_HANDOFF_MESSAGE])
+  assert.deepEqual(infos, [ICIMS_ACCOUNT_HANDOFF_MESSAGE])
+})
+
+test('email step with a saved account does not raise the missing-login warning', async () => {
+  resetIcimsAccountNoticeState()
+  resetIcimsAccountHandoffState()
+  const messages: unknown[] = []
+  const shown: number[] = []
+  configureIcimsAccountHandoff({
+    showPopup: () => {
+      shown.push(1)
+    },
+  })
+  configureIcimsAccountNotice({
+    storage: {
+      get: async () => ({ personalInfo: { applicationAccounts: [account()] } }),
+    },
+    sendMessage: async (message) => {
+      messages.push(message)
+    },
+    showOnPage: () => undefined,
+  })
+  try {
+    assert.equal(maybeShowIcimsAccountCreationHandoff(jobyEmailStep), true)
+    assert.equal(await maybeWarnMissingIcimsAccount({ applicationAccounts: [] }, jobyEmailStep), false)
+  } finally {
+    resetIcimsAccountNoticeState()
+    resetIcimsAccountHandoffState()
+  }
+  assert.deepEqual(shown, [1])
+  assert.deepEqual(messages, [])
+})
+
+test('email step with no saved account keeps the missing-login warning and shows the handoff', async () => {
+  resetIcimsAccountNoticeState()
+  resetIcimsAccountHandoffState()
+  const messages: unknown[] = []
+  const shown: number[] = []
+  configureIcimsAccountHandoff({
+    showPopup: () => {
+      shown.push(1)
+    },
+  })
+  configureIcimsAccountNotice({
+    storage: {
+      get: async () => ({ personalInfo: {} }),
+      set: async () => undefined,
+    },
+    sendMessage: async (message) => {
+      messages.push(message)
+    },
+    showOnPage: () => undefined,
+  })
+  try {
+    assert.equal(maybeShowIcimsAccountCreationHandoff(hireRightEmailStep), true)
+    assert.equal(await maybeWarnMissingIcimsAccount(null, hireRightEmailStep), true)
+  } finally {
+    resetIcimsAccountNoticeState()
+    resetIcimsAccountHandoffState()
+  }
+  assert.deepEqual(shown, [1])
+  assert.equal(messages.length, 1)
+  assert.equal((messages[0] as { action: string }).action, 'icimsAccountRequired')
+})
+
+test('creation handoff popup tells the person to finish email, captcha, and password', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <h1>Enter Your Information</h1>
+    <form>
+      <input type="email" name="email" autocomplete="email" />
+      <label><input type="checkbox" name="euResident" /> EU/UK resident</label>
+      <button type="submit" id="next">Next</button>
+      <textarea name="h-captcha-response"></textarea>
+      <iframe id="captcha" src="https://hcaptcha.com/captcha"></iframe>
+    </form>
+  </body>`)
+  const document = dom.window.document
+  const clicks: string[] = []
+  const eu = document.querySelector('input[name="euResident"]') as HTMLInputElement
+  eu.checked = false
+  for (const id of ['next', 'captcha']) {
+    document.getElementById(id)?.addEventListener('click', () => {
+      clicks.push(id)
+    })
+  }
+  eu.addEventListener('click', () => {
+    clicks.push('eu')
+  })
+
+  assert.equal(mountIcimsAccountCreationPopup(document), true)
+  assert.equal(mountIcimsAccountCreationPopup(document), false)
+  const popup = document.querySelector(`.${ICIMS_ACCOUNT_HANDOFF_POPUP_CLASS}`)
+  assert.ok(popup)
+  assert.equal(popup?.getAttribute('role'), 'dialog')
+  const text = popup?.textContent || ''
+  assert.match(text, new RegExp(ICIMS_ACCOUNT_HANDOFF_TITLE))
+  assert.match(text, /email/i)
+  assert.match(text, /captcha/i)
+  assert.match(text, /password/i)
+  assert.match(text, /fill the application/i)
+  const buttons = [...popup!.querySelectorAll('button')].map((button) => button.textContent)
+  assert.deepEqual(buttons, [ICIMS_ACCOUNT_HANDOFF_DISMISS])
+
+  ;(popup?.querySelector('button') as HTMLButtonElement).click()
+  assert.equal(document.querySelector(`.${ICIMS_ACCOUNT_HANDOFF_POPUP_CLASS}`), null)
+  assert.equal(eu.checked, false)
+  assert.deepEqual(clicks, [])
+})
+
+test('email-step DOM changes do not count as an application step', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <h1>Enter Your Information</h1>
+      <input type="email" name="email" id="email" autocomplete="email" />
+    </body>`,
+    {
+      url: 'https://careers-jobyaviation.icims.com/jobs/5424/autonomy-embedded-engineer/login?mobile=false',
+    },
+  )
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+  try {
+    const { default: icimsConfig } = await import('./icims.ts')
+    const rule = icimsConfig()
+    assert.equal(rule.formChanged?.([]), false)
+    const captcha = dom.window.document.createElement('textarea')
+    captcha.name = 'h-captcha-response'
+    captcha.id = 'h-captcha-response'
+    dom.window.document.body.appendChild(captcha)
+    assert.equal(rule.formChanged?.([]), false)
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.document = previousDocument
+  }
+})
+
+test('password step still reports a new form after the email step', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <input type="password" name="password" id="password" />
+    </body>`,
+    { url: 'https://careers-jobyaviation.icims.com/jobs/5424/autonomy-embedded-engineer/login' },
+  )
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+  try {
+    const { default: icimsConfig } = await import('./icims.ts')
+    const rule = icimsConfig()
+    rule.formChanged?.([])
+    const confirm = dom.window.document.createElement('input')
+    confirm.type = 'password'
+    confirm.name = 'passwordConfirm'
+    confirm.id = 'passwordConfirm'
+    dom.window.document.body.appendChild(confirm)
+    assert.equal(rule.formChanged?.([]), true)
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.document = previousDocument
   }
 })
 
