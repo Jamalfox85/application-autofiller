@@ -16,6 +16,7 @@ import { handleBillingMessage, startExtensionPay } from './src/services/extensio
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
+import { loadSavedResumeInWorker } from './src/services/savedResumeWorker.js'
 
 startExtensionPay()
 
@@ -440,6 +441,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // chrome.storage.local for the result rather than waiting on this response.
     handleResumeUpload(request)
     sendResponse({ started: true })
+  }
+
+  // Workable fill asks for the signed-in user's stored resume. The page does not
+  // choose the path. No stored file returns ok: false and the field stays empty.
+  if (request.action === 'loadSavedResume') {
+    loadSavedResumeInWorker()
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false }))
+    return true
   }
 
   if (request.action === 'trackAutofill') {

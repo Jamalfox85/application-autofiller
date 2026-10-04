@@ -8,6 +8,7 @@ import { setReactInputValue } from '../inputHandlers.ts'
 import {
   compareWorkableFill,
   isWorkableAdvanceControl,
+  isWorkableResumeAutofillControl,
   workableFieldKey,
   workableMaySubmit,
   workablePhase,
@@ -16,7 +17,9 @@ import {
   type WorkableField,
   type WorkableGroup,
   type WorkablePlan,
+  type WorkableProfile,
 } from './workableFields.ts'
+import { profileSavedResume, savedResumeFromMessage, type SavedResume } from './workableResume.ts'
 
 // Hosted apply.workable.com pages, and the same application / EEO form when a
 // custom domain serves the Workable careers shell. An iframe on a parent page
@@ -41,12 +44,20 @@ export function isWorkableApplyPage(input?: AtsPageContext): boolean {
 let seenFillableCount: number | null = null
 let fillGeneration = 0
 let completedGeneration = -1
+let fillTask: Promise<void> | null = null
+let fillTaskGeneration = -1
+let generationInfo: WorkableProfile | null = null
+let generationInfoGeneration = -1
 const outcomes = new WeakMap<HTMLElement, { generation: number; result: true | 'skip' }>()
 
 export function resetWorkableFormWatch() {
   seenFillableCount = null
   fillGeneration = 0
   completedGeneration = -1
+  fillTask = null
+  fillTaskGeneration = -1
+  generationInfo = null
+  generationInfoGeneration = -1
 }
 
 export default function workableConfig(): SiteRule {
@@ -55,16 +66,18 @@ export default function workableConfig(): SiteRule {
     prepareFill: () => {
       fillGeneration += 1
     },
-    apply: (input, _fieldText, personalInfo) => {
+    apply: async (input, _fieldText, personalInfo) => {
       if (!insideWorkableForm(input)) return false
       const doc = input.ownerDocument
-      if (doc) fillWorkableDocument(doc, personalInfo)
+      if (doc) await fillWorkableDocument(doc, personalInfo)
+      const info =
+        generationInfo && generationInfoGeneration === fillGeneration ? generationInfo : personalInfo
       const hit = outcomes.get(input)
       if (hit && hit.generation === fillGeneration) return hit.result
       const field = describeWorkableField(input)
-      const plan = workablePlan(field, personalInfo, rowIndex(input, field.group))
+      const plan = workablePlan(field, info, rowIndex(input, field.group))
       if (plan.action === 'skip') return 'skip'
-      return writeWorkablePlan(input, plan) ? true : 'skip'
+      return writeWorkablePlan(input, plan, profileSavedResume(info)) ? true : 'skip'
     },
     // Education and experience editors appear after Add. Refill when the form
     // gains controls. Never click Submit application or the EEO submit/skip buttons.
@@ -83,11 +96,32 @@ export default function workableConfig(): SiteRule {
   }
 }
 
-function fillWorkableDocument(doc: Document, personalInfo: Parameters<typeof workablePlan>[1]) {
-  if (completedGeneration === fillGeneration) return
-  completedGeneration = fillGeneration
+function fillWorkableDocument(doc: Document, personalInfo: WorkableProfile): Promise<void> {
+  if (completedGeneration === fillGeneration) return Promise.resolve()
+  if (fillTask && fillTaskGeneration === fillGeneration) return fillTask
+  const generation = fillGeneration
+  fillTaskGeneration = generation
+  fillTask = runWorkableFill(doc, personalInfo, generation)
+  return fillTask
+}
+
+async function runWorkableFill(doc: Document, personalInfo: WorkableProfile, generation: number) {
   const maySubmit: boolean = workableMaySubmit()
-  if (maySubmit) return
+  if (maySubmit) {
+    completedGeneration = generation
+    return
+  }
+  let info = personalInfo
+  try {
+    info = await withSavedResume(personalInfo)
+  } catch {
+    info = personalInfo
+  }
+  if (generation !== fillGeneration) return
+  completedGeneration = generation
+  generationInfo = info
+  generationInfoGeneration = generation
+  const saved = profileSavedResume(info)
 
   const items: Array<{ input: HTMLElement; field: WorkableField; row: number; order: number }> = []
   const forms = doc.querySelectorAll(FORM_ROOT)
@@ -109,20 +143,20 @@ function fillWorkableDocument(doc: Document, personalInfo: Parameters<typeof wor
     const next = nextPhase === 'end' ? WORKABLE_PHASE_END : phaseRank(nextPhase)
     if (!revealedExperience && next > phaseRank('experience')) {
       revealedExperience = true
-      clickAddSection(doc, 'experience', personalInfo.experience?.length ?? 0)
+      clickAddSection(doc, 'experience', info.experience?.length ?? 0)
     }
     if (!revealedEducation && next > phaseRank('education')) {
       revealedEducation = true
-      clickAddSection(doc, 'education', personalInfo.education?.length ?? 0)
+      clickAddSection(doc, 'education', info.education?.length ?? 0)
     }
   }
 
   for (const item of items) {
     reveal(workablePhase(item.field))
-    const plan = workablePlan(item.field, personalInfo, item.row)
+    const plan = workablePlan(item.field, info, item.row)
     const result: true | 'skip' =
-      plan.action === 'skip' ? 'skip' : writeWorkablePlan(item.input, plan) ? true : 'skip'
-    outcomes.set(item.input, { generation: fillGeneration, result })
+      plan.action === 'skip' ? 'skip' : writeWorkablePlan(item.input, plan, saved) ? true : 'skip'
+    outcomes.set(item.input, { generation, result })
   }
   reveal('end')
 }
@@ -155,6 +189,10 @@ function clickAddSection(
     isWorkableAdvanceControl({
       dataUi: control.getAttribute('data-ui'),
       type: control.type,
+    }) ||
+    isWorkableResumeAutofillControl({
+      dataUi: control.getAttribute('data-ui'),
+      label: control.textContent,
     })
   ) {
     return
@@ -198,17 +236,19 @@ function cleanLabel(value: string | null | undefined): string {
 
 export function describeWorkableField(input: HTMLElement): WorkableField {
   const group = groupOf(input)
+  const type = controlType(input)
   return {
     dataUi: input.getAttribute('data-ui'),
     name: input.getAttribute('name'),
     id: input.getAttribute('id'),
-    type: controlType(input),
-    label: questionText(input),
+    type,
+    label: questionText(input) || (type === 'file' ? resumeControlLabel(input) : ''),
     optionValue: (input as HTMLInputElement).value || input.getAttribute('value'),
     optionLabel: optionLabel(input),
     group,
     hidden: isHiddenLocation(input, group),
     placeholder: input.getAttribute('placeholder'),
+    sectionUi: type === 'file' ? sectionDataUi(input) : null,
   }
 }
 
@@ -271,9 +311,148 @@ function optionLabel(input: HTMLElement): string {
   return cleanLabel(external?.textContent)
 }
 
-function writeWorkablePlan(input: HTMLElement, plan: Exclude<WorkablePlan, { action: 'skip' }>): boolean {
-  if (isWorkableAdvanceControl({ dataUi: input.getAttribute('data-ui'), type: controlType(input) })) {
+function sectionDataUi(input: HTMLElement): string | null {
+  let node = input.parentElement
+  while (node) {
+    const ui = node.getAttribute('data-ui')
+    if (ui && ui !== 'application-form' && ui !== 'eeoc-form' && ui !== 'editor') return ui
+    node = node.parentElement
+  }
+  return null
+}
+
+function labelTextWithoutControls(root: HTMLElement): string {
+  const clone = root.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('input, textarea, select, button, a, script, style').forEach((node) => {
+    node.remove()
+  })
+  return cleanLabel(clone.textContent)
+}
+
+function resumeControlLabel(input: HTMLElement): string {
+  const aria = cleanLabel(input.getAttribute('aria-label'))
+  if (aria) return aria
+  const labelledBy = input.getAttribute('aria-labelledby')
+  if (labelledBy && input.ownerDocument) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map((id) => input.ownerDocument?.getElementById(id)?.textContent || '')
+      .join(' ')
+    const cleaned = cleanLabel(text)
+    if (cleaned) return cleaned
+  }
+  const id = input.id
+  if (id && input.ownerDocument) {
+    const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    const external = input.ownerDocument.querySelector(`label[for="${escaped}"]`)
+    const cleaned = cleanLabel(external?.textContent)
+    if (cleaned) return cleaned
+  }
+  const wrapping = input.closest('label')
+  if (wrapping) {
+    const cleaned = labelTextWithoutControls(wrapping)
+    if (cleaned) return cleaned
+  }
+  const parent = input.parentElement
+  if (parent) {
+    const cleaned = labelTextWithoutControls(parent)
+    if (cleaned && cleaned.length <= 80) return cleaned
+  }
+  return ''
+}
+
+async function withSavedResume(info: WorkableProfile): Promise<WorkableProfile> {
+  if (profileSavedResume(info)) return info
+  const remote = await requestStoredResume()
+  if (!remote) return info
+  return { ...info, resumeFile: { name: remote.name, type: remote.type, bytes: remote.bytes } }
+}
+
+async function requestStoredResume(): Promise<SavedResume | null> {
+  const runtime = typeof chrome !== 'undefined' ? chrome.runtime : undefined
+  if (!runtime?.sendMessage) return null
+  try {
+    const response: unknown = await runtime.sendMessage({ action: 'loadSavedResume' })
+    return savedResumeFromMessage(response)
+  } catch {
+    return null
+  }
+}
+
+function attachResumeFile(input: HTMLInputElement, saved: SavedResume): boolean {
+  const view = input.ownerDocument?.defaultView
+  if (!view) return false
+  const FileCtor = view.File
+  if (typeof FileCtor !== 'function') return false
+  let file: File
+  try {
+    file = new FileCtor([saved.bytes as unknown as BlobPart], saved.name, { type: saved.type })
+  } catch {
     return false
+  }
+  if (!assignFileList(input, file, view)) return false
+  dispatch(input, 'input')
+  dispatch(input, 'change')
+  const attached = input.files?.[0]
+  return !!attached && attached.name === saved.name && attached.size === file.size
+}
+
+function assignFileList(input: HTMLInputElement, file: File, view: Window): boolean {
+  const DataTransferCtor = (view as Window & { DataTransfer?: new () => DataTransfer }).DataTransfer
+  if (typeof DataTransferCtor === 'function') {
+    const transfer = new DataTransferCtor()
+    transfer.items.add(file)
+    return setFiles(input, transfer.files)
+  }
+  // jsdom has no DataTransfer. An own `files` getter is what the tests read.
+  // Chrome takes the DataTransfer path above and never defines this property.
+  try {
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return {
+          0: file,
+          length: 1,
+          item(index: number) {
+            return index === 0 ? file : null
+          },
+        }
+      },
+    })
+  } catch {
+    return false
+  }
+  return !!input.files && input.files.length === 1 && input.files[0]?.name === file.name
+}
+
+function setFiles(input: HTMLInputElement, files: FileList): boolean {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'files')?.set
+  try {
+    if (setter) setter.call(input, files)
+    else input.files = files
+  } catch {
+    return false
+  }
+  return !!input.files && input.files.length > 0 && input.files[0]?.name === files[0]?.name
+}
+
+function writeWorkablePlan(
+  input: HTMLElement,
+  plan: Exclude<WorkablePlan, { action: 'skip' }>,
+  saved: SavedResume | null,
+): boolean {
+  const described = describeWorkableField(input)
+  if (
+    isWorkableAdvanceControl({ dataUi: described.dataUi, type: described.type }) ||
+    isWorkableResumeAutofillControl(described)
+  ) {
+    return false
+  }
+  if (plan.action === 'file') {
+    if (controlType(input) !== 'file') return false
+    if (!saved) return false
+    return attachResumeFile(input as HTMLInputElement, saved)
   }
   if (plan.action === 'click') {
     const type = controlType(input)
