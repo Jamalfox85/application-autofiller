@@ -1022,7 +1022,7 @@ export function workdaySelectValue(
 }
 
 // "How did you hear" has no vault answer. It is still required on My Information.
-// Pick a listed neutral option. Do not invent a label, and do not answer Yes.
+// Commit Indeed when that row is listed. Do not invent a label, and do not answer Yes.
 export function workdayIsSourceQuestion(fieldText: string): boolean {
   const compact = fieldText.toLowerCase().replace(/[^a-z]/g, '')
   if (!compact) return false
@@ -1339,22 +1339,16 @@ function isOwnCareersPage(key: string): boolean {
   return key.includes('careers') && (key.includes('page') || key.includes('site') || key.includes('website'))
 }
 
-// Higher is a better source answer. Preferred labels outrank a leftover option.
-// Yes and employee referral stay at 0: referral opens a name we do not have.
-function sourcePreferenceRank(key: string): number {
-  if (!key || isPlaceholderKey(key) || isYesKey(key) || isReferralKey(key)) return 0
-  if (key === 'other' || key === 'other source') return 100
-  if (key.startsWith('other') && !isJobBoardKey(key)) return 96
-  if (isCompanyWebsite(key)) return 90
-  if (isCareerSite(key)) return 80
-  if (isOwnCareersPage(key)) return 70
-  if (key === 'none' || key === 'none of the above' || key === 'na' || key === 'n a' || key === 'not applicable') {
-    return 65
-  }
-  if (isSafeNoKey(key)) return 60
-  // A leftover label still fills a required dropdown. Specific job boards are last.
-  if (isJobBoardKey(key)) return key.includes('job board') || key.includes('jobboard') ? 12 : 8
-  return 20
+// The only How Did You Hear value. "Indeed.com" counts. A folder named Job Board does not.
+function isIndeedOptionKey(key: string): boolean {
+  return key === 'indeed' || key === 'indeed com'
+}
+
+// Job Board and Job Sites are the same folder. A job fair, Indeed, or LinkedIn is not that folder.
+function isJobBoardFolderKey(key: string): boolean {
+  if (!key || key.includes('fair')) return false
+  if (key === 'indeed' || key === 'indeed com' || key === 'linkedin') return false
+  return key === 'job board' || key === 'job boards' || key === 'jobboard' || key === 'job site' || key === 'job sites'
 }
 
 export function workdaySafeNoOption(optionTexts: string[]): string | null {
@@ -1370,17 +1364,32 @@ export function workdaySafeNoOption(optionTexts: string[]): string | null {
   return exact || prefixed
 }
 
-// Preferred source labels only (Other, company website, career site, own careers
-// page, or a real No). Job boards are not a match, so a partial prompt cannot
-// settle on LinkedIn before Other has loaded.
-export function workdayPreferredSourceOption(optionTexts: string[]): string | null {
-  return rankedSourceOption(optionTexts, 60)
+// Indeed when that row is actually listed. Other, a company website, Adobe.com,
+// a career site, Job Board, and No are not a How Did You Hear answer.
+export function workdayIndeedSourceOption(optionTexts: string[]): string | null {
+  if (workdayIsPhoneDeviceTypeOptionList(optionTexts)) return null
+  for (const text of optionTexts) {
+    const raw = cleanOptionLabel(text)
+    if (raw && isIndeedOptionKey(optionKey(raw))) return raw
+  }
+  return null
 }
 
-// Best listed source option. When the preferred labels are absent, another
-// listed option is used so a required question is not left blank.
+// The Job Board / Job Sites parent. Opening it is not a committed value.
+export function workdayJobBoardFolderOption(optionTexts: string[]): string | null {
+  for (const text of optionTexts) {
+    const raw = cleanOptionLabel(text)
+    if (raw && isJobBoardFolderKey(optionKey(raw))) return raw
+  }
+  return null
+}
+
+export function workdayPreferredSourceOption(optionTexts: string[]): string | null {
+  return workdayIndeedSourceOption(optionTexts)
+}
+
 export function workdaySourceOption(optionTexts: string[]): string | null {
-  return rankedSourceOption(optionTexts, 1)
+  return workdayIndeedSourceOption(optionTexts)
 }
 
 // Other, then company website, career site, careers page, then the employer's
@@ -1457,20 +1466,6 @@ export function workdayPromptRowIsFolder(element: HTMLElement): boolean {
 
 export function workdayFolderOptions(root: ParentNode): Array<{ label: string; element: HTMLElement }> {
   return workdayOptionElements(root).filter((choice) => workdayPromptRowIsFolder(choice.element))
-}
-
-function rankedSourceOption(optionTexts: string[], minRank: number): string | null {
-  // Mobile / Landline / Fax is the phone device prompt. It is not a source list,
-  // so a leftover device menu cannot be answered with Mobile and then closed.
-  if (workdayIsPhoneDeviceTypeOptionList(optionTexts)) return null
-  const ranked = optionTexts
-    .map((text, index) => ({ raw: cleanOptionLabel(text), index }))
-    .filter((option) => option.raw)
-    .map((option) => ({ ...option, rank: sourcePreferenceRank(optionKey(option.raw)) }))
-    .filter((option) => option.rank >= minRank)
-  if (ranked.length === 0) return null
-  ranked.sort((a, b) => b.rank - a.rank || a.index - b.index)
-  return ranked[0].raw
 }
 
 function choiceQuestionParts(control: Element): string[] {

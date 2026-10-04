@@ -50,10 +50,8 @@ import {
   workdayPromptRowIsFolder,
   workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
-  workdayCompanyOwnedSourceOption,
-  workdayCompanyToken,
-  workdayFolderOptions,
-  workdayPreferredSourceOption,
+  workdayIndeedSourceOption,
+  workdayJobBoardFolderOption,
   workdayPromptSearchInput,
   workdaySafeNoOption,
   workdaySourceListboxButton,
@@ -935,16 +933,6 @@ async function chooseFirstListedOption(
   return null
 }
 
-function sourceCompanyToken(button: HTMLElement): string {
-  let host = ''
-  try {
-    host = button.ownerDocument?.defaultView?.location?.hostname || ''
-  } catch {
-    host = ''
-  }
-  return workdayCompanyToken(host)
-}
-
 // aria-controls can point at an empty anchor while the rows are in a portal.
 // Country and state stay on the controlled list. Source may read the portal.
 function activeSourcePrompt(button: HTMLElement): ParentNode | null {
@@ -964,16 +952,6 @@ function activeSourcePrompt(button: HTMLElement): ParentNode | null {
 
 function normalizedSourceLabel(value: string): string {
   return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
-}
-
-function sourceChildKeepsChoice(parent: string, child: string): boolean {
-  const key = (value: string) => normalizedSourceLabel(value).replace(/[^a-z0-9]+/g, ' ').trim()
-  const parentKey = key(parent)
-  const childKey = key(child)
-  if (parentKey === 'other' || parentKey.startsWith('other ')) {
-    return childKey === 'other' || childKey.startsWith('other ')
-  }
-  return true
 }
 
 // The closed face "0 items selected" and the open list name "Options Expanded"
@@ -1022,16 +1000,6 @@ function sourceControlShows(button: HTMLElement, label: string): boolean {
   return false
 }
 
-function sourcePromptBackButton(button: HTMLElement): HTMLElement | null {
-  const prompt = activeSourcePrompt(button)
-  const scoped =
-    prompt && 'querySelector' in prompt
-      ? prompt.querySelector('[data-automation-id="backButton"]')
-      : null
-  if (scoped) return scoped as HTMLElement
-  return (button.ownerDocument?.querySelector('[data-automation-id="backButton"]') as HTMLElement | null) || null
-}
-
 async function waitForSourceLabels(
   button: HTMLElement,
   accept: (labels: string[]) => boolean,
@@ -1064,17 +1032,9 @@ function closeCommittedSourcePrompt(button: HTMLElement, label: string): boolean
   return sourceControlShows(button, label)
 }
 
-// A selectable list paints a radio or checkbox and the click stores a pill.
-// This catalog does neither, so the same click is onSelectFolder and the list
-// swaps to that row's children. A highlighted row is not a pill. Follow a list
-// change, and only keep a child that is still the choice we opened.
-async function commitSourceChoice(
-  button: HTMLElement,
-  prompt: ParentNode,
-  label: string,
-  depth = 0,
-): Promise<string | null> {
-  if (depth > 2) return null
+// A highlighted row is not a pill. Indeed counts only when the closed face shows
+// that label. A list that moves on to something else is left alone.
+async function commitIndeedPill(button: HTMLElement, prompt: ParentNode, label: string): Promise<string | null> {
   const option = workdayOptionElement(prompt, label)
   if (!option) return null
   const before = sourceLabelKey(substantivePromptLabels(workdayOptionLabels(prompt)))
@@ -1087,73 +1047,31 @@ async function commitSourceChoice(
     const current = activeSourcePrompt(button)
     const labels = current ? substantivePromptLabels(workdayOptionLabels(current)) : []
     const key = sourceLabelKey(labels)
-    if (current && labels.length > 0 && key !== before) {
-      const child = workdayCompanyOwnedSourceOption(sourceLeafLabels(current), sourceCompanyToken(button))
-      // Other on the root is the value we want. Its folder may also list
-      // Career Websites or Blue Origin Website; those are not the pill.
-      if (!child || !sourceChildKeepsChoice(label, child)) return null
-      return commitSourceChoice(button, current, child, depth + 1)
-    }
+    if (labels.length > 0 && key !== before && !workdayIndeedSourceOption(labels)) return null
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   return null
 }
 
-// Folders are not values. Open each parent, then commit one company-owned leaf.
-// No such leaf means the field stays empty.
-async function selectNestedWorkdaySource(
-  button: HTMLElement,
-  company: string,
-): Promise<string | null | undefined> {
-  const rootLabels = await waitForSourceLabels(button, (labels) => labels.length > 0)
-  const rootPrompt = activeSourcePrompt(button)
-  if (!rootLabels || !rootPrompt || workdayFolderOptions(rootPrompt).length === 0) return undefined
-  const rootKey = sourceLabelKey(rootLabels)
-  const groups: Array<{ parent: string; labels: string[] }> = []
-  const parents = workdayFolderOptions(rootPrompt).slice(0, 12)
-  for (const folder of parents) {
+// Job Board and Job Sites open children. The folder name itself is not a pill.
+// A row with no chevron still opens its children on this catalog.
+async function openJobBoardFolder(button: HTMLElement, prompt: ParentNode): Promise<ParentNode | null> {
+  const labels = substantivePromptLabels(workdayOptionLabels(prompt))
+  const folder = workdayJobBoardFolderOption(labels)
+  if (!folder) return null
+  const option = workdayOptionElement(prompt, folder)
+  if (!option) return null
+  const before = sourceLabelKey(labels)
+  activateWorkdayOption(promptRowTarget(option))
+  const started = Date.now()
+  while (Date.now() - started < 1200) {
+    if (sourceControlShows(button, folder)) return null
     const current = activeSourcePrompt(button)
-    const row = current
-      ? workdayFolderOptions(current).find((entry) => entry.label === folder.label)
-      : null
-    if (!row) continue
-    const before = sourceLabelKey(substantivePromptLabels(workdayOptionLabels(current || rootPrompt)))
-    activateWorkdayOption(promptRowTarget(row.element))
-    const children = await waitForSourceLabels(
-      button,
-      (labels) => labels.length > 0 && sourceLabelKey(labels) !== before,
-    )
-    if (children) groups.push({ parent: folder.label, labels: children })
-    const back = sourcePromptBackButton(button)
-    if (back) activateWorkdayOption(back)
-    const restored = await waitForSourceLabels(button, (labels) => sourceLabelKey(labels) === rootKey)
-    if (!restored) break
+    const next = current ? substantivePromptLabels(workdayOptionLabels(current)) : []
+    if (current && next.length > 0 && sourceLabelKey(next) !== before) return current
+    await new Promise((resolve) => setTimeout(resolve, 20))
   }
-  const best = workdayCompanyOwnedSourceOption(
-    groups.flatMap((group) => group.labels),
-    company,
-  )
-  const group = best ? groups.find((entry) => entry.labels.includes(best)) : null
-  if (!best || !group) {
-    collapseOpenListbox()
-    return null
-  }
-  const again = activeSourcePrompt(button)
-  const parent = again ? workdayFolderOptions(again).find((entry) => entry.label === group.parent) : null
-  if (!parent) {
-    collapseOpenListbox()
-    return null
-  }
-  activateWorkdayOption(promptRowTarget(parent.element))
-  const opened = await waitForSourceLabels(button, (labels) => labels.includes(best))
-  const prompt = opened ? activeSourcePrompt(button) : null
-  if (!prompt) {
-    collapseOpenListbox()
-    return null
-  }
-  const committed = await commitSourceChoice(button, prompt, best)
-  if (!committed) collapseOpenListbox()
-  return committed
+  return null
 }
 
 // The icon handler searches when the box has a value, then clears the box.
@@ -1196,19 +1114,17 @@ async function openSourceCatalog(button: HTMLElement): Promise<string[] | null> 
   return waitForSourceLabels(button, (rows) => rows.length > 0)
 }
 
-// Folders are parents. A company-owned leaf on the same list, such as Other, is
-// the selection. Opening Career Websites while Other is still on the root leaves
-// a highlighted child and no pill.
+// A chevron row is a parent. Job Sites on the Blue Origin catalog has no chevron
+// and still opens children, so the folder check is the label, not the icon.
 function sourceLeafLabels(prompt: ParentNode): string[] {
   return workdayOptionElements(prompt)
     .filter((choice) => !workdayPromptRowIsFolder(choice.element))
     .map((choice) => choice.label)
 }
 
-// Other, then a career site (including "Career Websites"), then the employer's
-// own site. A nested top row is a folder. A list with none of those stays empty.
+// Open Job Board (or Job Sites) and commit Indeed. Indeed already sitting on
+// the list is committed directly. No Indeed on that path leaves the field empty.
 async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> {
-  const company = sourceCompanyToken(button)
   collapseOpenListbox()
   const labels = await openSourceCatalog(button)
   const prompt = activeSourcePrompt(button)
@@ -1221,15 +1137,25 @@ async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> 
     collapseOpenListbox()
     return null
   }
-  const leafChoice = workdayCompanyOwnedSourceOption(sourceLeafLabels(prompt), company)
-  if (leafChoice) {
-    const committed = await commitSourceChoice(button, prompt, leafChoice)
+  const listedIndeed = workdayIndeedSourceOption(sourceLeafLabels(prompt))
+  if (listedIndeed) {
+    const committed = await commitIndeedPill(button, prompt, listedIndeed)
     if (!committed) collapseOpenListbox()
     return committed
   }
-  if (workdayFolderOptions(prompt).length > 0) return selectNestedWorkdaySource(button, company)
-  collapseOpenListbox()
-  return null
+  const opened = await openJobBoardFolder(button, prompt)
+  if (!opened) {
+    collapseOpenListbox()
+    return null
+  }
+  const childIndeed = workdayIndeedSourceOption(sourceLeafLabels(opened))
+  if (!childIndeed) {
+    collapseOpenListbox()
+    return null
+  }
+  const committed = await commitIndeedPill(button, opened, childIndeed)
+  if (!committed) collapseOpenListbox()
+  return committed
 }
 
 export async function selectWorkdaySource(button: HTMLElement): Promise<string | null> {
@@ -1312,8 +1238,8 @@ async function chooseWorkdaySourceControl(
     return chooseWorkdayRadio(input as HTMLInputElement, workdaySourceOption)
   }
   // A custom text input opens a flat list. Claiming it without that click left
-  // "0 items selected" in place. Still claim the field when no company-owned
-  // leaf exists so the generic matcher cannot invent LinkedIn.
+  // "0 items selected" in place. Still claim the field when Indeed is not listed
+  // so the generic matcher cannot invent LinkedIn.
   if (!workdayPromptFaceIsEmpty(input)) return true
   await chooseWorkdaySource(input)
   return true
