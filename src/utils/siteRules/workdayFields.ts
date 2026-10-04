@@ -1,5 +1,11 @@
 import { RELATIVE_MATCHES } from '../relativeMatches.ts'
-import { degreeSearchValues } from './greenhouseValues.ts'
+import {
+  degreeSearchValues,
+  isAuthorizedToWork,
+  pickSponsorshipOption,
+  pickWorkAuthorizationOption,
+  profileRequiresSponsorship,
+} from './greenhouseValues.ts'
 
 // Selectors and page ids taken from the current candidate-experience bundles
 // (cx-jobs and candidate-experience-apply-flow): Apply Manually is
@@ -939,9 +945,92 @@ export function workdayIsSourceQuestion(fieldText: string): boolean {
 
 // Former / previous employee and "have you worked here" are Yes/No. The safe
 // answer is No. "I currently work here" on a past role is a different control.
+// Cisco Application Questions. Authorization and sponsorship use the saved
+// profile. Years and government questions have no stored answer, so they stay
+// unanswered. A government question is not a former-employee question.
+export type WorkdayApplicationQuestion = 'authorized' | 'sponsorship' | 'years' | 'government'
+
+export function workdayApplicationQuestionKind(
+  control?: Element | null,
+  fieldText = '',
+): WorkdayApplicationQuestion | null {
+  const text = `${fieldText} ${control ? workdayChoiceQuestionText(control) : ''}`
+  const compact = text.toLowerCase().replace(/[^a-z]/g, '')
+  if (!compact) return null
+  if (isWorkdayGovernmentQuestion(compact)) return 'government'
+  if (isWorkdayYearsQuestion(compact)) return 'years'
+  if (isWorkdaySponsorshipQuestion(compact)) return 'sponsorship'
+  if (isWorkdayAuthorizedQuestion(compact)) return 'authorized'
+  return null
+}
+
+function isWorkdayGovernmentQuestion(compact: string): boolean {
+  if (compact.includes('foreigngovernment') || compact.includes('governmentofficial') || compact.includes('governmententity')) {
+    return true
+  }
+  return compact.includes('government') && (compact.includes('family') || compact.includes('relationship') || compact.includes('relative'))
+}
+
+function isWorkdayYearsQuestion(compact: string): boolean {
+  if (compact.includes('yearsofage') || compact.includes('yearsold')) return false
+  return compact.includes('howmanyyears') || (compact.includes('years') && compact.includes('experience'))
+}
+
+function isWorkdaySponsorshipQuestion(compact: string): boolean {
+  return compact.includes('sponsor') || compact.includes('employmentvisa') || compact.includes('temporaryvisa')
+}
+
+function isWorkdayAuthorizedQuestion(compact: string): boolean {
+  if (compact.includes('sponsor')) return false
+  return (
+    compact.includes('legallyauthorized') ||
+    compact.includes('authorizedtowork') ||
+    compact.includes('authorisedtowork') ||
+    compact.includes('workauthorization') ||
+    compact.includes('eligibletowork') ||
+    compact.includes('eligibilitytowork')
+  )
+}
+
+// The yes/no word implied by the saved profile. Null when the profile has no
+// answer. The caller still has to find that word among the options this control
+// actually lists.
+export function workdayProfileChoice(
+  kind: 'authorized' | 'sponsorship',
+  info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
+): 'yes' | 'no' | null {
+  const status = (info.workAuthorization || '').trim()
+  const sponsorship = (info.sponsorshipRequired || '').trim()
+  if (kind === 'authorized') {
+    if (!status) return null
+    return isAuthorizedToWork(status) ? 'yes' : 'no'
+  }
+  if (!status && !sponsorship) return null
+  return profileRequiresSponsorship({ workAuthorization: status, sponsorshipRequired: sponsorship }) ? 'yes' : 'no'
+}
+
+export function workdayListedProfileOption(
+  labels: string[],
+  kind: 'authorized' | 'sponsorship',
+  info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
+): string | null {
+  const status = (info.workAuthorization || '').trim()
+  const sponsorship = (info.sponsorshipRequired || '').trim()
+  if (kind === 'authorized') {
+    if (!status) return null
+    return pickWorkAuthorizationOption(labels, status)
+  }
+  if (!status && !sponsorship) return null
+  return pickSponsorshipOption(
+    labels,
+    profileRequiresSponsorship({ workAuthorization: status, sponsorshipRequired: sponsorship }),
+  )
+}
+
 export function workdayIsFormerEmployeeQuestion(fieldText: string): boolean {
   const compact = fieldText.toLowerCase().replace(/[^a-z]/g, '')
   if (!compact) return false
+  if (isWorkdayGovernmentQuestion(compact)) return false
   if (
     compact.includes('currentlyworkhere') &&
     !compact.includes('former') &&
