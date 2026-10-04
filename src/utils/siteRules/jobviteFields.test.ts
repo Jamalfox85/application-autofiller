@@ -246,6 +246,76 @@ test('work authorization, sponsorship, and work status stay within known options
   )
 })
 
+test('authorized_no_sponsorship maps a citizenship Work Status menu to US Citizen', () => {
+  // Live Internet Brands menu (jobs.jobvite.com/internetbrands/job/oH9MAfwW/apply):
+  // None, US Citizen, Permanent Resident, H1 Visa, TN Visa, F1 Visa, Decline to Self Identify.
+  const authorized = { ...profile, workAuthorization: 'authorized_no_sponsorship' }
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Work Status', type: 'select-one', options: workStatusOptions }), authorized),
+    { action: 'select', optionText: 'US Citizen' },
+  )
+
+  const residentListedFirst = [
+    { text: 'Select an option...', value: '' },
+    { text: 'Permanent Resident', value: 'Permanent Resident' },
+    { text: 'US Citizen', value: 'US Citizen' },
+    { text: 'H1', value: 'H1' },
+    { text: 'TN', value: 'TN' },
+    { text: 'F1', value: 'F1' },
+  ]
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Work Status', type: 'select-one', options: residentListedFirst }), authorized),
+    { action: 'select', optionText: 'US Citizen' },
+  )
+
+  const permanentOnly = workStatusOptions.filter((option) => option.text !== 'US Citizen')
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Work Status', type: 'select-one', options: permanentOnly }), authorized),
+    { action: 'select', optionText: 'Permanent Resident' },
+  )
+
+  const greenCardOnly = [
+    { text: 'Select an option...', value: '' },
+    { text: 'Green Card', value: 'Green Card' },
+    { text: 'H1 Visa', value: 'H1 Visa' },
+    { text: 'OPT', value: 'OPT' },
+    { text: 'CPT', value: 'CPT' },
+  ]
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Work Status', type: 'select-one', options: greenCardOnly }), authorized),
+    { action: 'select', optionText: 'Green Card' },
+  )
+
+  const visasOnly = [
+    { text: 'Select an option...', value: '' },
+    { text: 'H1', value: 'H1' },
+    { text: 'TN', value: 'TN' },
+    { text: 'F1', value: 'F1' },
+    { text: 'OPT', value: 'OPT' },
+    { text: 'CPT', value: 'CPT' },
+  ]
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Work Status', type: 'select-one', options: visasOnly }), authorized),
+    { action: 'skip' },
+  )
+
+  assert.deepEqual(
+    jobvitePlan(
+      field({
+        label: 'Work Status',
+        type: 'select-one',
+        options: [
+          { text: 'Select an option...', value: '' },
+          { text: 'Authorized without sponsorship', value: 'Authorized without sponsorship' },
+          { text: 'Requires sponsorship', value: 'Requires sponsorship' },
+        ],
+      }),
+      authorized,
+    ),
+    { action: 'select', optionText: 'Authorized without sponsorship' },
+  )
+})
+
 test('EEO radios and selects follow the profile and leave prefer-not-to-say blank', () => {
   assert.deepEqual(
     jobvitePlan(field({ label: 'Gender', type: 'radio', optionLabel: 'Female' }), profile),

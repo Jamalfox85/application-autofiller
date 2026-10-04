@@ -699,33 +699,48 @@ function authorizedAnswer(info: JobviteProfile): 'yes' | 'no' | null {
   return null
 }
 
+function isUsCitizenOption(norm: string): boolean {
+  return (
+    (norm.includes('citizen') || norm === 'us' || norm === 'usa') &&
+    !norm.includes('notacitizen') &&
+    !norm.includes('noncitizen')
+  )
+}
+
+function isPermanentResidentOption(norm: string): boolean {
+  return norm.includes('permanentresident') || norm.includes('greencard') || norm.includes('lawfulpermanent')
+}
+
+// Normalized option text has no spaces or hyphens ("H1 Visa" → h1visa, "TN" → tn).
+function isSpecificVisaOption(norm: string): boolean {
+  return /h1|tnvisa|^tn$|f1visa|^f1$|opt|cpt/.test(norm)
+}
+
 function pickWorkStatus(field: JobviteField, auth: string): string | null {
   const rows = optionRows(field).filter((row) => row.norm !== 'none' && !isDeclineLabel(row.text))
   const find = (pred: (norm: string) => boolean) => rows.find((row) => pred(row.norm))?.text || null
-  if (auth === 'us_citizen') {
-    return find(
-      (norm) =>
-        (norm.includes('citizen') || norm === 'us' || norm === 'usa') &&
-        !norm.includes('notacitizen') &&
-        !norm.includes('noncitizen'),
-    )
-  }
-  if (auth === 'green_card') {
-    return find(
-      (norm) => norm.includes('permanentresident') || norm.includes('greencard') || norm.includes('lawfulpermanent'),
-    )
-  }
+  if (auth === 'us_citizen') return find(isUsCitizenOption)
+  if (auth === 'green_card') return find(isPermanentResidentOption)
   if (auth === 'authorized_no_sponsorship') {
-    return find(
-      (norm) =>
-        norm.includes('nosponsorship') ||
-        norm.includes('withoutsponsorship') ||
-        (norm.includes('authorized') && !norm.includes('sponsor')),
+    // Hosted menus such as Internet Brands list citizenship, not "no sponsorship".
+    // Prefer US Citizen, then permanent resident / green card — the same order as
+    // the us_citizen and green_card branches. Never choose H1, TN, F1, OPT, or CPT.
+    // "Authorized without sponsorship" wording is only a fallback when those are absent.
+    return (
+      find(isUsCitizenOption) ||
+      find(isPermanentResidentOption) ||
+      find(
+        (norm) =>
+          !isSpecificVisaOption(norm) &&
+          (norm.includes('nosponsorship') ||
+            norm.includes('withoutsponsorship') ||
+            (norm.includes('authorized') && !norm.includes('sponsor'))),
+      )
     )
   }
   if (auth === 'work_visa' || auth === 'need_sponsorship') {
     return find((norm) => {
-      if (/h1|tnvisa|f1visa|opt|cpt/.test(norm)) return false
+      if (isSpecificVisaOption(norm)) return false
       return norm.includes('requiresponsor') || norm.includes('needsponsor') || norm === 'visa' || norm === 'workvisa'
     })
   }
