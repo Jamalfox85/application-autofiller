@@ -46,6 +46,7 @@ interface JobState {
 // lifetime (onboarding screen and the Links sheet both use it).
 const phase = ref<ResumeUploadPhase>('idle')
 const fileName = ref('')
+const storagePath = ref<string | null>(null)
 const firstUpload = ref<boolean | null>(null)
 const parsedResume = ref<ParsedResumeData | null>(null)
 const errorMessage = ref('')
@@ -74,6 +75,7 @@ function apply(state: JobState | undefined | null) {
 
     if (state.phase === 'done') {
       firstUpload.value = state.firstUpload ?? null
+      storagePath.value = state.storagePath ?? null
       parsedResume.value = state.parsed != null ? normalizeParsedResume(state.parsed) : null
       errorMessage.value = ''
       errorCode.value = ''
@@ -156,6 +158,7 @@ export function useResumeUpload() {
     errorCode.value = ''
     parsedResume.value = null
     firstUpload.value = null
+    storagePath.value = null
     fileName.value = file.name
     phase.value = 'uploading'
     startPolling()
@@ -214,9 +217,20 @@ export function useResumeUpload() {
     errorCode.value = ''
     parsedResume.value = null
     firstUpload.value = null
+    storagePath.value = null
     fileName.value = ''
     await chrome.storage.local.remove(STORAGE_KEY)
   }
 
-  return { phase, fileName, firstUpload, parsedResume, errorMessage, errorCode, start, clear }
+  return {
+    phase,
+    fileName,
+    storagePath,
+    firstUpload,
+    parsedResume,
+    errorMessage,
+    errorCode,
+    start,
+    clear,
+  }
 }

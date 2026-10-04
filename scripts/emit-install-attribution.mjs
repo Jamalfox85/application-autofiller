@@ -67,6 +67,15 @@ await esbuild.build({
 })
 
 await esbuild.build({
+  entryPoints: ['src/services/resumeVaultWorker.ts'],
+  outfile: 'dist/src/services/resumeVaultWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})
+
+await esbuild.build({
   entryPoints: ['src/services/extensionPayContent.ts'],
   outfile: 'dist/extensionPayContent.js',
   format: 'iife',
