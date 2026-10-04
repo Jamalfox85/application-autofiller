@@ -25,6 +25,9 @@ import {
   workdayContactKey,
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
+  workdayElementIsFormerEmployee,
+  workdayElementIsPhoneDeviceType,
+  workdayElementIsSource,
   workdayExperienceLocation,
   workdayFormerEmployeeListboxButton,
   workdayIsCustomSourceField,
@@ -834,4 +837,138 @@ test('My Information listboxes for source and former employee are not the countr
   assert.equal(workdayListboxIsEmpty(doc.getElementById('source-btn')!), true)
   assert.equal(workdayListboxIsEmpty(doc.getElementById('country')!), false)
   assert.equal(workdayPhoneDeviceTypeButton(doc)?.id, 'phone')
+})
+
+test('phone device type stays Mobile or Cell and is not a source or former-employee question', async () => {
+  assert.equal(workdayPhoneTypeOption(['Landline', 'Fax', 'Mobile']), 'Mobile')
+  assert.equal(workdayPhoneTypeOption(['Fax', 'Cell', 'Landline']), 'Cell')
+  assert.equal(workdayPhoneTypeOption(['Work', 'Home', 'Mobile']), 'Mobile')
+  assert.equal(workdaySourceOption(['Mobile', 'Landline', 'Fax']), null)
+  assert.equal(workdayPreferredSourceOption(['Mobile', 'Landline', 'Fax']), null)
+  assert.equal(workdaySourceOption(['Select One', 'Mobile', 'Landline', 'Fax']), null)
+  assert.equal(workdaySourceOption(['LinkedIn', 'Indeed', 'Cisco Jobs Career Site']), 'Cisco Jobs Career Site')
+  assert.equal(workdayPreferredSourceOption(['LinkedIn', 'Cisco Jobs Career Site']), 'Cisco Jobs Career Site')
+  assert.equal(workdaySafeNoOption(['Select One', 'Yes', 'No']), 'No')
+  assert.equal(workdaySourceOption(['Yes', 'No']), 'No')
+  assert.equal(workdaySafeNoOption(['Yes']), null)
+
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-fkit-id="myInformation">
+      <label>How Did You Hear About Us?</label>
+      <div data-automation-id="phone-device-type">
+        <button id="phone-btn" data-automation-id="promptIcon" aria-haspopup="listbox" aria-expanded="true">
+          <span data-automation-id="promptSelectionLabel">Select One</span>
+        </button>
+      </div>
+      <label id="source-label">How Did You Hear About Us?</label>
+      <button id="source-btn" aria-haspopup="listbox" aria-expanded="true" aria-labelledby="source-label">
+        <span data-automation-id="promptSelectionLabel">Select One</span>
+      </button>
+      <div data-automation-id="formField-previousWorker">
+        <label id="former-label">Are you a former Cisco employee or do you have an email ID?</label>
+        <button id="former-btn" aria-haspopup="listbox" aria-labelledby="former-label">
+          <span data-automation-id="promptSelectionLabel">Select One</span>
+        </button>
+      </div>
+    </div>
+    <div id="source-menu" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" data-automation-label="LinkedIn">LinkedIn</div>
+      <div data-automation-id="promptOption" data-automation-label="Cisco Jobs Career Site">Cisco Jobs Career Site</div>
+    </div>
+    <div id="phone-menu" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" data-automation-label="Landline">Landline</div>
+      <div data-automation-id="promptOption" data-automation-label="Mobile">Mobile</div>
+      <div data-automation-id="promptOption" data-automation-label="Fax">Fax</div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const phone = doc.getElementById('phone-btn')!
+  const source = doc.getElementById('source-btn')!
+  const former = doc.getElementById('former-btn')!
+  assert.equal(workdayElementIsPhoneDeviceType(phone), true)
+  assert.equal(workdayElementIsPhoneDeviceType(source), false)
+  assert.equal(workdayElementIsPhoneDeviceType(former), false)
+  assert.equal(workdayElementIsSource(phone, 'howdidyouhearaboutus'), false)
+  assert.equal(workdayElementIsFormerEmployee(phone, 'areyouaformerciscoemployeeordoyouhaveanemailid'), false)
+  assert.equal(workdayElementIsSource(source, 'howdidyouhearaboutus'), true)
+  assert.equal(workdayElementIsFormerEmployee(former, 'areyouaformerciscoemployeeordoyouhaveanemailid'), true)
+  assert.equal(workdayPhoneDeviceTypeButton(doc)?.id, 'phone-btn')
+  assert.equal(workdaySourceListboxButton(doc)?.id, 'source-btn')
+  assert.equal(workdayFormerEmployeeListboxButton(doc)?.id, 'former-btn')
+  assert.equal(workdayPhoneTypeOption(workdayOptionLabels(doc.getElementById('phone-menu')!)), 'Mobile')
+  // Source menu is open and listed first. The device-type button still resolves
+  // to Mobile/Landline/Fax, and the source button does not take that menu.
+  assert.equal(workdayActivePrompt(source)?.id, 'source-menu')
+
+  const phoneMenuLast = new JSDOM(`<!doctype html><body>
+    <button id="phone-type" data-automation-id="phoneType" aria-haspopup="listbox" aria-expanded="true">Select One</button>
+    <div id="careers-menu" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" data-automation-label="Cisco Jobs Career Site">Cisco Jobs Career Site</div>
+    </div>
+    <div id="device-menu" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" data-automation-label="Fax">Fax</div>
+      <div data-automation-id="promptOption" data-automation-label="Cell">Cell</div>
+    </div>
+  </body>`)
+  const phoneType = phoneMenuLast.window.document.getElementById('phone-type')!
+  assert.equal(workdayElementIsSource(phoneType, 'howdidyouhearaboutus'), false)
+  assert.equal(workdayElementIsFormerEmployee(phoneType, 'previousemployee'), false)
+  assert.equal(workdayActivePrompt(phoneType)?.id, 'device-menu')
+  assert.equal(
+    workdayPhoneTypeOption(workdayOptionLabels(phoneMenuLast.window.document.getElementById('device-menu')!)),
+    'Cell',
+  )
+
+  const selectDom = new JSDOM(
+    `<!doctype html><body>
+      <select id="phone-device-type">
+        <option value="">Select One</option>
+        <option value="land">Landline</option>
+        <option value="mob">Mobile</option>
+        <option value="fax">Fax</option>
+      </select>
+      <select id="phoneType">
+        <option value="">Select One</option>
+        <option value="land">Landline</option>
+        <option value="cell">Cell</option>
+        <option value="fax">Fax</option>
+      </select>
+      <select id="source">
+        <option value="">Select One</option>
+        <option value="li">LinkedIn</option>
+        <option value="careers">Cisco Jobs Career Site</option>
+        <option value="yes">Yes</option>
+      </select>
+      <select id="former-employee">
+        <option value="">Select One</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+    </body>`,
+    { url: 'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/apply' },
+  )
+  const selectDoc = selectDom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const info = { country: 'united_states' } as PersonalInfo
+  const phoneSelect = selectDoc.getElementById('phone-device-type') as HTMLSelectElement
+  const cellSelect = selectDoc.getElementById('phoneType') as HTMLSelectElement
+  const sourceSelect = selectDoc.getElementById('source') as HTMLSelectElement
+  const formerSelect = selectDoc.getElementById('former-employee') as HTMLSelectElement
+  assert.equal(workdayElementIsSource(phoneSelect, 'howdidyouhearaboutus'), false)
+  assert.equal(workdayElementIsFormerEmployee(phoneSelect, 'areyouaformerciscoemployee'), false)
+  assert.equal(workdayElementIsSource(cellSelect, 'howdidyouhearaboutus'), false)
+  assert.equal(await rule.apply(phoneSelect, 'howdidyouhearaboutus', info), true)
+  assert.equal(phoneSelect.value, 'mob')
+  assert.equal(await rule.apply(cellSelect, 'phonedevicetype', info), true)
+  assert.equal(cellSelect.value, 'cell')
+  assert.equal(await rule.apply(sourceSelect, 'howdidyouhearaboutus', info), true)
+  assert.equal(sourceSelect.value, 'careers')
+  assert.notEqual(sourceSelect.value, 'yes')
+  assert.equal(
+    await rule.apply(formerSelect, 'haveyoueverbeenaciscoemployeeordoyouhaveanemailid', info),
+    true,
+  )
+  assert.equal(formerSelect.value, 'no')
+  assert.notEqual(formerSelect.value, 'yes')
 })
