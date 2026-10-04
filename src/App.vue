@@ -148,15 +148,6 @@ const lastFillLabel = computed(() => {
   return `Last fill · ${mostRecent.site}, ${when}`
 })
 
-const recentFills = computed(() => fillHistory.value.slice(0, 3))
-
-const formatRecentFillTime = (timestamp: number) => {
-  const minutesAgo = Math.round((Date.now() - timestamp) / 60000)
-  if (minutesAgo < 1) return 'just now'
-  if (minutesAgo < 60) return `${minutesAgo}m ago`
-  return `${Math.round(minutesAgo / 60)}h ago`
-}
-
 // Methods
 const detectApplication = async () => {
   try {
@@ -514,20 +505,7 @@ watch(authStatus, (next, previous) => {
         </button>
       </div>
 
-      <div v-if="!detection.detected && recentFills.length" class="recent-fills">
-        <div class="section-header-row">
-          <span class="section-header-label">Recent fills</span>
-        </div>
-        <button
-          v-for="entry in recentFills"
-          :key="entry.id"
-          class="recent-fill-row"
-          @click="activeView = 'history'"
-        >
-          <span class="recent-fill-role">{{ entry.role }}</span>
-          <span class="recent-fill-meta">{{ entry.site }} · {{ formatRecentFillTime(entry.timestamp) }}</span>
-        </button>
-      </div>
+      <button class="history-btn" type="button" @click="activeView = 'history'">History</button>
 
       <AutoDetectSwitch class="section" />
 
@@ -564,7 +542,6 @@ watch(authStatus, (next, previous) => {
     <footer v-if="activeView === 'main'" class="footer">
       <template v-if="detection.detected">
         <span class="footer-note">{{ lastFillLabel }}</span>
-        <button class="footer-link" @click="activeView = 'history'">View history</button>
       </template>
       <template v-else>
         <span class="footer-note">Synced</span>
@@ -911,53 +888,24 @@ watch(authStatus, (next, previous) => {
   }
 }
 
-.recent-fills {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.recent-fill-row {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+.history-btn {
   width: 100%;
-  text-align: left;
-  border: 1px solid #22222a;
+  border: 1px solid #2e2e36;
+  border-radius: 9px;
   background: #17171b;
-  border-radius: 8px;
-  padding: 9px 11px;
-  cursor: pointer;
-  font-family: inherit;
   color: #ebebee;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.recent-fill-row:hover {
-  background: #1d1d23;
-  border-color: #33333d;
-}
-
-.recent-fill-role {
-  font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.recent-fill-meta {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10.5px;
-  color: #7c7c86;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  cursor: pointer;
+  &:hover {
+    background: #1d1d23;
+    border-color: #47475a;
+  }
+  &:active {
+    background: #141418;
+  }
 }
 
 .section-header-row {
