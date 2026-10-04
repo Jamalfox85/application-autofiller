@@ -29,7 +29,7 @@ const account = (overrides: Partial<ApplicationAccount> = {}): ApplicationAccoun
   id: 1,
   portal: 'iCIMS',
   email: 'icims@example.com',
-  password: 'correct horse',
+  password: 'Correct horse',
   requireConfirmation: true,
   ...overrides,
 })
@@ -126,8 +126,32 @@ test('gate password is written even when requireConfirmation is on, matching Wor
     login,
   )
   assert.equal(textValue(email), 'icims@example.com')
-  assert.equal(textValue(password), 'correct horse')
-  assert.equal(textValue(confirm), 'correct horse')
+  assert.equal(textValue(password), 'Correct horse')
+  assert.equal(textValue(confirm), 'Correct horse')
+})
+
+test('an iCIMS password without an uppercase letter is rewritten before fill', () => {
+  const failing = profile({
+    applicationAccounts: [account({ password: 'correct horse' })],
+  })
+  const password = planIcimsFill(control({ type: 'password', name: 'css_password' }), failing, login)
+  const confirm = planIcimsFill(
+    control({ type: 'password', name: 'css_password_confirm' }),
+    failing,
+    login,
+  )
+  const filled = textValue(password)
+  assert.equal(textValue(confirm), filled)
+  assert.match(filled, /[A-Z]/)
+  assert.notEqual(filled, 'correct horse')
+
+  const passing = 'Correct horse'
+  const kept = planIcimsFill(
+    control({ type: 'password', name: 'css_password' }),
+    profile({ applicationAccounts: [account({ password: passing })] }),
+    login,
+  )
+  assert.equal(textValue(kept), passing)
 })
 
 test('a missing iCIMS password is claimed and not replaced with the legacy Workday password', () => {
@@ -289,7 +313,7 @@ test('fillIcimsLoginGate writes account email and password and does not advance 
     resetIcimsGateFillState()
   }
   assert.equal(email.value, 'icims@example.com')
-  assert.equal(password.value, 'correct horse')
+  assert.equal(password.value, 'Correct horse')
   assert.equal(eu.checked, false)
   assert.equal(captcha.value, '')
   assert.deepEqual(clicks, [])

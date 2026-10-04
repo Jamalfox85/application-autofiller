@@ -188,3 +188,25 @@ export function hasIcimsAccountCredentials(
   const account = getIcimsAccount(personalInfo)
   return account.email.length > 0 && account.password.trim().length > 0
 }
+
+// Enterprise Mobility and HireRight candidate profiles reject a password with
+// "Your password must have at least: 1 uppercase". No other iCIMS password rule
+// is recorded in this repo or on that form.
+const ICIMS_PASSWORD_UPPERCASE = /[A-Z]/
+
+// A password that already has an uppercase letter is returned unchanged.
+// A password that does not is rewritten so it has one: the first a-z letter is
+// capitalized, or a single uppercase letter is appended when the password has
+// no letter. A blank password stays blank.
+export function icimsAccountPassword(password: string): string {
+  if (password.trim() === '' || ICIMS_PASSWORD_UPPERCASE.test(password)) return password
+  const capitalized = password.replace(/[a-z]/, (letter) => letter.toUpperCase())
+  if (ICIMS_PASSWORD_UPPERCASE.test(capitalized)) return capitalized
+  return `${password}A`
+}
+
+// Workday, Greenhouse, and every other portal keep the password that was typed.
+export function passwordForApplicationAccount(portal: string, password: string): string {
+  if (portal.trim().toLowerCase() !== ICIMS_ACCOUNT_PORTAL) return password
+  return icimsAccountPassword(password)
+}

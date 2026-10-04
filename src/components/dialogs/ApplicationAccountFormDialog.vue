@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { ApplicationAccount } from '../../types'
+import { passwordForApplicationAccount } from '../../utils/siteRules/icimsAccount.ts'
 import FullScreenSheet from './FullScreenSheet.vue'
 
 const props = defineProps<{
@@ -83,7 +84,7 @@ const handleSave = () => {
     id: props.item?.id ?? Date.now(),
     portal: portal.value,
     email: email.value.trim(),
-    password: password.value,
+    password: passwordForApplicationAccount(portal.value, password.value),
     requireConfirmation: requireConfirmation.value,
   }
   if (props.item) {
