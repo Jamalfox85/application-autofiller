@@ -1033,28 +1033,40 @@ function closeCommittedSourcePrompt(button: HTMLElement, label: string): boolean
 }
 
 // A highlighted row is not a pill. Indeed counts only when the closed face shows
-// that label. A list that moves on to something else is left alone.
+// that label. The list can change before the pill is painted; closing on that
+// change sends Escape, and Workday drops a folder load that has not finished.
 async function commitIndeedPill(button: HTMLElement, prompt: ParentNode, label: string): Promise<string | null> {
   const option = workdayOptionElement(prompt, label)
   if (!option) return null
-  const before = sourceLabelKey(substantivePromptLabels(workdayOptionLabels(prompt)))
   activateWorkdayOption(promptRowTarget(option))
   const started = Date.now()
   while (Date.now() - started < 1200) {
     if (sourceControlShows(button, label)) {
       return closeCommittedSourcePrompt(button, label) ? label : null
     }
-    const current = activeSourcePrompt(button)
-    const labels = current ? substantivePromptLabels(workdayOptionLabels(current)) : []
-    const key = sourceLabelKey(labels)
-    if (labels.length > 0 && key !== before && !workdayIndeedSourceOption(labels)) return null
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   return null
 }
 
+function sourcePromptElement(button: HTMLElement): Element | null {
+  const prompt = activeSourcePrompt(button)
+  if (!prompt || !('querySelector' in prompt)) return null
+  return prompt as Element
+}
+
+// Folder children are a network load. The popup shows a busy panel, then the
+// rows. Escape while that panel is up aborts the load and leaves no pill.
+function sourceListIsBusy(button: HTMLElement): boolean {
+  const element = sourcePromptElement(button)
+  if (!element) return false
+  if (element.getAttribute('aria-busy') === 'true') return true
+  return !!element.querySelector('[aria-busy="true"], [data-automation-id="wd-LoadingPanel"]')
+}
+
 // Job Board and Job Sites open children. The folder name itself is not a pill.
-// A row with no chevron still opens its children on this catalog.
+// A row with no chevron still opens its children on this catalog. A search
+// flash or a loading row is not that child list.
 async function openJobBoardFolder(button: HTMLElement, prompt: ParentNode): Promise<ParentNode | null> {
   const labels = substantivePromptLabels(workdayOptionLabels(prompt))
   const folder = workdayJobBoardFolderOption(labels)
@@ -1064,11 +1076,12 @@ async function openJobBoardFolder(button: HTMLElement, prompt: ParentNode): Prom
   const before = sourceLabelKey(labels)
   activateWorkdayOption(promptRowTarget(option))
   const started = Date.now()
-  while (Date.now() - started < 1200) {
+  while (Date.now() - started < 4000) {
     if (sourceControlShows(button, folder)) return null
     const current = activeSourcePrompt(button)
     const next = current ? substantivePromptLabels(workdayOptionLabels(current)) : []
-    if (current && next.length > 0 && sourceLabelKey(next) !== before) return current
+    const changed = !!current && next.length > 0 && sourceLabelKey(next) !== before
+    if (changed && !sourceListIsBusy(button) && !sourcePromptIsSearchResult(button)) return current
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   return null
@@ -1085,20 +1098,13 @@ function clearSourceSearch(control: HTMLElement) {
 }
 
 // Search Results is the filtered list (Amazon Career Choice, Other), not the
-// catalog a plain icon click shows. A highlighted row (aria-selected) is that
-// same list: the catalog does not highlight a row until it is committed.
-// Do not click a row in that list.
+// catalog a plain icon click shows. A highlighted catalog row is not that list:
+// aria-selected marks keyboard focus, and it is not a selected pill.
 function sourcePromptIsSearchResult(button: HTMLElement): boolean {
-  const prompt = activeSourcePrompt(button)
-  if (!prompt || !('querySelector' in prompt)) return false
-  const element = prompt as Element
+  const element = sourcePromptElement(button)
+  if (!element) return false
   const text = (element.textContent || '').replace(/\s+/g, ' ').toLowerCase()
-  if (text.includes('search results')) return true
-  const selected = '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]'
-  if (element.querySelector(selected)) return false
-  const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]')
-  if (field?.querySelector(selected)) return false
-  return !!element.querySelector('[aria-selected="true"]')
+  return text.includes('search results')
 }
 
 async function openSourceCatalog(button: HTMLElement): Promise<string[] | null> {

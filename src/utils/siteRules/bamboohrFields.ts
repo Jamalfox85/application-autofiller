@@ -181,16 +181,45 @@ function labelFor(input: HTMLElement, token: string): string {
   return match?.textContent || ''
 }
 
+// The careers form's choose-file control is a file input with no name or id.
+// Its aria-label is "file-input". "Resume*" / "Cover Letter" is a caption on an
+// ancestor, next to a hidden resumeFileId or coverLetterFileId. The immediate
+// parent also holds the Choose File button, so it is not a single-control label.
+// Stop at the first ancestor that contains another file input, or the cover
+// letter caption would be read onto the resume input.
+function singleFileCaption(input: HTMLElement): { name: string; label: string } {
+  const type = (input.getAttribute('type') || (input as HTMLInputElement).type || '').toLowerCase()
+  if (type !== 'file') return { name: '', label: '' }
+  let node = input.parentElement
+  let matched: HTMLElement | null = null
+  while (node && node.tagName !== 'BODY' && node.tagName !== 'HTML' && node.tagName !== 'FORM') {
+    const files = node.querySelectorAll('input[type="file"]')
+    if (files.length !== 1 || files[0] !== input) break
+    const hiddenName = node.querySelector('input[type="hidden"][name]')?.getAttribute('name') || ''
+    const text = (node.textContent || '').replace(/\s+/g, ' ').trim()
+    const named = /resume|cover/i.test(hiddenName)
+    const captioned = text.length > 0 && text.length <= 160 && /resume|cover\s*letter|curriculum\s*vitae/i.test(text)
+    if (named || captioned) matched = node
+    node = node.parentElement
+  }
+  if (!matched) return { name: '', label: '' }
+  const hiddenName = matched.querySelector('input[type="hidden"][name]')?.getAttribute('name') || ''
+  const label = (matched.textContent || '').replace(/\s+/g, ' ').trim()
+  return { name: hiddenName, label: label.length <= 160 ? label : '' }
+}
+
 // Labels on this control only. A fieldset that also wraps the cover letter
 // would make the resume input look like a cover letter.
 export function describeBambooUpload(input: HTMLElement, fieldText = ''): BambooUploadControl {
   const tagName = input.tagName
   const typeAttr = (input.getAttribute('type') || '').toLowerCase()
   const type = tagName === 'BUTTON' ? 'button' : typeAttr || (input as HTMLInputElement).type || ''
-  const name = input.getAttribute('name') || ''
+  const caption = singleFileCaption(input)
+  const name = input.getAttribute('name') || caption.name
   const id = input.getAttribute('id') || ''
   const chunks = [labelFor(input, id)]
   if (name && name !== id) chunks.push(labelFor(input, name))
+  if (caption.label) chunks.push(caption.label)
   const wrapping = input.closest('label')
   if (wrapping) chunks.push(wrapping.textContent || '')
 

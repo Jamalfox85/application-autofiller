@@ -10,6 +10,12 @@ import {
 
 const PDF = new TextEncoder().encode('%PDF-1.4 saved-resume')
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
 function pageRealm() {
   class FakeDataTransfer {
     files: File[] = []
@@ -228,6 +234,119 @@ test('the Ashby site rule attaches the saved resume on the plain chooser and lea
     assert.deepEqual(missing.events, [])
     assert.deepEqual(missing.clicks, [])
     assert.deepEqual(missing.submits, [])
+  } finally {
+    resetAshbySavedResumeRequest()
+    globalThis.window = previousWindow
+    Object.assign(globalThis, { chrome: previousChrome })
+  }
+})
+
+test('the plain Ashby chooser receives admin-resume.docx from the worker reply sendMessage delivers', async () => {
+  const savedName = 'admin-resume.docx'
+  const savedBytes = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0xff, 0x61])
+  const wire = {
+    ok: true as const,
+    fileName: savedName,
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    bytes: savedBytes,
+    bytesBase64: bytesToBase64(savedBytes),
+  }
+  // sendMessage JSON-serializes. The Uint8Array becomes a plain object; the file is bytesBase64.
+  const response = JSON.parse(JSON.stringify(wire)) as { bytes?: unknown; bytesBase64?: unknown }
+  assert.equal(typeof response.bytesBase64, 'string')
+  assert.equal(response.bytes instanceof Uint8Array, false)
+  assert.equal(Array.isArray(response.bytes), false)
+
+  const previousWindow = globalThis.window
+  const previousChrome = (globalThis as { chrome?: unknown }).chrome
+  const messages: unknown[] = []
+  let reply: unknown = response
+  Object.assign(globalThis, {
+    window: {
+      location: {
+        hostname: 'jobs.ashbyhq.com',
+        href: 'https://jobs.ashbyhq.com/notion/e32799d2-8ef8-4803-8189-c72514afa816/application',
+      },
+    },
+    chrome: {
+      runtime: {
+        async sendMessage(message: unknown) {
+          messages.push(message)
+          return reply
+        },
+      },
+    },
+  })
+  resetAshbySavedResumeRequest()
+  try {
+    const { default: ashbyConfig } = await import('./ashby.ts')
+    const rule = ashbyConfig()
+    rule.prepareFill?.()
+
+    const autofill = ashbyFile({
+      heading: 'Autofill from resume',
+      autofill: true,
+      buttonText: 'Upload file',
+    })
+    assert.equal(await rule.apply(autofill.input as unknown as HTMLInputElement, '', {} as PersonalInfo), 'skip')
+    assert.equal(autofill.input.files, null)
+    assert.deepEqual(autofill.events, [])
+    assert.deepEqual(autofill.clicks, [])
+    assert.deepEqual(autofill.submits, [])
+    assert.deepEqual(messages, [])
+
+    const plain = ashbyFile({
+      path: '_systemfield_resume',
+      title: 'Resume',
+      id: '_systemfield_resume',
+      buttonText: 'Upload File',
+    })
+    assert.equal(await rule.apply(plain.input as unknown as HTMLInputElement, 'resume', {} as PersonalInfo), true)
+    const attached = plain.input.files?.[0]
+    assert.equal(attached?.name, savedName)
+    assert.equal(attached?.type, wire.mimeType)
+    assert.equal(attached?.size, savedBytes.byteLength)
+    assert.deepEqual(Array.from(new Uint8Array(await attached!.arrayBuffer())), Array.from(savedBytes))
+    assert.deepEqual(plain.events, ['input', 'change'])
+    assert.deepEqual(plain.clicks, [])
+    assert.deepEqual(plain.submits, [])
+    assert.deepEqual(messages, [{ action: 'loadSavedResume' }])
+
+    const cover = ashbyFile({
+      path: 'cover_letter',
+      title: 'Cover Letter',
+      id: 'cover',
+      buttonText: 'Upload File',
+    })
+    const portfolio = ashbyFile({ path: 'portfolio', title: 'Portfolio', id: 'portfolio', buttonText: 'Upload File' })
+    const transcript = ashbyFile({ path: 'transcript', title: 'Transcript', id: 'transcript', buttonText: 'Upload File' })
+    assert.equal(await rule.apply(cover.input as unknown as HTMLInputElement, 'upload file', {} as PersonalInfo), false)
+    assert.equal(await rule.apply(portfolio.input as unknown as HTMLInputElement, 'portfolio', {} as PersonalInfo), false)
+    assert.equal(await rule.apply(transcript.input as unknown as HTMLInputElement, 'transcript', {} as PersonalInfo), false)
+    assert.equal(cover.input.files, null)
+    assert.equal(portfolio.input.files, null)
+    assert.equal(transcript.input.files, null)
+    assert.deepEqual(cover.clicks, [])
+    assert.deepEqual(portfolio.clicks, [])
+    assert.deepEqual(transcript.clicks, [])
+    assert.deepEqual(messages, [{ action: 'loadSavedResume' }])
+
+    rule.prepareFill?.()
+    reply = { ...response, bytesBase64: undefined }
+    const plainObjectOnly = ashbyFile({
+      path: '_systemfield_resume',
+      title: 'Resume',
+      id: '_systemfield_resume',
+      buttonText: 'Upload File',
+    })
+    assert.equal(
+      await rule.apply(plainObjectOnly.input as unknown as HTMLInputElement, 'resume', {} as PersonalInfo),
+      'skip',
+    )
+    assert.equal(plainObjectOnly.input.files, null)
+    assert.deepEqual(plainObjectOnly.events, [])
+    assert.deepEqual(plainObjectOnly.clicks, [])
+    assert.deepEqual(plainObjectOnly.submits, [])
   } finally {
     resetAshbySavedResumeRequest()
     globalThis.window = previousWindow

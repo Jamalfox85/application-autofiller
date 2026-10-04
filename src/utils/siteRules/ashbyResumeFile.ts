@@ -5,10 +5,12 @@
 // "Resume", button "Upload File") or a file input whose own question is
 // "Upload" / "Choose file". Attaching means setting that input's files and
 // firing change, which is what the chooser itself does. The bytes come from
-// the shared loadSavedResume worker. This does not submit the application.
+// the shared loadSavedResume worker. chrome.runtime.sendMessage JSON-serializes
+// the reply, so `bytes` arrives as a plain object and the file is `bytesBase64`.
+// This does not submit the application.
 
 import { normalizeAshbyLabel } from './ashbyFields.ts'
-import { requestSavedResume } from './bamboohrResume.ts'
+import { fileFromSavedResumeMessage } from './bamboohrResume.ts'
 
 const AUTOFILL_ROOT = [
   '.ashby-application-form-autofill-input-root',
@@ -105,9 +107,44 @@ export function resetAshbySavedResumeRequest() {
   inflight = null
 }
 
+// A Uint8Array still in this realm is a file. The object sendMessage delivers
+// ({"0":80,"1":75}) is not. The worker puts the same bytes in bytesBase64.
+function bytesFromBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value.trim())
+    if (!binary.length) return null
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
+}
+
+function messageWithResumeBytes(message: unknown): unknown {
+  if (!message || typeof message !== 'object') return message
+  const record = message as { bytes?: unknown; bytesBase64?: unknown }
+  if (typeof record.bytesBase64 !== 'string' || !record.bytesBase64.trim()) return message
+  const bytes = bytesFromBase64(record.bytesBase64)
+  // A non-empty base64 string that does not decode is not a file. Do not fall
+  // back to the plain object left in `bytes`.
+  if (!bytes) return { ...record, bytes: null }
+  return { ...record, bytes }
+}
+
+async function requestAshbySavedResume(): Promise<File | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
+    const message: unknown = await chrome.runtime.sendMessage({ action: 'loadSavedResume' })
+    return fileFromSavedResumeMessage(messageWithResumeBytes(message))
+  } catch {
+    return null
+  }
+}
+
 export function loadAshbySavedResume(): Promise<File | null> {
   if (!inflight) {
-    inflight = requestSavedResume()
+    inflight = requestAshbySavedResume()
       .then((file) => {
         if (!file) inflight = null
         return file
