@@ -29,7 +29,9 @@ import {
   workdayDisabilityOptionIndex,
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
+  workdayElementIsSchool,
   workdayElementIsSource,
+  workdaySchoolPromptNeedsFill,
   workdayExperienceLocation,
   workdayFormerEmployeeListboxButton,
   workdayIsCustomSourceField,
@@ -1571,6 +1573,166 @@ test('Cisco school prompt commits the catalog pill and does not keep typed text'
   const again = await selectWorkdayPromptQuery(input, 'Kennesaw State University')
   assert.equal(again, true)
   assert.equal(pills.textContent, 'Kennesaw State University')
+})
+
+// Adobe's School or University prompt does not open a suggestion list from the
+// closed field. Click, Enter, and typing leave the typed name visible and the
+// value empty. The prompt icon opens the catalog on a real press while that
+// input is empty. The selected value is the pill, not the text in the box.
+function adobeSchoolPrompt(catalog: string[], preset = '') {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div role="group" aria-labelledby="education-1-panel">
+      <div id="education-1-panel">Education 1</div>
+      <div data-automation-id="formField-school" data-fkit-id="education-1--school">
+        <label for="school-input">School or University</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="school-input" data-automation-id="searchBox" placeholder="Search" value="" />
+          <span data-automation-id="promptIcon" id="school-icon"></span>
+        </div>
+        <div data-automation-id="selectedItemList" id="school-pills"></div>
+        <div data-automation-id="promptAriaInstruction" id="school-instruction">0 items selected</div>
+      </div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const input = doc.getElementById('school-input') as HTMLInputElement
+  input.value = preset
+  const clicked: string[] = []
+  const popupEnters: string[] = []
+  const icon = doc.getElementById('school-icon')!
+  const openPopup = () => {
+    if (doc.getElementById('school-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'school-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    popup.innerHTML = `
+      <div data-automation-id="monikerSearchBox">
+        <input data-automation-id="searchBox" id="school-popup-search" placeholder="Search" value="" />
+      </div>
+      <div id="school-results"></div>
+    `
+    const search = popup.querySelector('#school-popup-search') as HTMLInputElement
+    const results = popup.querySelector('#school-results')!
+    const paint = (query: string) => {
+      popupEnters.push(query)
+      const schools = catalog.filter((label) => query && label.toLowerCase().includes(query.toLowerCase()))
+      const rows = schools.length > 0 ? schools : ['No Items.']
+      results.replaceChildren()
+      for (const label of rows) {
+        const leaf = doc.createElement('div')
+        leaf.setAttribute('data-automation-id', 'promptLeafNode')
+        const option = doc.createElement('div')
+        option.setAttribute('data-automation-id', 'promptOption')
+        option.setAttribute('data-automation-label', label)
+        const text = doc.createElement('div')
+        text.textContent = label
+        text.addEventListener('mousedown', (event) => event.stopPropagation())
+        text.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        })
+        option.appendChild(text)
+        leaf.appendChild(option)
+        if (label !== 'No Items.') {
+          leaf.addEventListener('click', () => {
+            clicked.push(label)
+            const pill = doc.createElement('div')
+            pill.setAttribute('data-automation-id', 'selectedItem')
+            const chosen = doc.createElement('div')
+            chosen.setAttribute('data-automation-id', 'promptOption')
+            chosen.setAttribute('data-automation-label', label)
+            chosen.textContent = label
+            const charm = doc.createElement('span')
+            charm.textContent = 'Delete'
+            pill.append(chosen, charm)
+            doc.getElementById('school-pills')!.replaceChildren(pill)
+            doc.getElementById('school-instruction')!.textContent = `1 item selected, ${label}`
+            input.value = ''
+            search.value = ''
+            popup.remove()
+          })
+        }
+        results.appendChild(leaf)
+      }
+    }
+    search.addEventListener('keyup', (event) => {
+      if ((event as KeyboardEvent).key === 'Enter') paint(search.value.trim())
+    })
+    doc.body.appendChild(popup)
+  }
+  icon.addEventListener('mousedown', () => {
+    if (input.value.trim()) return
+    openPopup()
+  })
+  input.addEventListener('click', () => {})
+  input.addEventListener('keydown', (event) => {
+    if ((event as KeyboardEvent).key === 'Enter') event.stopPropagation()
+  })
+  input.addEventListener('input', () => {})
+  return { doc, input, clicked, popupEnters }
+}
+
+test('Adobe school prompt commits Kennesaw as a pill and does not keep typed text', async () => {
+  const { doc, input, clicked, popupEnters } = adobeSchoolPrompt(
+    ['Kenyon College', 'Kennesaw State University'],
+    'Kennesaw State University',
+  )
+  assert.equal(workdaySchoolPromptNeedsFill(input), true)
+  assert.equal(workdayElementIsSchool(input, 'school or university'), true)
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const info = {
+    education: [{ schoolName: 'Kennesaw State University' }],
+  } as PersonalInfo
+  assert.equal(await rule.apply(input, 'school or university', info), true)
+  assert.deepEqual(clicked, ['Kennesaw State University'])
+  assert.equal(clicked.includes('Kenyon College'), false)
+  assert.equal(popupEnters.includes('Kennesaw State University'), true)
+  const pill = doc.querySelector('[data-automation-id="selectedItem"] [data-automation-id="promptOption"]')
+  assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
+  assert.equal(input.value, '')
+  assert.equal(doc.getElementById('school-instruction')?.textContent, '1 item selected, Kennesaw State University')
+  assert.notEqual(doc.getElementById('school-instruction')?.textContent, '0 items selected')
+  assert.equal(workdaySchoolPromptNeedsFill(input), false)
+})
+
+test('Adobe school prompt leaves the field empty when that school is not offered', async () => {
+  const { doc, input, clicked } = adobeSchoolPrompt(['Kenyon College'], 'Kennesaw State University')
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const info = {
+    education: [{ schoolName: 'Kennesaw State University' }],
+  } as PersonalInfo
+  assert.equal(await rule.apply(input, 'school or university', info), 'skip')
+  assert.deepEqual(clicked, [])
+  assert.equal(doc.getElementById('school-pills')?.textContent, '')
+  assert.equal(input.value, '')
+  assert.equal(doc.getElementById('school-instruction')?.textContent, '0 items selected')
+})
+
+test('school prompt detection does not claim LinkedIn, degree, or former employee', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-linkedIn">
+      <label>LinkedIn</label>
+      <input id="linkedin" />
+    </div>
+    <div data-automation-id="formField-degree">
+      <label>Degree</label>
+      <button id="degree">Select One</button>
+    </div>
+    <div data-automation-id="formField-school">
+      <label>School or University</label>
+      <input id="school" />
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(workdayElementIsSchool(doc.getElementById('linkedin')!, 'linkedin'), false)
+  assert.equal(workdayElementIsSchool(doc.getElementById('degree')!, 'degree'), false)
+  assert.equal(workdayElementIsSchool(doc.getElementById('school')!, 'school or university'), true)
+  assert.equal(
+    workdayElementIsSchool(doc.getElementById('school')!, 'have you previously been employed'),
+    false,
+  )
 })
 
 // A selected-pill listbox is already on the page (source, company, school).

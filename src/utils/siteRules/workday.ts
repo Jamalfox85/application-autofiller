@@ -30,7 +30,9 @@ import {
   workdayDisabilityOptionIndex,
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
+  workdayElementIsSchool,
   workdayElementIsSource,
+  workdaySchoolPromptNeedsFill,
   workdayIsPhoneDeviceTypeOptionList,
   workdayExperienceLocation,
   workdayFieldControl,
@@ -101,7 +103,9 @@ export default function workdayConfig(): SiteRule {
     detect: () => isWorkdayApplyHost(window.location.hostname),
     // "0 items selected" is a non-empty value, so autofill would skip the source
     // input. Revisit that control only while the closed face is still a placeholder.
-    includeFilled: (input) => workdayElementIsSource(input) && workdayPromptFaceIsEmpty(input),
+    includeFilled: (input) =>
+      (workdayElementIsSource(input) && workdayPromptFaceIsEmpty(input)) ||
+      workdaySchoolPromptNeedsFill(input),
     // In your onMount:
     onMount: (personalInfo) => {
       console.log('PING - Plugin initialized')
@@ -477,6 +481,14 @@ export default function workdayConfig(): SiteRule {
       // only knows the first profile job, so letting it through copies that job
       // into every empty row.
       if (workdayInputInExperiencePanel(input)) return 'skip'
+      // School or University is a prompt. Typed text is not a selected school,
+      // and the generic matcher must not write the profile name into the box.
+      if (workdayElementIsSchool(input, fieldText)) {
+        const school = profileSchoolName(input, personalInfo)
+        if (!school) return 'skip'
+        const selected = await selectWorkdayPromptQuery(input, school, undefined, { pillPrompt: true })
+        return selected ? true : 'skip'
+      }
       const application = await workdayApplicationApply(input, fieldText, personalInfo)
       if (application !== false) return application
       for (const { match, handle } of fieldHandlers) {
@@ -1398,7 +1410,11 @@ function selectedPillLabels(root: ParentNode): string[] {
       return
     }
     items.forEach((item) => {
-      const text = cleanVisibleLabel(item.getAttribute('data-automation-label') || item.textContent || '')
+      const option = item.querySelector('[data-automation-id="promptOption"]')
+      const raw = option
+        ? option.getAttribute('data-automation-label') || option.textContent || ''
+        : item.getAttribute('data-automation-label') || item.textContent || ''
+      const text = cleanVisibleLabel(raw)
       if (text) labels.push(text)
     })
   })
@@ -1449,28 +1465,59 @@ function dispatchEnter(input: HTMLInputElement) {
 
 // The closed multiselect is not the catalog. Opening it paints input[searchBox]
 // inside the prompt; that box is what the school query has to reach.
-async function resolveCatalogSearch(control: HTMLElement): Promise<HTMLInputElement | null> {
+// A school prompt's closed input can already be marked searchBox. Typing there
+// shows the name and never opens a suggestion list. pillPrompt waits for the
+// search box the icon press paints, which may be a different node.
+async function resolveCatalogSearch(
+  control: HTMLElement,
+  pillPrompt = false,
+): Promise<HTMLInputElement | null> {
   const own = control.tagName === 'INPUT' ? (control as HTMLInputElement) : null
-  if (own && isCatalogSearchInput(own)) return own
   const promptBacked = promptBackedField(control)
+  if (own && isCatalogSearchInput(own) && !(pillPrompt && promptBacked)) return own
   const started = Date.now()
   const giveUpAt = promptBacked ? 700 : 40
   while (Date.now() - started < 700) {
     const doc = control.ownerDocument
     const field = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+    if (pillPrompt) {
+      const prompts = promptPopups(doc, null)
+      for (let index = prompts.length - 1; index >= 0; index--) {
+        const found = workdayPromptSearchInput(prompts[index])
+        if (found && found !== own) return found
+      }
+    }
     const inField = field ? workdayPromptSearchInput(field) : null
-    if (inField && (inField !== own || isCatalogSearchInput(inField))) return inField
-    const prompts = promptPopups(doc, null)
-    for (let index = prompts.length - 1; index >= 0; index--) {
-      const found = workdayPromptSearchInput(prompts[index])
-      if (found) return found
+    if (inField && (inField !== own || isCatalogSearchInput(inField))) {
+      if (!(pillPrompt && promptBacked && inField === own && !catalogShellOpen(doc))) return inField
+    }
+    if (!pillPrompt) {
+      const prompts = promptPopups(doc, null)
+      for (let index = prompts.length - 1; index >= 0; index--) {
+        const found = workdayPromptSearchInput(prompts[index])
+        if (found) return found
+      }
     }
     if (Date.now() - started >= giveUpAt && !catalogShellOpen(doc)) break
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   // Typing into the closed prompt leaves the query visible and unselected.
-  if (promptBacked && own && !isCatalogSearchInput(own)) return null
+  if (promptBacked && own && (!isCatalogSearchInput(own) || pillPrompt)) return null
   return own && own.isConnected ? own : null
+}
+
+function clearClosedPromptQuery(control: HTMLElement) {
+  const field = control.closest('[data-automation-id^="formField-"], [data-fkit-id]') || control.parentElement
+  const inputs = field ? Array.from(field.querySelectorAll('input')) : []
+  const targets = control.tagName === 'INPUT' ? [control as HTMLInputElement, ...inputs] : inputs
+  const seen = new Set<HTMLInputElement>()
+  for (const input of targets) {
+    if (input.tagName !== 'INPUT' || seen.has(input)) continue
+    seen.add(input)
+    if (!input.value.trim()) continue
+    if (input.closest('[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"]')) continue
+    setReactInputValue(input, '')
+  }
 }
 
 // A prompt row commits on the promptLeafNode (click). The selected pill commits
@@ -1544,13 +1591,22 @@ export async function selectWorkdayPromptQuery(
   control: HTMLElement,
   query: string,
   pick: (labels: string[]) => string | null = (labels) => workdaySuggestionOption(labels, query),
+  options?: { pillPrompt?: boolean },
 ): Promise<boolean> {
   const trimmed = query.trim()
   if (!trimmed) return false
   if (promptSelectionCommitted(control, pick)) return true
-  openWorkdayPrompt(control)
-  const search = await resolveCatalogSearch(control)
-  if (!search) return false
+  const pillPrompt = !!options?.pillPrompt
+  // The icon opens the catalog only while the closed input is empty. A name
+  // already sitting in that box is not a selected school, and it makes the
+  // icon search instead of opening the list.
+  if (pillPrompt && promptBackedField(control)) clearClosedPromptQuery(control)
+  openWorkdayPrompt(control, !pillPrompt)
+  const search = await resolveCatalogSearch(control, pillPrompt)
+  if (!search) {
+    if (pillPrompt) clearClosedPromptQuery(control)
+    return false
+  }
   setReactInputValue(search, trimmed)
   let pressedEnter = false
   const started = Date.now()
@@ -1574,8 +1630,9 @@ export async function selectWorkdayPromptQuery(
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   if (promptSelectionCommitted(control, pick)) return true
-  if (promptTracksPills(control)) {
+  if (promptTracksPills(control) || pillPrompt) {
     if (search.isConnected && search.value.trim()) setReactInputValue(search, '')
+    if (pillPrompt) clearClosedPromptQuery(control)
     return false
   }
   const doc = search.ownerDocument
@@ -1915,6 +1972,17 @@ async function fillWorkdayWorkExperienceOnce(
   return filled
 }
 
+function profileSchoolName(input: Element, info: PersonalInfo): string {
+  const education = info.education || []
+  if (education.length === 0) return ''
+  const doc = input.ownerDocument
+  const panels = doc ? listWorkdayPanels(doc, 'education') : []
+  const panel = input.closest('[role="group"][aria-labelledby$="-panel"]')
+  const index = panel ? panels.indexOf(panel) : 0
+  const row = education[index >= 0 ? index : 0] || education[0]
+  return (row?.schoolName || '').trim()
+}
+
 const handleEducation = async (personalInfo: PersonalInfo) => {
   if (!personalInfo?.education?.length) return
   for (let idx = 0; idx < personalInfo.education.length; idx++) {
@@ -1961,14 +2029,18 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
       console.log('Filling school name:', schoolQuery)
       const schoolIds = ['schoolName', 'school', 'schoolItem']
       const schoolInput = firstTextControl(section, schoolIds)
-      let schoolSelected = schoolInput ? await selectWorkdayPromptQuery(schoolInput, schoolQuery) : false
+      let schoolSelected = schoolInput
+        ? await selectWorkdayPromptQuery(schoolInput, schoolQuery, undefined, { pillPrompt: true })
+        : false
       if (!schoolSelected) {
         const scope = schoolIds.map((id) => fieldScope(section, id)).find((node) => node)
         const container = scope?.querySelector(
           '[data-automation-id="multiSelectContainer"], [data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"]',
         )
         if (container && container !== schoolInput) {
-          schoolSelected = await selectWorkdayPromptQuery(container as HTMLElement, schoolQuery)
+          schoolSelected = await selectWorkdayPromptQuery(container as HTMLElement, schoolQuery, undefined, {
+            pillPrompt: true,
+          })
         }
       }
       if (!schoolSelected) {
