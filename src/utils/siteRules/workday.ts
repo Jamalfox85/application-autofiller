@@ -20,6 +20,7 @@ import {
   workdayAccountInputs,
   workdayAccountSubmitControl,
   workdayActivePrompt,
+  workdayApplicationQuestionKind,
   workdayContactKeyFromElement,
   workdayDatePartInput,
   workdayDegreeOption,
@@ -34,6 +35,8 @@ import {
   workdayListboxButton,
   workdayListboxIsEmpty,
   workdayListboxValue,
+  workdayListedProfileOption,
+  workdayProfileChoice,
   workdayListedSearchText,
   workdayListedValueMatches,
   workdayOptionElement,
@@ -286,6 +289,8 @@ export default function workdayConfig(): SiteRule {
                 }
               }
 
+              await fillWorkdayApplicationQuestions(document, personalInfo)
+
               // Phone device type last, after source and former-employee. Those
               // passes must not claim this prompt. No profile field; Mobile or Cell
               // is the default. A miss can be a menu that was still the other
@@ -420,7 +425,9 @@ export default function workdayConfig(): SiteRule {
         removeProfileListener()
       }
     },
-    apply: (input, fieldText, personalInfo) => {
+    apply: async (input, fieldText, personalInfo) => {
+      const application = await workdayApplicationApply(input, fieldText, personalInfo)
+      if (application !== false) return application
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {
           return handle(input, fieldText, personalInfo, '')
@@ -1283,6 +1290,86 @@ export async function selectWorkdayListedDegree(
     workdayDegreeSearchTexts(trimmed),
     true,
   )
+}
+
+const applicationChoiceAttempts = new WeakMap<HTMLButtonElement, number>()
+
+async function listedChoiceLabels(button: HTMLButtonElement): Promise<string[]> {
+  collapseOpenListbox()
+  openListbox = button
+  if (button.getAttribute('aria-expanded') !== 'true') button.click()
+  const started = Date.now()
+  while (Date.now() - started < 800) {
+    const prompt = workdayActivePrompt(button)
+    const labels = prompt ? substantivePromptLabels(workdayOptionLabels(prompt)) : []
+    if (labels.length > 0) return labels
+    const doc = button.ownerDocument
+    if (doc) {
+      const popups = promptPopups(doc, elementNode(prompt))
+      for (let index = popups.length - 1; index >= 0; index--) {
+        const extra = substantivePromptLabels(workdayOptionLabels(popups[index]))
+        if (extra.length > 0) return extra
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  }
+  return []
+}
+
+async function selectWorkdayProfileChoice(
+  button: HTMLButtonElement,
+  kind: 'authorized' | 'sponsorship',
+  info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
+): Promise<string | null> {
+  const labels = await listedChoiceLabels(button)
+  const picked = workdayListedProfileOption(labels, kind, info)
+  if (!picked) return null
+  const committed = await commitCanvasDegreeTypeahead(button, picked)
+  if (committed && listboxShowsLabel(button, picked)) return committed
+  return null
+}
+
+function applicationChoiceButton(input: Element): HTMLButtonElement | null {
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]') || input.parentElement
+  if (!field) return null
+  const button = field.querySelector('button[aria-haspopup="listbox"]')
+  if (!button || button.tagName !== 'BUTTON') return null
+  return button as HTMLButtonElement
+}
+
+export async function fillWorkdayApplicationQuestions(
+  root: ParentNode,
+  info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
+): Promise<void> {
+  const buttons = Array.from(root.querySelectorAll('button[aria-haspopup="listbox"]'))
+  for (const node of buttons) {
+    if (node.tagName !== 'BUTTON') continue
+    const button = node as HTMLButtonElement
+    const kind = workdayApplicationQuestionKind(button)
+    if (kind !== 'authorized' && kind !== 'sponsorship') continue
+    if (!workdayListboxIsEmpty(button)) continue
+    const tries = applicationChoiceAttempts.get(button) || 0
+    if (tries >= 2) continue
+    applicationChoiceAttempts.set(button, tries + 1)
+    if (!workdayProfileChoice(kind, info)) continue
+    const label = await selectWorkdayProfileChoice(button, kind, info)
+    if (label) console.log('✓ Selected application answer:', label)
+  }
+}
+
+export async function workdayApplicationApply(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  fieldText: string,
+  info: { workAuthorization?: string | null; sponsorshipRequired?: string | null },
+): Promise<boolean | 'skip'> {
+  const kind = workdayApplicationQuestionKind(input, fieldText)
+  if (!kind) return false
+  if (kind === 'years' || kind === 'government') return 'skip'
+  const button = applicationChoiceButton(input)
+  if (!button || !workdayListboxIsEmpty(button)) return 'skip'
+  if (!workdayProfileChoice(kind, info)) return 'skip'
+  const label = await selectWorkdayProfileChoice(button, kind, info)
+  return label ? true : 'skip'
 }
 
 function firstTextControl(section: ParentNode, ids: string[]): HTMLInputElement | null {

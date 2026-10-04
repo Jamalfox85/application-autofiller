@@ -22,6 +22,7 @@ import {
   nextWorkdayFormSignature,
   workdayAccountSubmitControl,
   workdayActivePrompt,
+  workdayApplicationQuestionKind,
   workdayContactKey,
   workdayDatePartInput,
   workdayDegreeOption,
@@ -36,6 +37,7 @@ import {
   workdayListboxButton,
   workdayListboxIsEmpty,
   workdayListboxValue,
+  workdayListedProfileOption,
   workdayListedSearchText,
   workdayListedValueMatches,
   workdayOptionElement,
@@ -43,6 +45,7 @@ import {
   workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
   workdayPreferredSourceOption,
+  workdayProfileChoice,
   workdaySafeNoOption,
   workdaySectionKindFromLabel,
   workdaySourceListboxButton,
@@ -620,6 +623,18 @@ test('address selects are country, state, and phone device type', () => {
   assert.equal(workdayIsFormerEmployeeQuestion('are you a current or former employee'), true)
   assert.equal(workdayIsFormerEmployeeQuestion('i currently work here'), false)
   assert.equal(workdayIsFormerEmployeeQuestion('emailaddress'), false)
+  assert.equal(
+    workdayIsFormerEmployeeQuestion(
+      'have you ever been employed by or provided services to a foreign government entity in any capacity',
+    ),
+    false,
+  )
+  assert.equal(
+    workdayIsFormerEmployeeQuestion(
+      'do you have a family relationship with a u.s. government or foreign government official',
+    ),
+    false,
+  )
 })
 
 test('required source and former-employee defaults use a listed option and never Yes', () => {
@@ -1576,4 +1591,184 @@ test('Cisco degree closed label follows typeahead of the full degree name', asyn
   assert.notEqual(button.textContent, 'Select One')
   assert.notEqual(button.textContent, 'Associate of Science')
   assert.notEqual(button.textContent, 'Bachelor of Arts')
+})
+
+test('application questions use a saved profile answer and leave the rest unanswered', () => {
+  assert.equal(
+    workdayApplicationQuestionKind(
+      null,
+      'Are you legally authorized to work in any of the posted location for this requisition?',
+    ),
+    'authorized',
+  )
+  assert.equal(
+    workdayApplicationQuestionKind(
+      null,
+      'Will you now or in the future require sponsorship for an employment visa for any of the posted locations?',
+    ),
+    'sponsorship',
+  )
+  assert.equal(
+    workdayApplicationQuestionKind(
+      null,
+      'How many years of relevant work experience related to this position do you have?',
+    ),
+    'years',
+  )
+  assert.equal(
+    workdayApplicationQuestionKind(null, 'foreign government entity in any capacity'),
+    'government',
+  )
+  assert.equal(
+    workdayApplicationQuestionKind(
+      null,
+      'Do you have a family relationship with a U.S. Government or Foreign Government Official?',
+    ),
+    'government',
+  )
+  assert.equal(workdayProfileChoice('authorized', { workAuthorization: '' }), null)
+  assert.equal(workdayProfileChoice('sponsorship', {}), null)
+  assert.equal(workdayProfileChoice('authorized', { workAuthorization: 'us_citizen' }), 'yes')
+  assert.equal(workdayProfileChoice('authorized', { workAuthorization: 'need_sponsorship' }), 'no')
+  assert.equal(
+    workdayProfileChoice('sponsorship', { workAuthorization: 'us_citizen', sponsorshipRequired: 'No' }),
+    'no',
+  )
+  assert.equal(workdayProfileChoice('sponsorship', { sponsorshipRequired: 'Yes' }), 'yes')
+  assert.equal(
+    workdayListedProfileOption(['Select One', 'Yes', 'No'], 'authorized', { workAuthorization: 'us_citizen' }),
+    'Yes',
+  )
+  assert.equal(
+    workdayListedProfileOption(['Select One', 'I am authorized'], 'authorized', { workAuthorization: 'us_citizen' }),
+    null,
+  )
+})
+
+test('Cisco application questions commit a saved answer on the closed label', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>')
+  const doc = dom.window.document
+  const options = ['Select One', 'Yes', 'No']
+  const install = (id: string, question: string) => {
+    const field = doc.createElement('div')
+    field.setAttribute('data-automation-id', `formField-${id}`)
+    const label = doc.createElement('label')
+    label.textContent = question
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.id = id
+    button.setAttribute('aria-haspopup', 'listbox')
+    button.setAttribute('aria-expanded', 'false')
+    button.textContent = 'Select One'
+    const input = doc.createElement('input')
+    input.type = 'text'
+    input.id = `${id}-value`
+    field.append(label, button, input)
+    doc.body.appendChild(field)
+    let keys = ''
+    let focus = 0
+    let open = false
+    const matchFrom = (start: number, text: string) => {
+      for (let index = start; index < options.length; index++) {
+        if (index === 0) continue
+        if (options[index].toLowerCase().indexOf(text.toLowerCase()) === 0) return index
+      }
+      return -1
+    }
+    const typeahead = (character: string) => {
+      const start = keys.length === 0 ? focus + 1 : focus
+      keys += character
+      let index = matchFrom(start >= options.length ? 0 : start, keys)
+      if (index < 0) index = matchFrom(0, keys)
+      if (index < 0) return
+      if (open) focus = index
+      else button.textContent = options[index]
+    }
+    button.addEventListener('click', () => {
+      if (doc.getElementById(`${id}-menu`)) return
+      open = true
+      button.setAttribute('aria-expanded', 'true')
+      button.setAttribute('aria-controls', `${id}-menu`)
+      const menu = doc.createElement('ul')
+      menu.id = `${id}-menu`
+      menu.setAttribute('role', 'listbox')
+      for (const option of options) {
+        const row = doc.createElement('li')
+        row.setAttribute('role', 'option')
+        row.textContent = option
+        menu.appendChild(row)
+      }
+      doc.body.appendChild(menu)
+    })
+    button.addEventListener('keydown', (event) => {
+      const key = (event as KeyboardEvent).key
+      if (key.length === 1 && /\S/.test(key)) {
+        typeahead(key)
+        return
+      }
+      if (key === 'Enter' && open && focus > 0) button.textContent = options[focus]
+    })
+    input.addEventListener('input', () => {})
+    input.addEventListener('change', () => {})
+    return { button, input }
+  }
+  const authorized = install(
+    'authorized',
+    'Are you legally authorized to work in any of the posted location for this requisition?',
+  )
+  const sponsorship = install(
+    'sponsorship',
+    'Will you now or in the future require sponsorship for an employment visa for any of the posted locations?',
+  )
+  const government = install(
+    'government',
+    'Have you ever been employed by a foreign government entity in any capacity?',
+  )
+  const family = install(
+    'family',
+    'Do you have a family relationship with a U.S. Government or Foreign Government Official?',
+  )
+  const yearsField = doc.createElement('div')
+  yearsField.setAttribute('data-automation-id', 'formField-years')
+  const yearsLabel = doc.createElement('label')
+  yearsLabel.textContent = 'How many years of relevant work experience related to this position do you have?'
+  const years = doc.createElement('input')
+  years.type = 'text'
+  years.id = 'years'
+  yearsField.append(yearsLabel, years)
+  doc.body.appendChild(yearsField)
+  const profile = { workAuthorization: 'us_citizen', sponsorshipRequired: 'No' }
+  const { fillWorkdayApplicationQuestions, workdayApplicationApply } = await import('./workday.ts')
+  assert.equal(await workdayApplicationApply(years, yearsLabel.textContent, profile), 'skip')
+  assert.equal(years.value, '')
+  assert.equal(await workdayApplicationApply(authorized.input, '', profile), true)
+  assert.equal(authorized.button.textContent, 'Yes')
+  await fillWorkdayApplicationQuestions(doc.body, profile)
+  assert.equal(sponsorship.button.textContent, 'No')
+  assert.equal(government.button.textContent, 'Select One')
+  assert.equal(family.button.textContent, 'Select One')
+  assert.equal(years.value, '')
+  assert.notEqual(authorized.button.textContent, 'Select One')
+  assert.notEqual(sponsorship.button.textContent, 'Select One')
+  assert.notEqual(authorized.button.textContent, 'No')
+  assert.notEqual(sponsorship.button.textContent, 'Yes')
+  const blank = new JSDOM('<!doctype html><body></body>')
+  const blankDoc = blank.window.document
+  const blankField = blankDoc.createElement('div')
+  blankField.setAttribute('data-automation-id', 'formField-blank-auth')
+  const blankLabel = blankDoc.createElement('label')
+  blankLabel.textContent = 'Are you legally authorized to work in any of the posted location for this requisition?'
+  const blankButton = blankDoc.createElement('button')
+  blankButton.type = 'button'
+  blankButton.setAttribute('aria-haspopup', 'listbox')
+  blankButton.textContent = 'Select One'
+  blankButton.addEventListener('keydown', (event) => {
+    const key = (event as KeyboardEvent).key
+    if (key === 'Y') blankButton.textContent = 'Yes'
+    if (key === 'N') blankButton.textContent = 'No'
+  })
+  blankField.append(blankLabel, blankButton)
+  blankDoc.body.appendChild(blankField)
+  await fillWorkdayApplicationQuestions(blankDoc.body, { workAuthorization: '', sponsorshipRequired: '' })
+  assert.equal(blankButton.textContent, 'Select One')
 })
