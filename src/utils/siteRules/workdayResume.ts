@@ -1,9 +1,18 @@
-// Workday resume file attachment. The bytes come from requestSavedResume
-// (the shared account download). A filename with no object is not a file.
+// Workday resume file attachment. The bytes come from the shared
+// loadSavedResume worker. chrome.runtime.sendMessage JSON-serializes the
+// reply, so `bytes` arrives as a plain object and the file is `bytesBase64`.
+// A filename with no object is not a file.
+//
+// The My Experience dropzone's own caption is "Upload a file (5MB max)",
+// "Drop files here", and "Select files". The Resume/CV (or Cover Letter)
+// heading sits above that box. Cover letters stay empty. Nothing here clicks
+// Autofill with Resume, Use My Last Application, or Submit.
 
 import { assignResumeFile } from './bamboohrFields.ts'
+import { fileFromSavedResumeMessage } from './bamboohrResume.ts'
 
 const PLAIN_FILE_LABEL = /^(upload|choose file|choose a file|select file|select files)$/
+const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, legend, label, [role="heading"], [data-automation-id="formLabel"]'
 
 function normalized(value: string | null | undefined): string {
   return (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -73,18 +82,98 @@ function nearbyCaption(input: HTMLInputElement): string {
   return ''
 }
 
+function isFileInput(input: HTMLInputElement): boolean {
+  return !!input && input.tagName === 'INPUT' && (input.getAttribute('type') || '').toLowerCase() === 'file'
+}
+
+function carriesFileInput(el: Element): boolean {
+  if (el.tagName === 'INPUT' && (el.getAttribute('type') || '').toLowerCase() === 'file') return true
+  return !!el.querySelector('input[type="file"]')
+}
+
+function resumeOrCoverText(value: string): string {
+  const text = normalized(value)
+  if (!text || text.length > 80) return ''
+  if (mentionsResume(text) || mentionsCoverLetter(text)) return text
+  return ''
+}
+
+// A short Resume/CV or Cover Letter caption. Dropzone buttons ("Select files")
+// and Autofill with Resume are not field headings.
+function fieldLabelText(el: Element): string {
+  if (carriesFileInput(el)) return ''
+  if (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button') return ''
+  const own = normalized(el.textContent)
+  const heading = el.matches(HEADING_SELECTOR)
+  if (!heading && own.length > 80) {
+    const inner = el.querySelector(HEADING_SELECTOR)
+    if (!inner || carriesFileInput(inner)) return ''
+    return resumeOrCoverText(inner.textContent || '')
+  }
+  if (own.length > 80) return ''
+  return resumeOrCoverText(own)
+}
+
+function labelFromPreviousSiblings(node: Element): string {
+  let sib = node.previousElementSibling
+  while (sib) {
+    if (carriesFileInput(sib)) return ''
+    const text = fieldLabelText(sib)
+    if (text) return text
+    sib = sib.previousElementSibling
+  }
+  return ''
+}
+
+function singleFileParent(parent: Element, input: HTMLInputElement): boolean {
+  const files = parent.querySelectorAll('input[type="file"]')
+  return files.length === 1 && files[0] === input
+}
+
+// The nearest Resume/CV or Cover Letter text above this input. The dropzone
+// caption is shorter than 160 characters, so reading only that box never sees
+// the heading. Stop at another file input so a cover letter is not read onto
+// the resume, and the resume heading is not read onto the cover letter.
+function sectionLabel(input: HTMLInputElement): string {
+  let node: Element | null = input
+  for (let depth = 0; depth < 8 && node; depth++) {
+    const beside = labelFromPreviousSiblings(node)
+    if (beside) return beside
+    const parent = node.parentElement
+    if (!parent || parent.tagName === 'BODY' || parent.tagName === 'HTML' || parent.tagName === 'FORM') break
+    if (!singleFileParent(parent, input)) break
+    const inside = labelInside(parent, input)
+    if (inside) return inside
+    node = parent
+  }
+  return ''
+}
+
+function labelInside(scope: Element, input: HTMLInputElement): string {
+  const view = input.ownerDocument?.defaultView as { Node?: { DOCUMENT_POSITION_FOLLOWING: number } } | null
+  const following = view?.Node?.DOCUMENT_POSITION_FOLLOWING ?? 4
+  let best = ''
+  for (const el of Array.from(scope.querySelectorAll('*'))) {
+    if (el === input || el.contains(input)) continue
+    if (input.compareDocumentPosition(el) & following) continue
+    const text = fieldLabelText(el)
+    if (text) best = text
+  }
+  return best
+}
+
 export function isWorkdayResumeFileInput(input: HTMLInputElement): boolean {
-  if (!input || input.tagName !== 'INPUT') return false
-  if ((input.getAttribute('type') || '').toLowerCase() !== 'file') return false
+  if (!isFileInput(input)) return false
   const name = accessibleName(input)
   const explicit = labelFor(input)
   const nearby = nearbyCaption(input)
+  const section = sectionLabel(input)
   const own = `${name} ${explicit} ${input.id || ''} ${input.getAttribute('name') || ''} ${input.getAttribute('data-automation-id') || ''}`
-  if (mentionsCoverLetter(own)) return false
-  if (mentionsCoverLetter(nearby) && !mentionsResume(own)) return false
-  if (mentionsResume(own) || mentionsResume(nearby)) return true
+  if (mentionsCoverLetter(section) || mentionsCoverLetter(own)) return false
+  if (mentionsCoverLetter(nearby) && !mentionsResume(own) && !mentionsResume(section)) return false
+  if (mentionsResume(own) || mentionsResume(section) || mentionsResume(nearby)) return true
   if (PLAIN_FILE_LABEL.test(name) || PLAIN_FILE_LABEL.test(explicit)) {
-    return !mentionsCoverLetter(nearby)
+    return !mentionsCoverLetter(nearby) && !mentionsCoverLetter(section)
   }
   return false
 }
@@ -97,14 +186,14 @@ export function workdayResumeFileInput(root: ParentNode): HTMLInputElement | nul
 }
 
 export function isWorkdayCoverLetterFileInput(input: HTMLInputElement): boolean {
-  if (!input || input.tagName !== 'INPUT') return false
-  if ((input.getAttribute('type') || '').toLowerCase() !== 'file') return false
+  if (!isFileInput(input)) return false
   if (isWorkdayResumeFileInput(input)) return false
   const name = accessibleName(input)
   const explicit = labelFor(input)
   const nearby = nearbyCaption(input)
+  const section = sectionLabel(input)
   const own = `${name} ${explicit} ${input.id || ''} ${input.getAttribute('name') || ''}`
-  return mentionsCoverLetter(own) || mentionsCoverLetter(nearby)
+  return mentionsCoverLetter(own) || mentionsCoverLetter(section) || mentionsCoverLetter(nearby)
 }
 
 // Puts the saved file on a plain Workday resume input. Does not click the
@@ -117,4 +206,72 @@ export async function attachWorkdaySavedResume(
   if (!isWorkdayResumeFileInput(input)) return false
   if ((input.files?.length ?? 0) > 0) return false
   return assignResumeFile(input, file)
+}
+
+function bytesFromBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value.trim())
+    if (!binary.length) return null
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
+}
+
+// A Uint8Array still in this realm is a file. The object sendMessage delivers
+// ({"0":80,"1":75}) is not. The worker puts the same bytes in bytesBase64.
+function messageWithResumeBytes(message: unknown): unknown {
+  if (!message || typeof message !== 'object') return message
+  const record = message as { bytes?: unknown; bytesBase64?: unknown }
+  if (typeof record.bytesBase64 !== 'string' || !record.bytesBase64.trim()) return message
+  const bytes = bytesFromBase64(record.bytesBase64)
+  if (!bytes) return { ...record, bytes: null }
+  return { ...record, bytes }
+}
+
+export function fileFromWorkdaySavedResume(message: unknown): File | null {
+  return fileFromSavedResumeMessage(messageWithResumeBytes(message))
+}
+
+export async function requestWorkdaySavedResume(): Promise<File | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
+    const message: unknown = await chrome.runtime.sendMessage({ action: 'loadSavedResume' })
+    return fileFromWorkdaySavedResume(message)
+  } catch {
+    return null
+  }
+}
+
+// A missing file is not a finished attach. The next resume input — the one
+// that shows up after the first look — gets its own download. The same empty
+// input is not downloaded again on every DOM change.
+export function createWorkdayResumeAttempt(load: () => Promise<File | null>) {
+  let done = false
+  let tried: HTMLInputElement | null = null
+  let pending: Promise<File | null> | null = null
+  return async (root: ParentNode): Promise<boolean> => {
+    if (done) return true
+    const input = workdayResumeFileInput(root)
+    if (input && (input.files?.length ?? 0) > 0) {
+      done = true
+      return true
+    }
+    if (!input) return false
+    if (tried !== input) {
+      tried = input
+      pending = null
+    }
+    if (!pending) {
+      pending = Promise.resolve()
+        .then(() => load())
+        .catch(() => null)
+    }
+    const saved = await pending
+    if (!saved) return false
+    done = await attachWorkdaySavedResume(input, saved)
+    return done
+  }
 }

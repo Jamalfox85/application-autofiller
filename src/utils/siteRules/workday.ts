@@ -60,24 +60,24 @@ import {
   workdaySelectKind,
   workdaySelectValue,
 } from './workdayFields.ts'
-import { requestSavedResume } from './bamboohrResume.ts'
 import {
   attachWorkdaySavedResume,
+  createWorkdayResumeAttempt,
   isWorkdayCoverLetterFileInput,
   isWorkdayResumeFileInput,
-  workdayResumeFileInput,
+  requestWorkdaySavedResume,
 } from './workdayResume.ts'
 
 var lastFormSignature = ''
 
 type WorkdayResumeLoader = () => Promise<File | null>
-let workdayResumeLoader: WorkdayResumeLoader = requestSavedResume
+let workdayResumeLoader: WorkdayResumeLoader = requestWorkdaySavedResume
 let workdayResumeTask: Promise<File | null> | null = null
 
-// Tests pass the already-saved file here. Production uses the shared account
-// download (the same loadSavedResume worker BambooHR, iCIMS, and Lever use).
+// Tests pass the already-saved file here. Production reads the shared
+// loadSavedResume reply, including the base64 copy messaging actually delivers.
 export function setWorkdayResumeLoader(loader: WorkdayResumeLoader | null) {
-  workdayResumeLoader = loader ?? requestSavedResume
+  workdayResumeLoader = loader ?? requestWorkdaySavedResume
   workdayResumeTask = null
 }
 
@@ -85,7 +85,14 @@ function loadWorkdaySavedResume(): Promise<File | null> {
   if (!workdayResumeTask) {
     workdayResumeTask = Promise.resolve()
       .then(() => workdayResumeLoader())
-      .catch(() => null)
+      .then((file) => {
+        if (!file) workdayResumeTask = null
+        return file
+      })
+      .catch(() => {
+        workdayResumeTask = null
+        return null
+      })
   }
   return workdayResumeTask
 }
@@ -103,6 +110,9 @@ export default function workdayConfig(): SiteRule {
       let jobApplyClicked = false
       let applyManuallyClicked = false
       let resumeAttached = false
+      // A missing file does not count as attached. A later resume input, including
+      // the dropzone that appears after the first look, still gets the saved file.
+      const fillResume = createWorkdayResumeAttempt(() => workdayResumeLoader())
       let signInWithEmailClicked = false
       let createAccountClicked = false
       let accountInputHandled = false
@@ -123,11 +133,7 @@ export default function workdayConfig(): SiteRule {
       const observer = new MutationObserver(async () => {
         try {
           if (!resumeAttached) {
-            const resumeInput = workdayResumeFileInput(document)
-            if (resumeInput && (resumeInput.files?.length ?? 0) === 0) {
-              const saved = await loadWorkdaySavedResume()
-              if (!saved || (await attachWorkdaySavedResume(resumeInput, saved))) resumeAttached = true
-            }
+            if (await fillResume(document)) resumeAttached = true
           }
 
           // Step 1: Apply on the job page, then Apply Manually. The chooser also
