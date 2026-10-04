@@ -1,3 +1,5 @@
+import type { CheckoutSource } from './plans.ts'
+
 export const ENTITLEMENT_KEY = 'billingEntitlement'
 export const CHECKOUT_KEY = 'billingCheckout'
 export const USER_ID_KEY = 'billingUserId'
@@ -32,7 +34,7 @@ export async function writeEntitlement(cache: EntitlementCache): Promise<void> {
 
 export interface CheckoutSession {
   plan: 'monthly' | 'annual' | null
-  source: 'soft_gate' | 'hard_cap' | 'resume_ai' | 'multi_profile'
+  source: CheckoutSource
   fillCount: number | null
   atsSite: string | null
   openedAt: number
