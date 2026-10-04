@@ -11,7 +11,7 @@ import {
   isWorkdaySignInForm,
   workdayAccountAgreementCheckbox,
   workdayCreateAccountLink,
-  workdayJobApplyButton,
+  workdayApplyChooserTarget,
   workdaySignInWithEmailButton,
   listWorkdayPanels,
   matchingOptionText,
@@ -62,8 +62,35 @@ import {
   workdaySelectKind,
   workdaySelectValue,
 } from './workdayFields.ts'
+import { requestSavedResume } from './bamboohrResume.ts'
+import {
+  attachWorkdaySavedResume,
+  isWorkdayCoverLetterFileInput,
+  isWorkdayResumeFileInput,
+  workdayResumeFileInput,
+} from './workdayResume.ts'
 
 var lastFormSignature = ''
+
+type WorkdayResumeLoader = () => Promise<File | null>
+let workdayResumeLoader: WorkdayResumeLoader = requestSavedResume
+let workdayResumeTask: Promise<File | null> | null = null
+
+// Tests pass the already-saved file here. Production uses the shared account
+// download (the same loadSavedResume worker BambooHR, iCIMS, and Lever use).
+export function setWorkdayResumeLoader(loader: WorkdayResumeLoader | null) {
+  workdayResumeLoader = loader ?? requestSavedResume
+  workdayResumeTask = null
+}
+
+function loadWorkdaySavedResume(): Promise<File | null> {
+  if (!workdayResumeTask) {
+    workdayResumeTask = Promise.resolve()
+      .then(() => workdayResumeLoader())
+      .catch(() => null)
+  }
+  return workdayResumeTask
+}
 
 export default function workdayConfig(): SiteRule {
   return {
@@ -77,6 +104,7 @@ export default function workdayConfig(): SiteRule {
       void announceMissingWorkdayAccount(personalInfo)
       let jobApplyClicked = false
       let applyManuallyClicked = false
+      let resumeAttached = false
       let signInWithEmailClicked = false
       let createAccountClicked = false
       let accountInputHandled = false
@@ -96,30 +124,25 @@ export default function workdayConfig(): SiteRule {
 
       const observer = new MutationObserver(async () => {
         try {
-          // Step 1a: Job postings (Cisco, Salesforce, Zillow, and the same external
-          // careers page) show Apply before the method chooser. Clicking it opens
-          // Apply Manually. It is not Submit.
-          if (!jobApplyClicked && !applyManuallyClicked) {
-            const jobApply = workdayJobApplyButton(document)
-            if (jobApply) {
-              jobApplyClicked = true
-              console.log('✓ Found and clicking Apply')
-              jobApply.click()
-              await new Promise((resolve) => setTimeout(resolve, 1500))
-              return
+          if (!resumeAttached) {
+            const resumeInput = workdayResumeFileInput(document)
+            if (resumeInput && (resumeInput.files?.length ?? 0) === 0) {
+              const saved = await loadWorkdaySavedResume()
+              if (!saved || (await attachWorkdaySavedResume(resumeInput, saved))) resumeAttached = true
             }
           }
 
-          // Step 1b: Click "Apply Manually"
+          // Step 1: Apply on the job page, then Apply Manually. The chooser also
+          // shows Autofill with Resume and Use My Last Application. Those are not
+          // clicked. Submit, Submit Application, and Send are not clicked.
           if (!applyManuallyClicked) {
-            const applyManuallyLink = document.querySelector(
-              '[data-automation-id="applyManually"]',
-            ) as HTMLElement
-
-            if (applyManuallyLink) {
-              applyManuallyClicked = true
-              console.log('✓ Found and clicking Apply Manually link')
-              applyManuallyLink.click()
+            const target = workdayApplyChooserTarget(document, { jobApplyClicked })
+            if (target) {
+              const manual = target.getAttribute('data-automation-id') === 'applyManually'
+              if (manual) applyManuallyClicked = true
+              else jobApplyClicked = true
+              console.log(manual ? '✓ Found and clicking Apply Manually link' : '✓ Found and clicking Apply')
+              target.click()
               await new Promise((resolve) => setTimeout(resolve, 1500))
               return
             }
@@ -439,6 +462,14 @@ export default function workdayConfig(): SiteRule {
       }
     },
     apply: async (input, fieldText, personalInfo) => {
+      if (isWorkdayResumeFileInput(input as HTMLInputElement)) {
+        const fileInput = input as HTMLInputElement
+        if ((fileInput.files?.length ?? 0) > 0) return 'skip'
+        const saved = await loadWorkdaySavedResume()
+        if (!saved) return 'skip'
+        return (await attachWorkdaySavedResume(fileInput, saved)) ? true : 'skip'
+      }
+      if (isWorkdayCoverLetterFileInput(input as HTMLInputElement)) return 'skip'
       // Experience rows are filled by the section handler. The generic matcher
       // only knows the first profile job, so letting it through copies that job
       // into every empty row.
