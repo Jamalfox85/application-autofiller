@@ -175,6 +175,7 @@ async function runScore(
     cached: cached && cached.result ? cached : null,
     now: deps.now(),
     token,
+    apiKey: deps.apiKey(),
     jdText: input.jdText,
   }
   if (willRequestMatchScore(common)) {

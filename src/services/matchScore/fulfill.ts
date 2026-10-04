@@ -1,3 +1,4 @@
+import { configuredResumeApiKey } from '../billing/proApiContract.ts'
 import { cacheFresh } from './cache.ts'
 import { postMatchScore } from './contract.ts'
 import type { JdSource, MatchAts, MatchProfile, MatchScoreResult, ScoredMatch } from './types.ts'
@@ -62,6 +63,7 @@ export function willRequestMatchScore(input: {
   cached: CachedMatchScore | null
   now: number
   token: string | null
+  apiKey?: string | null
   jdText: string
 }): boolean {
   if (!input.jdText.trim()) return false
@@ -69,6 +71,7 @@ export function willRequestMatchScore(input: {
   if (input.rateLimited && !input.rescore) return false
   if (!input.isPro) return false
   if (!input.token) return false
+  if (!configuredResumeApiKey(input.apiKey)) return false
   if (!input.rescore && input.cached && cacheFresh(input.cached.at, input.now)) return false
   return true
 }
@@ -104,7 +107,9 @@ export async function fulfillMatchScore(input: FulfillInput): Promise<FulfillOut
   if (!input.isPro) {
     return { ...none, relay: { view: 'locked', ats: input.ats, jdSource: input.jdSource } }
   }
-  if (!input.token) return { ...none, relay: { view: 'hide', reason: 'signed_out' } }
+  if (!input.token || !configuredResumeApiKey(input.apiKey)) {
+    return { ...none, relay: { view: 'hide', reason: 'signed_out' } }
+  }
   if (!input.rescore && input.cached && cacheFresh(input.cached.at, input.now)) {
     return { ...none, relay: cachedRelay(input.cached, input) }
   }
@@ -131,8 +136,11 @@ export async function fulfillMatchScore(input: FulfillInput): Promise<FulfillOut
     if (input.rescore) return { ...requested, relay: { view: 'keep' } }
     return { ...requested, persistRateLimit: true, relay: { view: 'hide', reason: 'rate_limited' } }
   }
+  if (result.kind === 'unauthorized') {
+    return { ...requested, relay: { view: 'hide', reason: 'signed_out' } }
+  }
   if (result.kind === 'plan_required') {
-    return { ...requested, relay: { view: 'locked', ats: input.ats, jdSource: input.jdSource } }
+    return { ...requested, relay: { view: 'hide', reason: 'error' } }
   }
   if (result.kind === 'unsupported' || result.kind === 'hide') {
     return {

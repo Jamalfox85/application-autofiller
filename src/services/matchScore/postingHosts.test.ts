@@ -40,6 +40,10 @@ test('the service worker relays Match Score and allows the posting hosts', () =>
   assert.match(background, /matchScoreRemoveSkill/)
   assert.match(worker, /frameId:\s*0/)
   assert.match(worker, /buildMatchProfile/)
+  assert.match(worker, /resumeApiBaseUrl/)
+  assert.match(worker, /getValidAccessToken/)
+  assert.doesNotMatch(worker, /api-production-5aca1/)
+  assert.doesNotMatch(worker, /Bearer [A-Za-z0-9]/)
   for (const host of POSTING_HOSTS) {
     assert.match(manifest, new RegExp(host.replace(/\./g, '\\.')))
   }

@@ -74,7 +74,13 @@ test('insufficient, unsupported, plan_required, and rate limit map to their kind
     parseMatchScoreBody(403, { success: false, error: { code: 'plan_required' } }).kind,
     'plan_required',
   )
-  assert.equal(parseMatchScoreBody(429, { status: 'rate_limited' }).kind, 'rate_limited')
+  assert.equal(
+    parseMatchScoreBody(429, { success: false, error: { code: 'rate_limited', message: 'Slow down' } }).kind,
+    'rate_limited',
+  )
+  assert.equal(parseMatchScoreBody(429, { ...scored, score: 99 }).kind, 'rate_limited')
+  assert.equal(parseMatchScoreBody(200, { status: 'rate_limited' }).kind, 'hide')
+  assert.equal(parseMatchScoreBody(401, scored).kind, 'unauthorized')
   assert.equal(parseMatchScoreBody(503, {}).kind, 'hide')
 })
 
@@ -97,7 +103,7 @@ test('POST /match-score sends only the contract body and stops at 8s', async () 
     }),
     token: 'token-1',
     baseUrl: 'http://127.0.0.1:9/api/v1',
-    apiKey: null,
+    apiKey: 'test-key',
     timeoutMs: 20,
     fetchImpl: async (_url, init) => {
       calls += 1
@@ -105,7 +111,9 @@ test('POST /match-score sends only the contract body and stops at 8s', async () 
       assert.equal(init?.method, 'POST')
       const headers = init?.headers as Record<string, string>
       assert.equal(headers.Authorization, 'Bearer token-1')
+      assert.equal(headers['X-API-Key'], 'test-key')
       assert.equal(String(_url), 'http://127.0.0.1:9/api/v1/match-score')
+      assert.equal(String(_url).includes('api-production-5aca1.up.railway.app'), false)
       return new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
       })

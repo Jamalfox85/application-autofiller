@@ -108,6 +108,7 @@ export type MatchScoreResult =
   | { kind: 'unsupported'; reason: UnsupportedReason }
   | { kind: 'plan_required' }
   | { kind: 'rate_limited' }
+  | { kind: 'unauthorized' }
   | { kind: 'hide' }
 
 export const BAND_LABEL: Record<MatchBand, string> = {

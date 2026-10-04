@@ -22,6 +22,7 @@ function input(overrides: Record<string, unknown> = {}) {
     jdSource: 'fetched' as const,
     profile,
     baseUrl: 'http://127.0.0.1:9/api/v1',
+    apiKey: 'test-key',
     ...overrides,
   }
 }
@@ -50,15 +51,23 @@ test('a missing job description and a free user never call Match Score', async (
   }
   const missing = await fulfillMatchScore(input({ jdText: '   ', fetchImpl }))
   const free = await fulfillMatchScore(input({ isPro: false, fetchImpl }))
+  const unsigned = await fulfillMatchScore(input({ token: null, fetchImpl }))
+  const noKey = await fulfillMatchScore(input({ apiKey: null, fetchImpl }))
   assert.equal(missing.relay.view, 'hide')
   assert.equal(free.relay.view, 'locked')
+  assert.equal(unsigned.relay.view, 'hide')
+  assert.equal(noKey.relay.view, 'hide')
   assert.equal(missing.requested, false)
   assert.equal(free.requested, false)
+  assert.equal(unsigned.requested, false)
+  assert.equal(noKey.requested, false)
+  assert.equal(willRequestMatchScore(input({ apiKey: '' })), false)
   assert.equal(calls, 0)
 })
 
 test('429 hides a first score and a re-score is not stored as rate limited', async () => {
-  const fetchImpl: typeof fetch = async () => new Response('{}', { status: 429 })
+  const envelope = JSON.stringify({ success: false, error: { code: 'rate_limited', message: 'Slow down' } })
+  const fetchImpl: typeof fetch = async () => new Response(envelope, { status: 429 })
   const first = await fulfillMatchScore(input({ fetchImpl }))
   const again = await fulfillMatchScore(input({ fetchImpl, rescore: true, rateLimited: true }))
   assert.equal(first.relay.view, 'hide')
@@ -117,9 +126,41 @@ test('the same job and profile uses the cache', async () => {
   assert.equal(calls, 0)
 })
 
-test('plan_required shows the locked state', async () => {
-  const fetchImpl: typeof fetch = async () =>
-    new Response(JSON.stringify({ success: false, error: { code: 'plan_required' } }), { status: 403 })
-  const result = await fulfillMatchScore(input({ fetchImpl }))
-  assert.equal(result.relay.view, 'locked')
+test('401 and plan_required hide and are not scores', async () => {
+  const scoredBody = JSON.stringify({
+    status: 'scored',
+    score: 90,
+    band: 'very_strong',
+    confidence: 'high',
+    strong_match: true,
+    matched: [],
+    suggestions: [],
+    dealbreakers: [],
+    notices: [],
+    score_version: 1,
+    requirements_version: 1,
+    cached_requirements: false,
+  })
+  let calls = 0
+  const unauthorized = await fulfillMatchScore(
+    input({
+      fetchImpl: async () => {
+        calls += 1
+        return new Response(scoredBody, { status: 401 })
+      },
+    }),
+  )
+  const plan = await fulfillMatchScore(
+    input({
+      fetchImpl: async () => {
+        calls += 1
+        return new Response(JSON.stringify({ success: false, error: { code: 'plan_required' } }), { status: 403 })
+      },
+    }),
+  )
+  assert.equal(unauthorized.relay.view, 'hide')
+  assert.equal(plan.relay.view, 'hide')
+  assert.equal(unauthorized.cacheValue, null)
+  assert.equal(plan.cacheValue, null)
+  assert.equal(calls, 2)
 })

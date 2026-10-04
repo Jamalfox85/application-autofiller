@@ -142,7 +142,12 @@ function parseNotices(value: unknown): Notice[] {
 }
 
 export function parseMatchScoreBody(status: number, body: unknown): MatchScoreResult {
+  // 401 is the global X-API-Key check (or a missing session). It is not a Match Score
+  // body, even if the payload looks scored.
+  if (status === 401) return { kind: 'unauthorized' }
   if (isPlanRequiredResponse(status, body)) return { kind: 'plan_required' }
+  // 429 uses the shared error envelope. The signal is the HTTP status, not a
+  // body field status=rate_limited.
   if (status === 429) return { kind: 'rate_limited' }
   if (status >= 500 || status < 200) return { kind: 'hide' }
   if (status !== 200 || !isRecord(body)) return { kind: 'hide' }
