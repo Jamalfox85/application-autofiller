@@ -845,6 +845,79 @@ function assignSelect(input: Writable, value: string) {
   }
 }
 
+// iCIMS profile country/state menus are ICIMS.dropdown widgets. The native select
+// stays hidden and usually holds only "— Make a Selection —"; the real options
+// arrive from /jobs/profileoptions after a search. State is a dependent menu
+// (data-ddd-parent-link): until the country widget's optionSelected runs, the
+// state menu stays on "Please select a country" and its options never load.
+export function isIcimsMenuPlaceholder(label: string): boolean {
+  const normalized = label.toLowerCase().replace(/[^a-z]/g, '')
+  if (!normalized) return true
+  return (
+    normalized.includes('makeaselection') ||
+    normalized.includes('pleaseselect') ||
+    normalized.includes('selectacountry') ||
+    normalized === 'select' ||
+    normalized === 'selectone' ||
+    normalized === 'choosecountry'
+  )
+}
+
+export function icimsSelectNeedsFill(input: {
+  tagName?: string | null
+  value?: string | null
+  selectedIndex?: number | null
+  options?: ArrayLike<{ value?: string; text?: string; label?: string }> | null
+}): boolean {
+  if ((input.tagName || '').toUpperCase() !== 'SELECT') return false
+  const index = input.selectedIndex ?? 0
+  const selected = input.options && index >= 0 ? input.options[index] : undefined
+  const text = String(selected?.text || selected?.label || '')
+  const value = String(selected?.value ?? input.value ?? '').trim()
+  if (value === '-999') return true
+  return isIcimsMenuPlaceholder(text)
+}
+
+export function icimsListedSearchText(desired: string, kind: 'state' | 'country'): string {
+  const cleaned = desired.trim().replace(/_/g, ' ').replace(/\s+/g, ' ')
+  const want = cleaned.toLowerCase()
+  if (!want) return ''
+  const group = RELATIVE_MATCHES[kind].find((aliases) =>
+    aliases.some((alias) => alias.toLowerCase() === want),
+  )
+  const source = (() => {
+    if (!group) return cleaned
+    const phrases = group.filter((alias) => alias.includes(' '))
+    if (phrases.length > 0) {
+      phrases.sort((a, b) => a.length - b.length)
+      return phrases[0]
+    }
+    const longest = [...group].sort((a, b) => b.length - a.length)[0]
+    return longest || cleaned
+  })()
+  return source.replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+}
+
+type DropdownWord = { value?: string | number; text?: string }
+
+type IcimsDropdownHandle = {
+  setInput?: (value: string) => void
+  resetOptions?: (callback?: () => void) => void
+  getWords?: (includeLegacy?: boolean) => DropdownWord[]
+  findWordFromValue?: (value: string) => DropdownWord | null
+  optionSelected?: (word: DropdownWord) => void
+}
+
+type DropdownRegistry = Record<string, IcimsDropdownHandle | undefined>
+
+type SelectLike = GateElement & {
+  selectedIndex?: number
+  ownerDocument?: {
+    getElementById?: (id: string) => { textContent?: string | null } | null
+    querySelectorAll?: (selector: string) => ArrayLike<SelectLike>
+  } | null
+}
+
 export function readIcimsOptions(input: {
   options?: ArrayLike<{ value?: string; text?: string; label?: string }>
 }): IcimsOption[] {
@@ -862,6 +935,204 @@ export function readIcimsOptions(input: {
     result.push({ value: String(value), label: label || String(value) })
   }
   return result
+}
+
+function icimsDropdownRegistry(): DropdownRegistry {
+  const host = globalThis as { ICIMS?: { dropdowns?: DropdownRegistry } }
+  return host.ICIMS?.dropdowns ?? {}
+}
+
+function selectElementId(element: GateElement): string {
+  return elementAttr(element, 'id') || element.id || ''
+}
+
+function visibleMenuLabel(element: SelectLike): string | null {
+  const id = selectElementId(element)
+  if (!id) return null
+  const span = element.ownerDocument?.getElementById?.(id + '_fakeSelected_icimsDropdown')
+  if (!span) return null
+  return String(span.textContent || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isUnitedStatesQuery(desired: string): boolean {
+  const key = desired.trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return key === 'united_states' || key === 'us' || key === 'usa' || key === 'america'
+}
+
+function isCountryFalseFriend(kind: 'state' | 'country', desired: string, label: string): boolean {
+  if (kind !== 'country' || !isUnitedStatesQuery(desired)) return false
+  const normalized = label.toLowerCase()
+  return normalized.includes('minor') || normalized.includes('outlying')
+}
+
+function usableMenuOptions(kind: 'state' | 'country', desired: string, options: IcimsOption[]): IcimsOption[] {
+  return options.filter((option) => {
+    if (option.value.trim() === '-999') return false
+    if (isIcimsMenuPlaceholder(option.label)) return false
+    if (isCountryFalseFriend(kind, desired, option.label)) return false
+    return true
+  })
+}
+
+function pickListedOption(
+  kind: 'state' | 'country',
+  desired: string,
+  options: IcimsOption[],
+): IcimsOption | null {
+  const usable = usableMenuOptions(kind, desired, options)
+  if (usable.length === 0) return null
+  const full = icimsListedSearchText(desired, kind)
+  const queries = full && full.toLowerCase() !== desired.trim().toLowerCase() ? [full, desired.trim()] : [full || desired.trim()]
+  for (const query of queries) {
+    if (!query) continue
+    const value = resolveIcimsSelect(
+      { field: kind, action: 'select', mode: kind, query, text: full || query },
+      usable,
+    )
+    if (!value) continue
+    const chosen = usable.find((option) => option.value === value)
+    if (chosen) return chosen
+  }
+  return null
+}
+
+function wordsToOptions(words: DropdownWord[]): IcimsOption[] {
+  return words
+    .map((word) => ({
+      value: String(word.value ?? ''),
+      label: String(word.text ?? '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    }))
+    .filter((option) => option.label || option.value)
+}
+
+function waitForDropdown(handle: IcimsDropdownHandle): Promise<void> {
+  if (!handle.resetOptions) return Promise.resolve()
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    try {
+      handle.resetOptions?.(finish)
+    } catch {
+      finish()
+      return
+    }
+    setTimeout(finish, 4000)
+  })
+}
+
+async function loadDropdownOptions(handle: IcimsDropdownHandle, query: string): Promise<IcimsOption[]> {
+  handle.setInput?.(query)
+  await waitForDropdown(handle)
+  return wordsToOptions(handle.getWords?.(true) ?? [])
+}
+
+function commitDropdown(handle: IcimsDropdownHandle, option: IcimsOption) {
+  const found = handle.findWordFromValue?.(option.value)
+  const word =
+    found && String(found.value ?? '') === option.value ? found : { value: option.value, text: option.label }
+  try {
+    // optionSelected updates the hidden select and the visible combobox, then runs
+    // the portal onchange that loads dependent state options. A missing onchange
+    // throws after the selection is stored; the state menu can still be filled.
+    handle.optionSelected?.(word)
+  } catch {
+    // The selection itself already happened inside the widget.
+  }
+}
+
+function menuAlreadySet(element: SelectLike, chosen: IcimsOption): boolean {
+  if (String(element.value || '') !== chosen.value) return false
+  const shown = visibleMenuLabel(element)
+  if (shown == null) return true
+  if (isIcimsMenuPlaceholder(shown)) return false
+  return shown.toLowerCase() === chosen.label.toLowerCase()
+}
+
+const committedMenus = new WeakSet<object>()
+
+function rememberMenu(element: SelectLike, chosen: IcimsOption) {
+  if (String(element.value || '') !== chosen.value) assignSelect(element, chosen.value)
+  committedMenus.add(element)
+}
+
+async function commitLocationMenu(
+  element: SelectLike,
+  kind: 'state' | 'country',
+  desired: string,
+): Promise<void> {
+  const raw = desired.trim()
+  if (!raw) return
+  const handle = icimsDropdownRegistry()[selectElementId(element)]
+  const nativeChoice = pickListedOption(kind, raw, readIcimsOptions(element))
+  if (nativeChoice && menuAlreadySet(element, nativeChoice)) {
+    committedMenus.add(element)
+    return
+  }
+  if (!handle) {
+    if (!nativeChoice) return
+    rememberMenu(element, nativeChoice)
+    return
+  }
+
+  const alreadyLoaded = pickListedOption(kind, raw, wordsToOptions(handle.getWords?.(true) ?? []))
+  if (alreadyLoaded) {
+    commitDropdown(handle, alreadyLoaded)
+    rememberMenu(element, alreadyLoaded)
+    return
+  }
+
+  const queries = [icimsListedSearchText(raw, kind), raw.replace(/_/g, ' ').trim()].filter(
+    (query, index, all) => query && all.indexOf(query) === index,
+  )
+  for (const query of queries) {
+    const loaded = handle.resetOptions || handle.getWords ? await loadDropdownOptions(handle, query) : []
+    const chosen = pickListedOption(kind, raw, loaded)
+    if (!chosen) continue
+    commitDropdown(handle, chosen)
+    rememberMenu(element, chosen)
+    return
+  }
+  if (nativeChoice) {
+    commitDropdown(handle, nativeChoice)
+    rememberMenu(element, nativeChoice)
+  }
+}
+
+export async function fillIcimsLocationMenus(
+  doc: { querySelectorAll?: (selector: string) => ArrayLike<SelectLike> } | null | undefined,
+  personalInfo: Partial<PersonalInfo> | null | undefined,
+): Promise<void> {
+  if (!doc?.querySelectorAll) return
+  const nodes = doc.querySelectorAll('select')
+  const countries: SelectLike[] = []
+  const states: SelectLike[] = []
+  for (let i = 0; i < nodes.length; i++) {
+    const element = nodes[i]
+    if (!element) continue
+    const field = classifyIcimsControl(controlFromElement(element), false)
+    if (field === 'country') countries.push(element)
+    else if (field === 'state') states.push(element)
+  }
+  const country = (personalInfo?.country || '').trim()
+  const state = (personalInfo?.state || '').trim()
+  for (const element of countries) {
+    await commitLocationMenu(element, 'country', country)
+  }
+  for (const element of states) {
+    await commitLocationMenu(element, 'state', state)
+  }
+}
+
+export function icimsLocationMenuCommitted(element: object): boolean {
+  return committedMenus.has(element)
 }
 
 export function applyIcimsPlan(input: Writable, plan: IcimsFillPlan): boolean {

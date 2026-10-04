@@ -27,18 +27,18 @@ After Apply, the career host navigates to `…/jobs/{id}/…/login`, often insid
 ## Steps
 
 1. Load the unpacked extension. Open the job URL and click **Apply** yourself. Stop on the login document (`/login`, including the iframe).
-2. **Saved iCIMS account, email step.** “Enter Your Information” (email field, no password yet) shows a GoFillr popup: create the iCIMS account on this site yourself — email, captcha, and password. It still appears when an iCIMS Application Account is saved. Email on that step becomes the Application Accounts email, not the profile email when those differ. Do not click **Next**. If hCaptcha is visible, it stays unsolved and unclicked. The EU/UK resident checkbox stays as the page rendered it (GoFillr has no EU/UK resident answer).
-3. Complete hCaptcha yourself and click **Next** only if you want to continue the dry-run. On the password step, the create-account popup goes away and the password (and confirm password, when that field exists) fills from the same iCIMS row. Log In / Create Account is not clicked.
-4. **No iCIMS account.** Remove or blank the iCIMS Application Accounts row, reload the login gate, and confirm the missing-login notice still appears (page toast, toolbar badge, and the Application Accounts sheet). The create-account popup still appears on the email step. The password stays empty (the legacy Workday account password is not used).
-5. **Application, after you pass the gate yourself.** Contact fields fill when the control id or label is a standard iCIMS field: first and last name, profile email, phone, street, city, state, postal code, country, LinkedIn. Address line 2 stays empty. Phone type stays empty. A state or country menu shows a selected option (full state name when the profile has an abbreviation).
+2. **Saved iCIMS account, email step.** “Enter Your Information” (email field, no password yet) does not show a popup telling you to create an iCIMS account. Email on that step becomes the Application Accounts email, not the profile email when those differ. Do not click **Next**. If hCaptcha is visible, it stays unsolved and unclicked. The EU/UK resident checkbox stays as the page rendered it (GoFillr has no EU/UK resident answer).
+3. Complete hCaptcha yourself and click **Next** only if you want to continue the dry-run. On the password step, the password (and confirm password, when that field exists) fills from the same iCIMS row. Log In / Create Account is not clicked.
+4. **No iCIMS account.** Remove or blank the iCIMS Application Accounts row, reload the login gate, and confirm the missing-login notice still appears (page toast, toolbar badge, and the Application Accounts sheet). No popup tells you to create an account on this site. The password stays empty (the legacy Workday account password is not used). Do not click **Next**.
+5. **Application, after you pass the gate yourself.** Contact fields fill when the control id or label is a standard iCIMS field: first and last name, profile email, phone, street, city, state, postal code, country, LinkedIn. Address line 2 stays empty. Phone type stays empty. Country is selected before State/Province. A profile country of United States selects United States on the country menu (including the searchable menu that starts on “— Make a Selection —”). The state menu then shows the full state name (New Jersey when the profile says NJ), not “Please select a country”.
 6. **Later sections, only where the field id is clearly that section.** Experience row 0 gets the current role and does not gain an end date. Row 1 gets the past role. Education gets school, degree, major, and years. Work authorization and sponsorship follow the profile when those menus are standard selects. EEO fills only when EEO answers are on. `rcf` custom questions and “how did you hear” stay blank.
 7. Stop before Submit. The resume file input stays empty until you attach a file.
 
 ## Pass
 
-- The email step shows the create-account popup, including when an iCIMS account is already saved. The password step does not show that popup.
+- No popup asks you to create an iCIMS account on this site.
 - The login gate shows the saved iCIMS email, and the password step shows the saved password.
 - hCaptcha was not clicked or solved. Next, Log In, Create Account, and Submit were not clicked by the extension.
 - The EU/UK checkbox was not changed.
-- Supported application fields behind the gate match the profile. Custom questions are blank.
+- Supported application fields behind the gate match the profile. Country shows United States and State/Province shows New Jersey when the profile country is United States and the state is NJ. Custom questions are blank.
 - The missing-account notice still appears when the iCIMS row is absent.
