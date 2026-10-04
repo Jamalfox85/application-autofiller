@@ -7,7 +7,7 @@ import {
 } from '../utils/fillValue.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 import { isWorkdayApplyHost } from '../utils/siteRules/workdayAccount.ts'
-import { fillWorkdayApplicationQuestions } from '../utils/siteRules/workday.ts'
+import { fillWorkdayApplicationQuestions, fillWorkdayWorkExperience } from '../utils/siteRules/workday.ts'
 import { beginLeverFill, readLeverEeoTelemetry } from '../utils/siteRules/lever.ts'
 import {
   showAutofillNotification,
@@ -206,14 +206,15 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     // Application Questions are Canvas buttons. The input scan does not see
     // them, and the years box is the only input, so a skip there used to report
     // that nothing on the page matched.
-    const questionFills = isWorkdayApplyHost(window.location.hostname)
-      ? await fillWorkdayApplicationQuestions(document, personalInfo)
-      : 0
+    const onWorkday = isWorkdayApplyHost(window.location.hostname)
+    const questionFills = onWorkday ? await fillWorkdayApplicationQuestions(document, personalInfo) : 0
+    // A later click must not append another copy of a job already on My Experience.
+    const experienceFills = onWorkday ? await fillWorkdayWorkExperience(document, personalInfo) : 0
     beginLeverFill()
 
     await reportAttempt()
 
-    if (fillableInputs.length === 0 && questionFills === 0) {
+    if (fillableInputs.length === 0 && questionFills === 0 && experienceFills === 0) {
       await reportFailed('no_fillable_fields')
       return { success: false, message: 'No fillable fields found' }
     }
@@ -223,7 +224,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
 
     const fillRecords: FillRecord[] = []
     const unfilledInputs: FormField[] = []
-    filledCount += questionFills
+    filledCount += questionFills + experienceFills
 
     for (const input of fillableInputs) {
       attemptedCount++

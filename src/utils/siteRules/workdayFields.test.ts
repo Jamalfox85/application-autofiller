@@ -1842,3 +1842,226 @@ test('Cisco application questions are found when the menu never opens', async ()
   assert.notEqual(authorized.button.textContent, 'Select One')
   assert.notEqual(sponsorship.button.textContent, 'Select One')
 })
+
+test('a second work experience autofill does not append a job already on the page', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>')
+  const doc = dom.window.document
+  let nextPanel = 1
+  let adds = 0
+
+  const section = doc.createElement('div')
+  section.setAttribute('role', 'group')
+  section.setAttribute('aria-labelledby', 'Work-Experience-section')
+  const heading = doc.createElement('h3')
+  heading.id = 'Work-Experience-section'
+  heading.textContent = 'Work Experience'
+  const add = doc.createElement('button')
+  add.type = 'button'
+  add.id = 'add-exp'
+  add.setAttribute('data-automation-id', 'add-button')
+  add.textContent = 'Add'
+  section.append(heading, add)
+  doc.body.appendChild(section)
+
+  const textField = (metadataId: string, value = '') => {
+    const wrap = doc.createElement('div')
+    wrap.setAttribute('data-automation-id', `formField-${metadataId}`)
+    const input = doc.createElement('input')
+    input.value = value
+    wrap.appendChild(input)
+    return { wrap, input }
+  }
+  const dateField = (metadataId: string, month = '', year = '') => {
+    const wrap = doc.createElement('div')
+    wrap.setAttribute('data-automation-id', `formField-${metadataId}`)
+    const monthInput = doc.createElement('input')
+    monthInput.setAttribute('data-automation-id', 'dateSectionMonth-input')
+    monthInput.value = month
+    const yearInput = doc.createElement('input')
+    yearInput.setAttribute('data-automation-id', 'dateSectionYear-input')
+    yearInput.value = year
+    wrap.append(monthInput, yearInput)
+    return wrap
+  }
+  const buildPanel = (title: string, company: string, fromMonth = '', fromYear = '') => {
+    const n = nextPanel++
+    const panel = doc.createElement('div')
+    panel.setAttribute('role', 'group')
+    panel.setAttribute('aria-labelledby', `Work-Experience-${n}-panel`)
+    const label = doc.createElement('h4')
+    label.id = `Work-Experience-${n}-panel`
+    label.textContent = `Work Experience ${n}`
+    const currentWrap = doc.createElement('div')
+    currentWrap.setAttribute('data-automation-id', 'formField-currentlyWorkHere')
+    const current = doc.createElement('input')
+    current.type = 'checkbox'
+    currentWrap.appendChild(current)
+    panel.append(
+      label,
+      textField('jobTitle', title).wrap,
+      textField('companyName', company).wrap,
+      dateField('startDate', fromMonth, fromYear),
+      dateField('endDate'),
+      currentWrap,
+    )
+    doc.body.appendChild(panel)
+    return panel
+  }
+
+  add.addEventListener('click', () => {
+    adds += 1
+    buildPanel('', '')
+  })
+
+  // The required section starts with one empty row. The profile has two jobs.
+  buildPanel('', '')
+  const profile = {
+    experience: [
+      {
+        id: 1,
+        jobTitle: 'Full Stack Developer',
+        companyName: 'American Reading Company',
+        startDate: '2021-12',
+        description: '',
+        present: true,
+      },
+      {
+        id: 2,
+        jobTitle: 'Software Engineer',
+        companyName: 'Northwind Labs',
+        startDate: '2019-01',
+        endDate: '2021-06',
+        description: '',
+      },
+    ],
+  } as PersonalInfo
+
+  const { fillWorkdayWorkExperience } = await import('./workday.ts')
+  await fillWorkdayWorkExperience(doc, profile)
+  assert.equal(listWorkdayPanels(doc, 'experience').length, 2)
+  const addsAfterFirst = adds
+  await fillWorkdayWorkExperience(doc, profile)
+  assert.equal(adds, addsAfterFirst)
+  assert.equal(listWorkdayPanels(doc, 'experience').length, 2)
+
+  const panels = listWorkdayPanels(doc, 'experience')
+  const titleOf = (panel: Element) => (workdayFieldControl(panel, 'jobTitle') as HTMLInputElement).value
+  const companyOf = (panel: Element) => (workdayFieldControl(panel, 'companyName') as HTMLInputElement).value
+  assert.deepEqual(panels.map(titleOf).sort(), ['Full Stack Developer', 'Software Engineer'])
+  assert.deepEqual(panels.map(companyOf).sort(), ['American Reading Company', 'Northwind Labs'])
+
+  const fullStack = panels.find((panel) => titleOf(panel) === 'Full Stack Developer')!
+  const fullStackTo = fullStack.querySelector('[data-automation-id="formField-endDate"]')!
+  assert.equal(workdayDatePartInput(fullStackTo, 'month')?.value, '')
+  assert.equal(workdayDatePartInput(fullStackTo, 'year')?.value, '')
+  assert.equal((fullStack.querySelector('input[type="checkbox"]') as HTMLInputElement).checked, true)
+
+  const northwind = panels.find((panel) => titleOf(panel) === 'Software Engineer')!
+  const northwindTo = northwind.querySelector('[data-automation-id="formField-endDate"]')!
+  assert.equal(workdayDatePartInput(northwindTo, 'month')?.value, '06')
+  assert.equal(workdayDatePartInput(northwindTo, 'year')?.value, '2021')
+})
+
+test('work experience autofill does not copy a job into a blank row that is already represented', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>')
+  const doc = dom.window.document
+  let nextPanel = 1
+  let adds = 0
+  const section = doc.createElement('div')
+  section.setAttribute('role', 'group')
+  section.setAttribute('aria-labelledby', 'Work-Experience-section')
+  const heading = doc.createElement('h3')
+  heading.id = 'Work-Experience-section'
+  heading.textContent = 'Work Experience'
+  const add = doc.createElement('button')
+  add.type = 'button'
+  add.setAttribute('data-automation-id', 'add-button')
+  add.textContent = 'Add'
+  section.append(heading, add)
+  doc.body.appendChild(section)
+  add.addEventListener('click', () => {
+    adds += 1
+  })
+
+  const panel = (title: string, company: string, fromMonth = '', fromYear = '') => {
+    const n = nextPanel++
+    const group = doc.createElement('div')
+    group.setAttribute('role', 'group')
+    group.setAttribute('aria-labelledby', `Work-Experience-${n}-panel`)
+    const label = doc.createElement('h4')
+    label.id = `Work-Experience-${n}-panel`
+    label.textContent = `Work Experience ${n}`
+    const field = (metadataId: string, value = '') => {
+      const wrap = doc.createElement('div')
+      wrap.setAttribute('data-automation-id', `formField-${metadataId}`)
+      const input = doc.createElement('input')
+      input.value = value
+      wrap.appendChild(input)
+      return wrap
+    }
+    const dates = (metadataId: string, month: string, year: string) => {
+      const wrap = doc.createElement('div')
+      wrap.setAttribute('data-automation-id', `formField-${metadataId}`)
+      const monthInput = doc.createElement('input')
+      monthInput.setAttribute('data-automation-id', 'dateSectionMonth-input')
+      monthInput.value = month
+      const yearInput = doc.createElement('input')
+      yearInput.setAttribute('data-automation-id', 'dateSectionYear-input')
+      yearInput.value = year
+      wrap.append(monthInput, yearInput)
+      return wrap
+    }
+    group.append(
+      label,
+      field('jobTitle', title),
+      field('companyName', company),
+      dates('startDate', fromMonth, fromYear),
+      dates('endDate', '', ''),
+    )
+    doc.body.appendChild(group)
+  }
+
+  panel('Full Stack Developer', 'American Reading Company', '12', '2021')
+  panel('Software Engineer', 'Northwind Labs', '01', '2019')
+  panel('', '', '12', '2021')
+
+  const { fillWorkdayWorkExperience } = await import('./workday.ts')
+  await fillWorkdayWorkExperience(doc, {
+    experience: [
+      {
+        id: 1,
+        jobTitle: 'Full Stack Developer',
+        companyName: 'American Reading Company',
+        startDate: '2021-12',
+        description: '',
+        present: true,
+      },
+      {
+        id: 2,
+        jobTitle: 'Software Engineer',
+        companyName: 'Northwind Labs',
+        startDate: '2019-01',
+        endDate: '2021-06',
+        description: '',
+      },
+    ],
+  } as PersonalInfo)
+
+  assert.equal(adds, 0)
+  assert.equal(listWorkdayPanels(doc, 'experience').length, 3)
+  const blank = listWorkdayPanels(doc, 'experience').find(
+    (group) => !(workdayFieldControl(group, 'jobTitle') as HTMLInputElement).value.trim(),
+  )!
+  assert.equal((workdayFieldControl(blank, 'jobTitle') as HTMLInputElement).value, '')
+  assert.equal((workdayFieldControl(blank, 'companyName') as HTMLInputElement).value, '')
+  const blankTo = blank.querySelector('[data-automation-id="formField-endDate"]')!
+  assert.equal(workdayDatePartInput(blankTo, 'month')?.value, '')
+  assert.equal(workdayDatePartInput(blankTo, 'year')?.value, '')
+  const fullStack = listWorkdayPanels(doc, 'experience').find(
+    (group) =>
+      (workdayFieldControl(group, 'jobTitle') as HTMLInputElement).value === 'Full Stack Developer',
+  )!
+  const fullStackTo = fullStack.querySelector('[data-automation-id="formField-endDate"]')!
+  assert.equal(workdayDatePartInput(fullStackTo, 'month')?.value, '')
+  assert.equal(workdayDatePartInput(fullStackTo, 'year')?.value, '')
+})
