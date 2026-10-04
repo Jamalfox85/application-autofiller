@@ -41,6 +41,10 @@ await copyFile(
   'src/utils/siteRules/icimsPageDropdownCommand.js',
   'dist/src/utils/siteRules/icimsPageDropdownCommand.js',
 )
+await copyFile(
+  'src/utils/siteRules/icimsFrameAutofill.js',
+  'dist/src/utils/siteRules/icimsFrameAutofill.js',
+)
 await esbuild.build({
   entryPoints: ['src/services/installAttribution.ts'],
   outfile: 'dist/src/services/installAttribution.js',

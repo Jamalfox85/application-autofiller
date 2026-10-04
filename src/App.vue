@@ -37,6 +37,7 @@ import {
   ICIMS_ACCOUNT_NOTICE_KEY,
   parseIcimsAccountNotice,
 } from '@/utils/siteRules/icimsAccountNotice.ts'
+import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -173,7 +174,17 @@ const autofillCurrentPage = async () => {
   autofillState.value = 'filling'
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'autofill', surface: 'popup' })
+    let host = ''
+    try {
+      host = tab.url ? new URL(tab.url).hostname : ''
+    } catch {
+      host = ''
+    }
+    // iCIMS keeps the application in a frame. Ask that frame directly so the
+    // outer shell's hidden inputs are not the autofill result.
+    const response = isIcimsCandidateHost(host)
+      ? await chrome.runtime.sendMessage({ action: 'autofillIcimsTab', tabId: tab.id })
+      : await chrome.tabs.sendMessage(tab.id, { action: 'autofill', surface: 'popup' })
 
     if (response?.code === 'hard_cap' || response?.paywall === 'hard') {
       autofillState.value = 'idle'

@@ -213,6 +213,16 @@ function controlBlob(control: IcimsControl): string {
   )
 }
 
+// Identity of the control itself. A shared resume section can mention both the
+// resume chooser and a cover letter; the cover letter's own name stays empty.
+function fileOwnBlob(control: IcimsControl): string {
+  return compact(
+    [control.name, control.id, control.placeholder, control.ariaLabel, control.autocomplete]
+      .filter((part) => part != null && String(part).trim() !== '')
+      .join(' '),
+  )
+}
+
 function controlType(control: IcimsControl): string {
   return (control.type || '').toLowerCase()
 }
@@ -274,11 +284,28 @@ function blockedPersonName(blob: string): boolean {
   return blob.includes('emergency') || blob.includes('reference') || blob.includes('referral')
 }
 
+// The plain iCIMS resume chooser. Surrounding copy can mention autofill,
+// pre-fill, or replacing profile data; that text belongs to other controls.
+export function isIcimsPortalResumeFile(control: { id?: string | null; name?: string | null }): boolean {
+  const id = (control.id || '').trim().toLowerCase()
+  const name = (control.name || '').trim().toLowerCase()
+  return id === 'portalprofilefields.resume_file' || name === 'portalprofilefields.resume_file'
+}
+
 // "Autofill with resume" parses the file into the application. GoFillr already
 // fills those fields, so that control is never driven.
 function isResumeAutofillFile(blob: string): boolean {
   if (!blob.includes('autofill')) return false
   return blob.includes('resume') || blob.includes('cv') || blob.includes('upload') || blob.includes('file')
+}
+
+// "pre-fill the profile" / "replace existing data" starts iCIMS resume parsing.
+// compact() already removed the hyphen in "pre-fill".
+function mentionsProfilePrefill(blob: string): boolean {
+  const prefill = blob.includes('prefill')
+  const replace = blob.includes('replaceexisting')
+  if (prefill && blob.includes('profile')) return true
+  return replace && (prefill || blob.includes('profile') || blob.includes('existingdata'))
 }
 
 function isNonResumeUpload(blob: string): boolean {
@@ -314,6 +341,9 @@ export function classifyIcimsControl(control: IcimsControl, loginSurface: boolea
   }
   if (type === 'hidden' || type === 'submit' || type === 'button') return 'unknown'
   if (isCustomField(blob)) return 'custom'
+  if (type === 'file' && !isIcimsPortalResumeFile(control) && isNonResumeUpload(fileOwnBlob(control))) {
+    return 'unknown'
+  }
   if (type === 'file' && (isResumeAutofillFile(blob) || isPlainIcimsResumeFile(blob))) return 'resumeFile'
   if (isAddressLine2(blob)) return 'addressLine2'
   if (blob.includes('phonetype') || blob.includes('phonedevicetype')) return 'phoneType'
@@ -518,7 +548,12 @@ export function planIcimsFill(
   if (field === 'addressLine2') return { field, action: 'leave', reason: 'address-line-2' }
   if (field === 'custom') return { field, action: 'leave', reason: 'custom' }
   if (field === 'resumeFile') {
-    if (isResumeAutofillFile(blob)) return { field, action: 'leave', reason: 'resume-autofill' }
+    // PortalProfileFields.Resume_File stays a plain file assignment even when the
+    // same section mentions autofill-with-resume or pre-filling the profile.
+    if (isIcimsPortalResumeFile(control)) return { field, action: 'file' }
+    if (isResumeAutofillFile(blob) || mentionsProfilePrefill(blob)) {
+      return { field, action: 'leave', reason: 'resume-autofill' }
+    }
     return { field, action: 'file' }
   }
   if (field === 'phoneType') return { field, action: 'leave', reason: 'phone-type' }
