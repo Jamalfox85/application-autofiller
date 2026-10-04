@@ -6,7 +6,7 @@ export interface BillingState {
   plan: BillingPlan | null
   fillCount: number
   fillsRemaining: number
-  month: string
+  week: string
   extensionPayConfigured: boolean
   error?: string
 }
@@ -17,7 +17,7 @@ const EMPTY_STATE: BillingState = {
   plan: null,
   fillCount: 0,
   fillsRemaining: 25,
-  month: '',
+  week: '',
   extensionPayConfigured: false,
 }
 

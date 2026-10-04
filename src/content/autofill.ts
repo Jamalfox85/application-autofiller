@@ -167,7 +167,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       }
     }
 
-    // Free monthly quota is extension-local. A storage failure must not block a
+    // Free weekly quota is extension-local. A storage failure must not block a
     // claim-safe Greenhouse fill, and this path never calls the Resume API.
     let access: Awaited<ReturnType<typeof evaluateFillAccess>> | null = null
     try {

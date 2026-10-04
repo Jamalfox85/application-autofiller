@@ -4,7 +4,7 @@ import test from 'node:test'
 import { PAYWALL_COPY } from './copy.ts'
 import {
   applySuccessfulFill,
-  calendarMonthKey,
+  calendarWeekKey,
   decideFill,
   emptyQuota,
   mergeQuotaRecords,
@@ -35,11 +35,13 @@ import {
 import { addRosterProfile, initialRoster } from './profileRoster.ts'
 import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
 
-const month = new Date('2026-09-15T12:00:00')
+const duringWeek = new Date('2026-09-15T12:00:00')
+const sameWeek = new Date('2026-09-20T12:00:00')
+const nextWeek = new Date('2026-09-21T12:00:00')
 
 function quota(overrides: Partial<FillQuotaRecord> = {}): FillQuotaRecord {
   return {
-    ...emptyQuota('2026-09', { firstFillEver: true, greenhouseFillEver: true }),
+    ...emptyQuota(calendarWeekKey(duringWeek), { firstFillEver: true, greenhouseFillEver: true }),
     ...overrides,
   }
 }
@@ -53,7 +55,9 @@ test('free quota allows 25, nudges once at 10, and never on the first fill', () 
 
   const ninth = applySuccessfulFill(quota({ successfulFills: 9 }), 'greenhouse', false)
   assert.equal(ninth.nudge, 'soft')
-  assert.equal(ninth.quota.softPaywallShownForMonth, true)
+  assert.equal(ninth.quota.softPaywallShownForWeek, true)
+  // The nudge is after the fill. Declining it does not turn this quota into a block.
+  assert.equal(decideFill({ quota: ninth.quota, isPro: false, ats: 'greenhouse' }), 'allow')
 
   const tenth = applySuccessfulFill(ninth.quota, 'lever', false)
   assert.equal(tenth.nudge, null)
@@ -67,9 +71,9 @@ test('free quota allows 25, nudges once at 10, and never on the first fill', () 
 test('workday stays free and the first greenhouse success stays ungated at the cap', () => {
   const atCap = quota({ successfulFills: 25 })
   assert.equal(decideFill({ quota: atCap, isPro: false, ats: 'workday' }), 'allow')
-  const workday = applySuccessfulFill(quota({ successfulFills: 9, softPaywallShownForMonth: false }), 'workday', false)
+  const workday = applySuccessfulFill(quota({ successfulFills: 9, softPaywallShownForWeek: false }), 'workday', false)
   assert.equal(workday.nudge, null)
-  assert.equal(workday.quota.softPaywallShownForMonth, false)
+  assert.equal(workday.quota.softPaywallShownForWeek, false)
 
   assert.equal(
     decideFill({
@@ -89,15 +93,34 @@ test('workday stays free and the first greenhouse success stays ungated at the c
   )
 })
 
-test('a new calendar month resets the counter and keeps lifetime flags', () => {
-  const stored = quota({ successfulFills: 25, softPaywallShownForMonth: true, greenhouseFillEver: true })
-  const rolled = mergeQuotaRecords(stored, null, new Date('2026-10-01T00:00:00'))
-  assert.equal(rolled.month, '2026-10')
+test('a new calendar week resets the counter and keeps lifetime flags', () => {
+  const stored = quota({ successfulFills: 25, softPaywallShownForWeek: true, greenhouseFillEver: true })
+  assert.equal(calendarWeekKey(duringWeek), calendarWeekKey(sameWeek))
+  const held = mergeQuotaRecords(stored, null, sameWeek)
+  assert.equal(held.week, calendarWeekKey(duringWeek))
+  assert.equal(held.successfulFills, 25)
+
+  const rolled = mergeQuotaRecords(stored, null, nextWeek)
+  assert.equal(rolled.week, calendarWeekKey(nextWeek))
+  assert.notEqual(rolled.week, stored.week)
   assert.equal(rolled.successfulFills, 0)
-  assert.equal(rolled.softPaywallShownForMonth, false)
+  assert.equal(rolled.softPaywallShownForWeek, false)
   assert.equal(rolled.firstFillEver, true)
   assert.equal(rolled.greenhouseFillEver, true)
-  assert.equal(calendarMonthKey(month), '2026-09')
+
+  const legacyMonth = {
+    month: '2026-09',
+    successfulFills: 25,
+    firstFillEver: true,
+    greenhouseFillEver: true,
+    softPaywallShownForMonth: true,
+  }
+  const migrated = mergeQuotaRecords(legacyMonth, null, duringWeek)
+  assert.equal(migrated.week, calendarWeekKey(duringWeek))
+  assert.equal(migrated.successfulFills, 0)
+  assert.equal(migrated.softPaywallShownForWeek, false)
+  assert.equal(migrated.firstFillEver, true)
+  assert.equal(migrated.greenhouseFillEver, true)
 })
 
 test('pro fills do not consume the free counter', () => {
@@ -108,7 +131,7 @@ test('pro fills do not consume the free counter', () => {
 })
 
 test('locked paywall copy and mixpanel names', () => {
-  assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this month')
+  assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this week')
   assert.equal(
     PAYWALL_COPY.soft.body,
     'Go Pro for unlimited autofills \u2014 plus resume AI tailor, ATS score, and multi-profile.',
