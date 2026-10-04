@@ -400,6 +400,21 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
   }
 }
 
+// Chrome closes the popup when the Google account window takes focus, so the
+// user never sees the signed-in state. Reopen it on the browser window the
+// auth window returned focus to, unless the popup somehow survived.
+async function reopenPopupAfterSignIn() {
+  try {
+    const popups = await chrome.runtime.getContexts({ contextTypes: ['POPUP'] })
+    if (popups.length > 0) return
+    const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+    await chrome.action.openPopup(win?.id ? { windowId: win.id } : undefined)
+  } catch (error) {
+    // Older Chrome or no focused window. The session is saved; the next open shows it.
+    console.warn('[google-sign-in] could not reopen the popup', error)
+  }
+}
+
 // Handle messages from content scripts or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'billing') {
@@ -521,7 +536,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     }
     signInWithGoogleInWorker()
-      .then(reply)
+      .then((result) => {
+        reply(result)
+        if (result?.ok) reopenPopupAfterSignIn()
+      })
       .catch((error) =>
         reply({
           ok: false,
