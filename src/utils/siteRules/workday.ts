@@ -1311,13 +1311,22 @@ function promptSelectionCommitted(
   return !!pick(selectedPillLabels(promptFieldRoot(control)))
 }
 
-function openWorkdayPrompt(control: HTMLElement) {
-  const scope = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+// The opener is the prompt icon inside this multiselect, not another promptIcon
+// elsewhere on the page. A listbox button has no icon, so the control itself opens.
+function promptOpenTarget(control: HTMLElement): HTMLElement {
+  const container = control.closest('[data-automation-id="multiSelectContainer"]')
+  const scope = container || control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
   const icon = scope?.querySelector(
     '[data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"]',
   )
-  if (icon && 'click' in icon) (icon as HTMLElement).click()
-  else control.click()
+  if (icon) return icon as HTMLElement
+  return control
+}
+
+function openWorkdayPrompt(control: HTMLElement) {
+  // element.click() does not fire mousedown. This multiselect opens on the same
+  // pointer sequence as a prompt row, so a bare click leaves the list closed.
+  activateWorkdayOption(promptOpenTarget(control))
   if (control.tagName === 'INPUT') (control as HTMLInputElement).focus()
 }
 
