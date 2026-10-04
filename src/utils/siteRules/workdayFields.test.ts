@@ -2506,6 +2506,100 @@ test('Blue Origin source multiselect with a Search box and 0 items selected sele
   assert.equal(workdayPromptFaceIsEmpty(input), false)
 })
 
+test('Blue Origin source typeahead highlight is not an Other pill', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source" data-fkit-id="source--source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" aria-required="true" />
+          <div data-automation-id="promptAriaInstruction" aria-hidden="true">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  const committed: string[] = []
+  const typeaheadClicks: string[] = []
+  let pointerDown = false
+  let dismissedTypeahead = false
+  const paintTypeahead = (popup: HTMLElement) => {
+    popup.replaceChildren()
+    const header = doc.createElement('div')
+    header.textContent = 'Search Results'
+    popup.appendChild(header)
+    for (const label of ['Amazon Career Choice', 'Other']) {
+      const row = sourceLeaf(doc, label, (chosen) => {
+        typeaheadClicks.push(chosen)
+      })
+      // A highlighted search row looks chosen. It is not a selected pill.
+      if (label === 'Other') row.setAttribute('aria-selected', 'true')
+      popup.appendChild(row)
+    }
+  }
+  const paintCatalog = (popup: HTMLElement) => {
+    popup.replaceChildren()
+    for (const label of BLUE_ORIGIN_SOURCES) {
+      popup.appendChild(
+        sourceLeaf(doc, label, (chosen) => {
+          committed.push(chosen)
+          const pill = doc.createElement('div')
+          pill.setAttribute('data-automation-id', 'selectedItem')
+          pill.textContent = chosen
+          icon.parentElement?.appendChild(pill)
+          instruction.textContent = '1 item selected'
+          popup.remove()
+        }),
+      )
+    }
+  }
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    if (doc.getElementById('source-popup')) dismissedTypeahead = true
+    doc.getElementById('source-popup')?.remove()
+  })
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  icon.addEventListener('mouseup', (event) => {
+    if (event.button !== 0) pointerDown = false
+  })
+  // The first autofill open is the two-row search list. A later open, after
+  // that list is dismissed and the box is still empty, is the catalog.
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    if (doc.getElementById('source-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    if (dismissedTypeahead) paintCatalog(popup)
+    else paintTypeahead(popup)
+    doc.body.appendChild(popup)
+  })
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  assert.equal(workdayPromptFaceIsEmpty(input), true)
+  const info = {} as PersonalInfo
+  assert.equal(await rule.apply(input, 'howdidyouhearaboutus', info), true)
+  assert.deepEqual(typeaheadClicks, [])
+  assert.deepEqual(committed, ['Other'])
+  assert.equal(committed.includes('Amazon Career Choice'), false)
+  assert.equal(doc.querySelector('[data-automation-id="selectedItem"]')?.textContent, 'Other')
+  assert.equal(doc.getElementById('source-popup'), null)
+  assert.notEqual(instruction.textContent, '0 items selected')
+  assert.equal(input.value, '')
+  for (const forbidden of ['Career Websites', 'College/University', 'Event', 'Job Sites', 'Military/Veteran', 'News']) {
+    assert.equal(committed.includes(forbidden), false)
+  }
+  assert.equal(workdayPromptFaceIsEmpty(input), false)
+})
+
 test('previously been employed or worked as a contractor selects No', async () => {
   const question = 'Have you previously been employed or worked as a contractor at Blue Origin?'
   assert.equal(workdayIsFormerEmployeeQuestion(question), true)

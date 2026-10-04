@@ -978,6 +978,19 @@ function sourceLabelKey(labels: string[]): string {
   return labels.join('\n')
 }
 
+// A highlighted search row is not a pill. Close the prompt only after the
+// closed face shows the committed label, and keep that label when it closes.
+function closeCommittedSourcePrompt(button: HTMLElement, label: string): boolean {
+  const prompt = activeSourcePrompt(button)
+  const open = prompt ? substantivePromptLabels(workdayOptionLabels(prompt)).length > 0 : false
+  if (!open) {
+    openListbox = null
+    return sourceControlShows(button, label)
+  }
+  collapseOpenListbox()
+  return sourceControlShows(button, label)
+}
+
 async function commitSourceChoice(
   button: HTMLElement,
   prompt: ParentNode,
@@ -989,8 +1002,7 @@ async function commitSourceChoice(
   const started = Date.now()
   while (Date.now() - started < 500) {
     if (sourceControlShows(button, label)) {
-      openListbox = null
-      return label
+      return closeCommittedSourcePrompt(button, label) ? label : null
     }
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
@@ -1054,20 +1066,59 @@ async function selectNestedWorkdaySource(
   return committed
 }
 
+// The icon handler searches when the box has a value, then clears the box.
+// Two ENTER hits stay open and highlighted. That highlight is not a pill.
+// An empty box opens the catalog. Drop a leftover query before the icon click.
+function clearSourceSearch(control: HTMLElement) {
+  if (control.tagName !== 'INPUT' && control.tagName !== 'TEXTAREA') return
+  const input = control as HTMLInputElement
+  if (input.value) setReactInputValue(input, '')
+  input.blur()
+}
+
+// Search Results is the filtered list (Amazon Career Choice, Other), not the
+// catalog a plain icon click shows. A highlighted row (aria-selected) is that
+// same list: the catalog does not highlight a row until it is committed.
+// Do not click a row in that list.
+function sourcePromptIsSearchResult(button: HTMLElement): boolean {
+  const prompt = activeSourcePrompt(button)
+  if (!prompt || !('querySelector' in prompt)) return false
+  const element = prompt as Element
+  const text = (element.textContent || '').replace(/\s+/g, ' ').toLowerCase()
+  if (text.includes('search results')) return true
+  const selected = '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]'
+  if (element.querySelector(selected)) return false
+  const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  if (field?.querySelector(selected)) return false
+  return !!element.querySelector('[aria-selected="true"]')
+}
+
+async function openSourceCatalog(button: HTMLElement): Promise<string[] | null> {
+  clearSourceSearch(button)
+  openListbox = button
+  openWorkdayPrompt(button, false)
+  const labels = await waitForSourceLabels(button, (rows) => rows.length > 0)
+  if (!labels || !sourcePromptIsSearchResult(button)) return labels
+  collapseOpenListbox()
+  clearSourceSearch(button)
+  openListbox = button
+  openWorkdayPrompt(button, false)
+  return waitForSourceLabels(button, (rows) => rows.length > 0)
+}
+
 // Other, then a career site (including "Career Websites"), then the employer's
 // own site. A nested top row is a folder. A list with none of those stays empty.
 async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> {
   const company = sourceCompanyToken(button)
   collapseOpenListbox()
-  openListbox = button
-  // A multiselect search input does not open the list. The prompt icon does.
-  // A listbox button has no icon, so this still clicks that button. Do not
-  // focus that search box: focus turns the catalog into a typeahead, and the
-  // visible Other in that result is not a committed selection.
-  openWorkdayPrompt(button, false)
-  const labels = await waitForSourceLabels(button, (rows) => rows.length > 0)
+  const labels = await openSourceCatalog(button)
   const prompt = activeSourcePrompt(button)
   if (!labels || !prompt) {
+    collapseOpenListbox()
+    return null
+  }
+  // A search list can still be what the second open painted. Leave it closed.
+  if (sourcePromptIsSearchResult(button)) {
     collapseOpenListbox()
     return null
   }
@@ -1330,7 +1381,8 @@ function openWorkdayPrompt(control: HTMLElement, focusControl = true) {
   // pointer sequence as a prompt row, so a bare click leaves the list closed.
   activateWorkdayOption(promptOpenTarget(control))
   // School types into the search box, so that caller still focuses it. Source
-  // must not: focusing this input replaces the catalog with a search result.
+  // passes false: a value in this box makes the icon run a search instead of
+  // opening the catalog, and the highlighted hit is not a selected pill.
   if (!focusControl) return
   if (control.tagName === 'INPUT') (control as HTMLInputElement).focus()
 }
