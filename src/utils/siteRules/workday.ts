@@ -595,6 +595,8 @@ function collapseOpenListbox() {
 // Rows for this button that were painted outside its aria-controls node.
 // Country and state stay on the controlled list so Georgia cannot be taken
 // from the menu that is still open. Degree and school opt in.
+// Finds the portal row. The click and the Canvas value write happen once in
+// settleListedChoice, so a degree menu is not dismissed before its id is read.
 function activateMatchingPortalOption(
   button: HTMLButtonElement,
   controlled: ParentNode | null,
@@ -612,7 +614,6 @@ function activateMatchingPortalOption(
     if (!label) continue
     const option = workdayOptionElement(popups[index], label)
     if (!option) continue
-    activateWorkdayOption(promptRowTarget(option))
     return label
   }
   return null
@@ -621,6 +622,36 @@ function activateMatchingPortalOption(
 function listboxShowsLabel(button: HTMLElement, label: string): boolean {
   const value = workdayListboxValue(button).replace(/\s+/g, ' ').trim().toLowerCase()
   return !!value && value === label.trim().toLowerCase()
+}
+
+// Degree is a Canvas Select, not a prompt. The closed label is the option whose
+// id was written to the hidden input. The row text is not that id.
+function canvasSelectInput(button: HTMLElement): HTMLInputElement | null {
+  const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
+  if (!field) return null
+  const inputs = Array.from(field.querySelectorAll('input')).filter((node): node is HTMLInputElement => {
+    if (node.tagName !== 'INPUT') return false
+    const type = (node.getAttribute('type') || 'text').toLowerCase()
+    if (type === 'checkbox' || type === 'radio' || type === 'file' || type === 'hidden') return false
+    return !isCatalogSearchInput(node as HTMLInputElement)
+  })
+  return inputs[0] || null
+}
+
+function optionDataValue(option: HTMLElement): string {
+  const row = option.closest('[role="option"]') || option
+  return row.getAttribute('data-value') || ''
+}
+
+function writeCanvasSelectValue(button: HTMLElement, option: HTMLElement): boolean {
+  const input = canvasSelectInput(button)
+  const value = optionDataValue(option)
+  if (!input || !value) return false
+  setReactInputValue(input, value)
+  const view = input.ownerDocument?.defaultView
+  const EventCtor = view?.Event ?? Event
+  input.dispatchEvent(new EventCtor('change', { bubbles: true }))
+  return true
 }
 
 function listboxIsPlaceholder(button: HTMLElement): boolean {
@@ -660,6 +691,40 @@ async function commitListedDegreeByKeyboard(button: HTMLButtonElement, label: st
     press('ArrowDown')
     await new Promise((resolve) => setTimeout(resolve, 30))
   }
+}
+
+// A prompt row can commit on click. A Canvas degree select commits when the
+// hidden input receives that row's data-value. Returning the label while the
+// closed control still says Select One is not a selection.
+async function settleListedChoice(
+  button: HTMLButtonElement,
+  option: HTMLElement,
+  label: string,
+  scanPortals: boolean,
+): Promise<string | null> {
+  activateWorkdayOption(promptRowTarget(option))
+  if (listboxShowsLabel(button, label)) return label
+  const canvas = canvasSelectInput(button)
+  if (canvas && optionDataValue(option)) writeCanvasSelectValue(button, option)
+  if (listboxShowsLabel(button, label)) return label
+  if (scanPortals) await commitListedDegreeByKeyboard(button, label)
+  if (listboxShowsLabel(button, label)) return label
+  if (canvas) return null
+  return label
+}
+
+function listedOptionElement(button: HTMLButtonElement, label: string): HTMLElement | null {
+  const prompt = workdayActivePrompt(button)
+  if (prompt) {
+    const option = workdayOptionElement(prompt, label)
+    if (option) return option
+  }
+  const popups = promptPopups(button.ownerDocument, elementNode(prompt))
+  for (let index = popups.length - 1; index >= 0; index--) {
+    const option = workdayOptionElement(popups[index], label)
+    if (option) return option
+  }
+  return null
 }
 
 // Open one prompt, optionally filter it, and click the picked label inside that
@@ -710,9 +775,14 @@ async function chooseWorkdayListOption(
       if (scanPortals) {
         const portalLabel = activateMatchingPortalOption(button, prompt, pick)
         if (portalLabel) {
-          await commitListedDegreeByKeyboard(button, portalLabel)
-          openListbox = null
-          return portalLabel
+          const portalOption = listedOptionElement(button, portalLabel)
+          const settled = portalOption
+            ? await settleListedChoice(button, portalOption, portalLabel, scanPortals)
+            : portalLabel
+          if (settled) {
+            openListbox = null
+            return settled
+          }
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 100))
@@ -722,10 +792,11 @@ async function chooseWorkdayListOption(
     if (label && prompt) {
       const option = workdayOptionElement(prompt, label)
       if (option) {
-        activateWorkdayOption(promptRowTarget(option))
-        if (scanPortals) await commitListedDegreeByKeyboard(button, label)
-        openListbox = null
-        return label
+        const settled = await settleListedChoice(button, option, label, scanPortals)
+        if (settled) {
+          openListbox = null
+          return settled
+        }
       }
     }
     // Another field's list can be the only role=listbox on the page. Degree
@@ -733,9 +804,14 @@ async function chooseWorkdayListOption(
     if (scanPortals) {
       const portalLabel = activateMatchingPortalOption(button, prompt, pick)
       if (portalLabel) {
-        await commitListedDegreeByKeyboard(button, portalLabel)
-        openListbox = null
-        return portalLabel
+        const portalOption = listedOptionElement(button, portalLabel)
+        const settled = portalOption
+          ? await settleListedChoice(button, portalOption, portalLabel, scanPortals)
+          : portalLabel
+        if (settled) {
+          openListbox = null
+          return settled
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, 100))
       continue
