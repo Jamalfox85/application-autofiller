@@ -213,7 +213,7 @@ test('Georgia stays on the state control and United States stays on the country 
   assert.deepEqual(clicks, ['state:Georgia', 'country:United States'])
 })
 
-test('a province text field does not type the state into the country menu', async () => {
+test('a blank Province text input next to the country menu is filled with the profile state', async () => {
   const dom = new JSDOM(`<!doctype html><body>
     <div id="country-menu">
       <input id="country-search" class="fab-MenuSearch__input" />
@@ -222,26 +222,59 @@ test('a province text field does not type the state into the country menu', asyn
       <div role="menuitem" id="opt-us">United States</div>
     </div>
     <div id="province-row">
-      <button type="button" class="fab-SelectToggle" id="stray" aria-expanded="true" aria-controls="country-menu"></button>
-      <label for="FabricTextField-344">Province</label>
-      <input id="FabricTextField-344" name="state.value" type="text" />
+      <label for="FabricTextField-344">Province*</label>
+      <input id="FabricTextField-344" name="state.value" type="text" value="" />
+    </div>
+    <div class="fab-Select">
+      <button type="button" class="fab-SelectToggle" id="country-toggle" aria-expanded="false" aria-label="Country Uganda">
+        <span class="fab-SelectToggle__content">Uganda</span>
+      </button>
+      <select name="countryId.value" id="fab-select346">
+        <option value="219" selected>Uganda</option>
+      </select>
     </div>
   </body>`)
   const doc = dom.window.document
   const clicks: string[] = []
-  for (const id of ['opt-uganda', 'opt-country-georgia', 'opt-us']) {
-    doc.getElementById(id)!.addEventListener('click', () => clicks.push(id))
+  const province = doc.getElementById('FabricTextField-344') as HTMLInputElement
+  const countryToggle = doc.getElementById('country-toggle')!
+  const countryContent = countryToggle.querySelector('.fab-SelectToggle__content')!
+  // The menu stays closed until the toggle is clicked. Enter does not open it.
+  countryToggle.addEventListener('click', () => {
+    countryToggle.setAttribute('aria-expanded', 'true')
+    countryToggle.setAttribute('aria-controls', 'country-menu')
+  })
+  const watch = (id: string, name: string) => {
+    doc.getElementById(id)!.addEventListener('click', () => {
+      clicks.push(name)
+      countryContent.textContent = doc.getElementById(id)!.textContent
+      // Changing country drops the region value. Province has to be written again.
+      if (name === 'country:United States') province.value = ''
+    })
   }
+  watch('opt-uganda', 'country:Uganda')
+  watch('opt-country-georgia', 'country:Georgia')
+  watch('opt-us', 'country:United States')
+
   const info = cloneDefaultPersonalInfo()
   info.country = 'united_states'
   info.state = 'Georgia'
-  const province = doc.getElementById('FabricTextField-344') as HTMLInputElement
   const rule = bambooHrConfig()
-  assert.equal(province.parentElement?.querySelector('button')?.id, 'stray')
+  const country = doc.getElementById('fab-select346') as HTMLSelectElement
+  assert.equal(province.value, '')
+  assert.equal(countryContent.textContent, 'Uganda')
+
   assert.equal(await rule.apply(province, 'state.valueprovincetext', info), true)
+  assert.equal(await rule.apply(country, 'countryid.valuecountryugandaselectone', info), true)
   assert.equal(province.value, 'Georgia')
-  assert.deepEqual(clicks, [])
-  assert.equal((doc.getElementById('country-search') as HTMLInputElement).value, '')
+  assert.equal(countryContent.textContent, 'United States')
+  assert.deepEqual(clicks, ['country:United States'])
+
+  assert.equal(await rule.apply(province, 'state.valueprovincetext', info), true)
+  assert.equal(await rule.apply(country, 'countryid.valuecountryugandaselectone', info), true)
+  assert.equal(province.value, 'Georgia')
+  assert.equal(countryContent.textContent, 'United States')
+  assert.deepEqual(clicks, ['country:United States'])
 })
 
 const SUPABASE_URL = 'https://example.supabase.co'

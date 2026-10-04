@@ -537,6 +537,12 @@ function bambooInputEvent(target: Element, type: string) {
   return new Ctor(type, { bubbles: true })
 }
 
+function bambooClick(target: Element) {
+  const View = target.ownerDocument?.defaultView
+  const Ctor = View?.MouseEvent ?? MouseEvent
+  target.dispatchEvent(new Ctor('click', { bubbles: true, cancelable: true }))
+}
+
 function dismissOtherBambooMenus(toggle: HTMLElement) {
   const doc = toggle.ownerDocument
   if (!doc) return
@@ -566,13 +572,21 @@ async function openBambooMenu(toggle: HTMLButtonElement): Promise<HTMLElement | 
     return null
   }
 
+  // Fabric opens this menu on a click. Enter leaves aria-expanded false, so the
+  // province and country toggles never reveal their options.
   console.log('[fillBambooHRSelect] Focusing select button')
   toggle.focus()
-  await bambooDelay(100)
+  bambooClick(toggle)
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const menu = bambooOwnedMenu(toggle)
+    if (menu && bambooMenuReady(menu)) return menu
+    await bambooDelay(50)
+  }
+
   console.log('[fillBambooHRSelect] Pressing Enter to open dropdown')
   toggle.dispatchEvent(bambooKey(toggle, 'keydown', 'Enter'))
   toggle.dispatchEvent(bambooKey(toggle, 'keyup', 'Enter'))
-  await bambooDelay(600)
 
   for (let attempt = 0; attempt < 30; attempt++) {
     const menu = bambooOwnedMenu(toggle)
