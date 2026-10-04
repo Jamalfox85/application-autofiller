@@ -1,5 +1,5 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
-import { fillNativeInput, fillBambooHRSelect } from '../inputHandlers.ts'
+import { fillNativeInput, fillBambooHRSelect, setReactInputValue } from '../inputHandlers.ts'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
   assignResumeFile,
@@ -9,12 +9,18 @@ import {
   bambooUploadRole,
   describeBambooUpload,
   isBambooCountryControl,
+  isBambooStateControl,
   pickBambooCountryOption,
+  pickBambooStateOption,
 } from './bamboohrFields.ts'
 import { requestBambooSavedResume } from './bamboohrResume.ts'
 
 let bambooHRFormLoaded = false
 let lastBambooHRFormSignature = ''
+// Opening a Fabric menu mutates the form. A refill that starts while the country
+// menu is still open types the state into that menu and flips the country.
+let bambooAddressBusy = 0
+let bambooRefillPending = false
 
 type ResumeLoader = () => Promise<File | null>
 let resumeLoader: ResumeLoader = requestBambooSavedResume
@@ -24,6 +30,30 @@ let resumeTask: Promise<File | null> | null = null
 export function setBambooResumeLoader(loader: ResumeLoader | null) {
   resumeLoader = loader ?? requestBambooSavedResume
   resumeTask = null
+}
+
+function sameBambooLabel(current: string, wanted: string): boolean {
+  const norm = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase()
+  return norm(current) === norm(wanted) && norm(wanted) !== ''
+}
+
+function queueBambooRefill() {
+  if (typeof document === 'undefined') return
+  const body = document.body
+  if (!body) return
+  const marker = document.createComment('gofillr-bamboo')
+  body.appendChild(marker)
+  marker.remove()
+}
+
+async function withBambooAddressFill(fill: () => Promise<void>) {
+  bambooAddressBusy += 1
+  try {
+    await fill()
+  } finally {
+    bambooAddressBusy = Math.max(0, bambooAddressBusy - 1)
+    if (bambooAddressBusy === 0 && bambooRefillPending) queueBambooRefill()
+  }
 }
 
 function savedResume(): Promise<File | null> {
@@ -40,6 +70,7 @@ export default function bambooHrConfig(): SiteRule {
     detect: () => window.location.hostname.includes('bamboohr.com'),
     prepareFill: () => {
       resumeTask = null
+      bambooRefillPending = false
     },
     apply: async (input, fieldText, personalInfo) => {
       const role = bambooUploadRole(describeBambooUpload(input, fieldText))
@@ -63,6 +94,14 @@ export default function bambooHrConfig(): SiteRule {
     // select anyway so the profile country can replace it.
     includeFilled: (input) => isBambooCountryControl(input),
     formChanged: () => {
+      if (bambooAddressBusy > 0) {
+        bambooRefillPending = true
+        return false
+      }
+      if (bambooRefillPending) {
+        bambooRefillPending = false
+        return true
+      }
       // Only check once when form first loads
       if (!bambooHRFormLoaded) {
         const formInputs = document.querySelectorAll('input[type="text"], textarea, select')
@@ -104,29 +143,43 @@ const fieldHandlers: Array<{
       if (!toggle) return false
 
       const current = bambooToggleLabel(toggle)
-      if (current.toLowerCase() === label.toLowerCase()) return true
+      if (sameBambooLabel(current, label)) return true
 
-      await fillBambooHRSelect(toggle, label, (optionTexts) =>
-        pickBambooCountryOption(optionTexts, current, personalInfo.country),
+      await withBambooAddressFill(() =>
+        fillBambooHRSelect(toggle, label, (optionTexts) =>
+          pickBambooCountryOption(optionTexts, current, personalInfo.country),
+        ),
       )
       return true
     },
   },
   {
-    match: (_, fieldText) => fieldText.includes('state'),
+    match: (input, fieldText) => isBambooStateControl(input, fieldText),
     handle: async (input, _, personalInfo) => {
-      if (!personalInfo.state) return false
+      const state = (personalInfo.state || '').trim()
+      if (!state) return false
+      // Never drive the country toggle from the state value.
+      if (isBambooCountryControl(input)) return false
 
-      // Find the select button near the input (parent or sibling)
-      const selectButton =
-        (input as HTMLElement).closest('button') ||
-        (input as HTMLElement).parentElement?.querySelector('button')
-
-      if (selectButton && selectButton instanceof HTMLButtonElement) {
-        await fillBambooHRSelect(selectButton, personalInfo.state)
+      const toggle = bambooSelectToggle(input)
+      if (toggle) {
+        const current = bambooToggleLabel(toggle)
+        if (sameBambooLabel(current, state)) return true
+        await withBambooAddressFill(() =>
+          fillBambooHRSelect(toggle, state, (optionTexts) => pickBambooStateOption(optionTexts, state)),
+        )
         return true
       }
 
+      const tag = input.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') {
+        // A province box is a text input. Do not search the row for a button:
+        // that button is the country toggle, and typing Georgia there selects
+        // the country Georgia or the first country row.
+        const field = input as HTMLInputElement
+        setReactInputValue(field, state)
+        return field.value === state
+      }
       return false
     },
   },

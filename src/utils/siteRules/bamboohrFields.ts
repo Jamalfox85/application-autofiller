@@ -61,6 +61,81 @@ export function bambooToggleLabel(toggle: Element): string {
   return aria.replace(/^country\s+/i, '').trim()
 }
 
+// "state.value" and "province" are the address region. "statement", "estate",
+// and "unitedstates" contain the letters "state" and are not that field.
+function mentionsStateField(value: string): boolean {
+  const text = value.toLowerCase()
+  if (!text) return false
+  if (text.includes('province') || text.includes('stateprovince')) return true
+  return /(^|[^a-z])states?([^a-z]|$)/.test(text)
+}
+
+// The address region widget. The country select is not this control, even when
+// its visible label is "United States" (that string contains "state").
+export function isBambooStateControl(input: CountryControl, fieldText = ''): boolean {
+  if (isBambooCountryControl(input)) return false
+  const type = (input.type || '').toLowerCase()
+  if (type === 'hidden' || type === 'file' || type === 'radio' || type === 'checkbox') return false
+  const name = (input.name || '').toLowerCase()
+  const id = (input.id || '').toLowerCase()
+  if (name.includes('country') || id.includes('country')) return false
+  if (mentionsStateField(name) || mentionsStateField(id)) return true
+  const text = fieldText.toLowerCase()
+  if (!text || text.includes('country') || text.includes('unitedstates')) return false
+  return mentionsStateField(text)
+}
+
+function menuHasChoices(menu: Element): boolean {
+  return !!menu.querySelector('input.fab-MenuSearch__input, [role="menuitem"]')
+}
+
+// Fabric portals the open menu to the document. The toggle's aria-controls value
+// is that menu's id. The vessel also carries data-menu-id. A page-wide query
+// returns whichever menu opened first — the country list, where Georgia is a
+// country and the first row can be Uganda.
+export function bambooOwnedMenu(toggle: Element): HTMLElement | null {
+  const id = toggle.getAttribute('aria-controls')?.trim()
+  if (!id) return null
+  const doc = toggle.ownerDocument
+  if (!doc) return null
+  const escaped = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const marked = doc.querySelector(`[data-menu-id="${escaped}"]`)
+  if (marked && marked !== toggle && marked.isConnected && menuHasChoices(marked)) {
+    return marked as HTMLElement
+  }
+  const byId = doc.getElementById(id)
+  if (!byId || byId === toggle || !byId.isConnected) return null
+  return byId
+}
+
+// A country menu is not a place to click a US state. Georgia (the country) and
+// the first visible country (Uganda, when the list is windowed near United
+// States) must not be selected for a Georgia address.
+function isBambooCountryMenu(optionTexts: string[]): boolean {
+  const lower = optionTexts.map((text) => text.trim().toLowerCase()).filter(Boolean)
+  if (lower.includes('united states')) return true
+  if (lower.includes('south georgia and the south sandwich islands')) return true
+  if (lower.includes('uganda') && lower.includes('georgia')) return true
+  if (lower.includes('norway') && lower.includes('georgia')) return true
+  return false
+}
+
+// Exact state label only. No "contains" match and no first-row fallback.
+export function pickBambooStateOption(optionTexts: string[], state?: string | null): string | null {
+  const wanted = (state ?? '').trim().toLowerCase()
+  if (!wanted) return null
+  const texts = optionTexts.map((text) => text.trim()).filter(Boolean)
+  if (isBambooCountryMenu(texts)) return null
+  return texts.find((text) => text.toLowerCase() === wanted) ?? null
+}
+
+// Exact menu label. The first visible row is not a match.
+export function chooseBambooOptionText(optionTexts: string[], searchValue: string): string | null {
+  const wanted = searchValue.trim().toLowerCase()
+  if (!wanted) return null
+  return optionTexts.map((text) => text.trim()).find((text) => text.toLowerCase() === wanted) ?? null
+}
+
 // A plain choose-file control on the apply form. "autofill" is the separate
 // control that parses a resume into the application; GoFillr already fills
 // those text fields, so that control is never clicked.
