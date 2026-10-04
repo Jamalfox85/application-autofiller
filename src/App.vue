@@ -504,7 +504,6 @@ watch(authStatus, (next, previous) => {
             <span v-if="autofillState === 'idle'">Auto-fill application</span>
             <span v-else-if="autofillState === 'filling'">Filling fields…</span>
             <span v-else>Filled {{ lastFillCount?.filled }} of {{ lastFillCount?.total }} fields</span>
-            <span v-if="autofillState === 'idle' && detection.detected" class="shortcut-badge">⌘⇧F</span>
           </button>
           <button v-if="showUpgrade" class="upgrade-btn" type="button" @click="startUpgrade">
             Upgrade
@@ -894,16 +893,6 @@ watch(authStatus, (next, previous) => {
   &:active {
     background: #6d28d9;
   }
-}
-
-.shortcut-badge {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 10.5px;
-  font-weight: 500;
-  opacity: 0.72;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 4px;
-  padding: 1px 4px;
 }
 
 .scan-btn {
