@@ -26,9 +26,11 @@ import {
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
   workdayExperienceLocation,
+  workdayFormerEmployeeListboxButton,
   workdayIsCustomSourceField,
   workdayIsFormerEmployeeQuestion,
   workdayListboxButton,
+  workdayListboxIsEmpty,
   workdayListboxValue,
   workdayListedSearchText,
   workdayListedValueMatches,
@@ -36,7 +38,11 @@ import {
   workdayOptionLabels,
   workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
+  workdayPreferredSourceOption,
+  workdaySafeNoOption,
   workdaySectionKindFromLabel,
+  workdaySourceListboxButton,
+  workdaySourceOption,
   workdaySelectKind,
   workdaySelectValue,
 } from './workdayFields.ts'
@@ -73,7 +79,7 @@ test('contact keys follow Workday form-kit paths and ignore the account email co
   assert.equal(workdayContactKey(probe({ 'data-automation-id': 'firstName' })), null)
 })
 
-test('custom source fields are recognized and left for the user', () => {
+test('custom source fields are recognized from the control id', () => {
   assert.equal(workdayIsCustomSourceField(probe({ id: 'source' })), true)
   assert.equal(workdayIsCustomSourceField(probe({ 'data-automation-id': 'formField-source' })), true)
   assert.equal(
@@ -604,7 +610,42 @@ test('address selects are country, state, and phone device type', () => {
   assert.equal(workdaySelectKind(doc.getElementById('phone-device-type')!), 'phone')
   assert.equal(workdaySelectKind(doc.getElementById('countryPhoneCode')!), null)
   assert.equal(workdayIsFormerEmployeeQuestion('have you ever been a cisco employee or do you have an email id'), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('are you a previous employee of zillow'), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('have you worked here before'), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('are you a current or former employee'), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('i currently work here'), false)
   assert.equal(workdayIsFormerEmployeeQuestion('emailaddress'), false)
+})
+
+test('required source and former-employee defaults use a listed option and never Yes', () => {
+  const sourceOptions = [
+    'Select One',
+    'LinkedIn',
+    'Indeed',
+    'Job Board',
+    'Employee Referral',
+    'Company Website',
+    'Other',
+  ]
+  assert.equal(workdaySourceOption(sourceOptions), 'Other')
+  assert.equal(workdayPreferredSourceOption(sourceOptions), 'Other')
+  assert.equal(workdaySourceOption(['LinkedIn', 'Indeed', 'Company Website', 'Career Site']), 'Company Website')
+  assert.equal(workdaySourceOption(['LinkedIn', 'Career Site', 'Zillow Careers']), 'Career Site')
+  assert.equal(workdaySourceOption(['LinkedIn', 'Indeed', 'Cisco Careers']), 'Cisco Careers')
+  assert.equal(workdaySourceOption(["Company's Website", 'Glassdoor']), "Company's Website")
+  assert.equal(workdayPreferredSourceOption(['LinkedIn', 'Indeed', 'Job Board']), null)
+  assert.equal(workdaySourceOption(['LinkedIn', 'Indeed', 'Job Board']), 'Job Board')
+  assert.equal(workdaySourceOption(['LinkedIn', 'Indeed', 'Job Board', 'Advertisement']), 'Advertisement')
+  assert.equal(workdaySourceOption(['Indeed']), 'Indeed')
+  assert.equal(workdaySourceOption(['Employee Referral', 'Yes']), null)
+  assert.equal(workdaySourceOption(['Select One']), null)
+
+  assert.equal(workdaySafeNoOption(['Select One', 'Yes', 'No']), 'No')
+  assert.equal(workdaySafeNoOption(['Yes', 'No, I have not worked here']), 'No, I have not worked here')
+  assert.equal(workdaySafeNoOption(['Yes', 'No', 'I do not want to answer']), 'No')
+  assert.equal(workdaySafeNoOption(['Yes']), null)
+  assert.equal(workdaySafeNoOption(['Yes', 'I do not wish to answer']), null)
+  assert.equal(workdaySourceOption(['Yes', 'No']), 'No')
 })
 
 test('source apply handler does not click an Indeed option', async () => {
@@ -663,7 +704,7 @@ test('sign-in password comes from the Workday application account, not the legac
   assert.equal(await rule.apply(decoy, 'password', info), false)
 })
 
-test('country select maps united_states to United States and former-employee stays unanswered', async () => {
+test('country select maps united_states to United States and former-employee selects No', async () => {
   const dom = new JSDOM(
     `<!doctype html><body>
       <select id="address--country">
@@ -697,7 +738,100 @@ test('country select maps united_states to United States and former-employee sta
     await rule.apply(former, 'haveyoueverbeenaciscoemployeeordoyouhaveanemailid', info),
     true,
   )
-  assert.equal(former.value, '')
+  assert.equal(former.value, 'no')
   assert.equal(await rule.apply(phone, 'phonedevicetype', info), true)
   assert.equal(phone.value, 'mob')
+})
+
+test('how did you hear selects a listed option and does not invent Yes or a referral', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <select id="source" data-automation-id="source">
+        <option value="">Select One</option>
+        <option value="li">LinkedIn</option>
+        <option value="in">Indeed</option>
+        <option value="jb">Job Board</option>
+        <option value="ref">Employee Referral</option>
+        <option value="web">Company Website</option>
+        <option value="oth">Other</option>
+      </select>
+      <select id="career-only">
+        <option value="">Select One</option>
+        <option value="li">LinkedIn</option>
+        <option value="careers">Zillow Careers</option>
+      </select>
+      <select id="yes-only">
+        <option value="">Select One</option>
+        <option value="yes">Yes</option>
+      </select>
+      <fieldset>
+        <legend>Are you a previous employee?</legend>
+        <input type="radio" name="previousEmployee" id="prev-yes" value="yes" />
+        <label for="prev-yes">Yes</label>
+        <input type="radio" name="previousEmployee" id="prev-no" value="no" />
+        <label for="prev-no">No</label>
+      </fieldset>
+      <fieldset>
+        <legend>Have you worked here before?</legend>
+        <input type="radio" name="workedHere" id="worked-yes" value="1" />
+        <label for="worked-yes">Yes</label>
+        <input type="radio" name="workedHere" id="worked-no" value="0" />
+        <label for="worked-no">No</label>
+      </fieldset>
+    </body>`,
+    { url: 'https://zillow.wd5.myworkdayjobs.com/en-US/Zillow_Group_External/apply' },
+  )
+  const doc = dom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const info = { country: 'united_states' } as PersonalInfo
+  const source = doc.getElementById('source') as HTMLSelectElement
+  const careers = doc.getElementById('career-only') as HTMLSelectElement
+  const yesOnly = doc.getElementById('yes-only') as HTMLSelectElement
+  assert.equal(await rule.apply(source, 'howdidyouhearaboutus', info), true)
+  assert.equal(source.value, 'oth')
+  assert.equal(await rule.apply(careers, 'howdidyouhearaboutus', info), true)
+  assert.equal(careers.value, 'careers')
+  assert.equal(await rule.apply(yesOnly, 'areyouapreviousemployee', info), true)
+  assert.equal(yesOnly.value, '')
+  const yes = doc.getElementById('prev-yes') as HTMLInputElement
+  const no = doc.getElementById('prev-no') as HTMLInputElement
+  assert.equal(await rule.apply(yes, 'areyouapreviousemployee', info), true)
+  assert.equal(yes.checked, false)
+  assert.equal(await rule.apply(no, 'areyouapreviousemployee', info), true)
+  assert.equal(no.checked, true)
+  assert.equal(yes.checked, false)
+  const workedYes = doc.getElementById('worked-yes') as HTMLInputElement
+  const workedNo = doc.getElementById('worked-no') as HTMLInputElement
+  assert.equal(await rule.apply(workedYes, 'haveyouworkedherebefore', info), true)
+  assert.equal(workedYes.checked, false)
+  assert.equal(await rule.apply(workedNo, 'haveyouworkedherebefore', info), true)
+  assert.equal(workedNo.checked, true)
+})
+
+test('My Information listboxes for source and former employee are not the country control', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button id="country" name="country" aria-haspopup="listbox" aria-controls="country-list">
+      <span data-automation-id="promptSelectionLabel">United States of America</span>
+    </button>
+    <div data-automation-id="formField-question1">
+      <label id="source-label">How Did You Hear About Us?</label>
+      <button id="source-btn" aria-haspopup="listbox" aria-labelledby="source-label">
+        <span data-automation-id="promptSelectionLabel">Select One</span>
+      </button>
+    </div>
+    <div data-automation-id="formField-previousWorker">
+      <label id="former-label">Are you a previous employee?</label>
+      <button id="former-btn" aria-haspopup="listbox" aria-labelledby="former-label">
+        <span data-automation-id="promptSelectionLabel">Select One</span>
+      </button>
+    </div>
+    <button id="phone" data-automation-id="phone-device-type" aria-haspopup="listbox">Select One</button>
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(workdaySourceListboxButton(doc)?.id, 'source-btn')
+  assert.equal(workdayFormerEmployeeListboxButton(doc)?.id, 'former-btn')
+  assert.equal(workdayListboxIsEmpty(doc.getElementById('source-btn')!), true)
+  assert.equal(workdayListboxIsEmpty(doc.getElementById('country')!), false)
+  assert.equal(workdayPhoneDeviceTypeButton(doc)?.id, 'phone')
 })
