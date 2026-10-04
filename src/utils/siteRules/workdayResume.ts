@@ -196,16 +196,24 @@ export function isWorkdayCoverLetterFileInput(input: HTMLInputElement): boolean 
   return mentionsCoverLetter(own) || mentionsCoverLetter(section) || mentionsCoverLetter(nearby)
 }
 
+// Inputs that already received the saved file. Workday accepts the upload,
+// shows a row, and clears the input, so an empty files list is not "not yet
+// attached". A different resume input on the same page is not in this set.
+const resumeInputsGivenFile = new WeakSet<HTMLInputElement>()
+
 // Puts the saved file on a plain Workday resume input. Does not click the
 // control, Autofill with Resume, or Submit. No file, or an empty file, leaves
-// the input empty.
+// the input empty and is not remembered as attached.
 export async function attachWorkdaySavedResume(
   input: HTMLInputElement,
   file: File | null,
 ): Promise<boolean> {
   if (!isWorkdayResumeFileInput(input)) return false
+  if (resumeInputsGivenFile.has(input)) return false
   if ((input.files?.length ?? 0) > 0) return false
-  return assignResumeFile(input, file)
+  const assigned = await assignResumeFile(input, file)
+  if (assigned) resumeInputsGivenFile.add(input)
+  return assigned
 }
 
 function bytesFromBase64(value: string): Uint8Array | null {
