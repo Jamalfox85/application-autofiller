@@ -40,6 +40,7 @@ import {
   workdayListboxButton,
   workdayListboxIsEmpty,
   workdayListboxValue,
+  workdayPromptFaceIsEmpty,
   workdayProfileChoice,
   workdayListedSearchText,
   workdayListedValueMatches,
@@ -65,6 +66,9 @@ var lastFormSignature = ''
 export default function workdayConfig(): SiteRule {
   return {
     detect: () => isWorkdayApplyHost(window.location.hostname),
+    // "0 items selected" is a non-empty value, so autofill would skip the source
+    // input. Revisit that control only while the closed face is still a placeholder.
+    includeFilled: (input) => workdayElementIsSource(input) && workdayPromptFaceIsEmpty(input),
     // In your onMount:
     onMount: (personalInfo) => {
       console.log('PING - Plugin initialized')
@@ -597,7 +601,7 @@ const announceMissingWorkdayAccount = async (personalInfo: PersonalInfo | null |
   }
 }
 
-let openListbox: HTMLButtonElement | null = null
+let openListbox: HTMLElement | null = null
 
 function collapseOpenListbox() {
   const button = openListbox
@@ -898,7 +902,7 @@ async function chooseFirstListedOption(
   return null
 }
 
-function sourceCompanyToken(button: HTMLButtonElement): string {
+function sourceCompanyToken(button: HTMLElement): string {
   let host = ''
   try {
     host = button.ownerDocument?.defaultView?.location?.hostname || ''
@@ -910,7 +914,7 @@ function sourceCompanyToken(button: HTMLButtonElement): string {
 
 // aria-controls can point at an empty anchor while the rows are in a portal.
 // Country and state stay on the controlled list. Source may read the portal.
-function activeSourcePrompt(button: HTMLButtonElement): ParentNode | null {
+function activeSourcePrompt(button: HTMLElement): ParentNode | null {
   const prompt = workdayActivePrompt(button)
   const ownLabels = prompt ? substantivePromptLabels(workdayOptionLabels(prompt)) : []
   if (ownLabels.length > 0 && !workdayIsPhoneDeviceTypeOptionList(ownLabels)) return prompt
@@ -925,10 +929,14 @@ function activeSourcePrompt(button: HTMLButtonElement): ParentNode | null {
   return prompt
 }
 
-function sourceControlShows(button: HTMLButtonElement, label: string): boolean {
+function sourceControlShows(button: HTMLElement, label: string): boolean {
   if (listboxShowsLabel(button, label)) return true
   const want = label.replace(/\s+/g, ' ').trim().toLowerCase()
   if (!want) return false
+  if (button.tagName === 'INPUT' || button.tagName === 'TEXTAREA') {
+    const value = (button as HTMLInputElement).value.replace(/\s+/g, ' ').trim().toLowerCase()
+    if (value === want) return true
+  }
   const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
   if (!field) return false
   const pills = field.querySelectorAll(
@@ -941,7 +949,7 @@ function sourceControlShows(button: HTMLButtonElement, label: string): boolean {
   return false
 }
 
-function sourcePromptBackButton(button: HTMLButtonElement): HTMLElement | null {
+function sourcePromptBackButton(button: HTMLElement): HTMLElement | null {
   const prompt = activeSourcePrompt(button)
   const scoped =
     prompt && 'querySelector' in prompt
@@ -952,7 +960,7 @@ function sourcePromptBackButton(button: HTMLButtonElement): HTMLElement | null {
 }
 
 async function waitForSourceLabels(
-  button: HTMLButtonElement,
+  button: HTMLElement,
   accept: (labels: string[]) => boolean,
   timeout = 1500,
 ): Promise<string[] | null> {
@@ -971,7 +979,7 @@ function sourceLabelKey(labels: string[]): string {
 }
 
 async function commitSourceChoice(
-  button: HTMLButtonElement,
+  button: HTMLElement,
   prompt: ParentNode,
   label: string,
 ): Promise<string | null> {
@@ -992,7 +1000,7 @@ async function commitSourceChoice(
 // Folders are not values. Open each parent, then commit one company-owned leaf.
 // No such leaf means the field stays empty.
 async function selectNestedWorkdaySource(
-  button: HTMLButtonElement,
+  button: HTMLElement,
   company: string,
 ): Promise<string | null | undefined> {
   const rootLabels = await waitForSourceLabels(button, (labels) => labels.length > 0)
@@ -1048,7 +1056,7 @@ async function selectNestedWorkdaySource(
 
 // Other, then a career site (including "Career Websites"), then the employer's
 // own site. A nested top row is a folder. A list with none of those stays empty.
-async function chooseWorkdaySource(button: HTMLButtonElement): Promise<string | null> {
+async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> {
   const company = sourceCompanyToken(button)
   collapseOpenListbox()
   openListbox = button
@@ -1070,7 +1078,7 @@ async function chooseWorkdaySource(button: HTMLButtonElement): Promise<string | 
   return committed
 }
 
-export async function selectWorkdaySource(button: HTMLButtonElement): Promise<string | null> {
+export async function selectWorkdaySource(button: HTMLElement): Promise<string | null> {
   return chooseWorkdaySource(button)
 }
 
@@ -1142,13 +1150,18 @@ function chooseWorkdayRadio(input: HTMLInputElement, pick: (labels: string[]) =>
   return true
 }
 
-function chooseWorkdaySourceControl(
+async function chooseWorkdaySourceControl(
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
-): boolean {
+): Promise<boolean> {
   if (input.tagName === 'SELECT') return chooseWorkdaySelect(input, '', 'source')
   if (input.tagName === 'INPUT' && (input as HTMLInputElement).type === 'radio') {
     return chooseWorkdayRadio(input as HTMLInputElement, workdaySourceOption)
   }
+  // A custom text input opens a flat list. Claiming it without that click left
+  // "0 items selected" in place. Still claim the field when no company-owned
+  // leaf exists so the generic matcher cannot invent LinkedIn.
+  if (!workdayPromptFaceIsEmpty(input)) return true
+  await chooseWorkdaySource(input)
   return true
 }
 

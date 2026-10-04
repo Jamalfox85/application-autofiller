@@ -1091,6 +1091,7 @@ export function workdayIsFormerEmployeeQuestion(fieldText: string): boolean {
   const phrases = [
     'formeremployee',
     'previouslyemployed',
+    'previouslybeenemployed',
     'previousemployee',
     'previousworker',
     'prioremployee',
@@ -1107,6 +1108,7 @@ export function workdayIsFormerEmployeeQuestion(fieldText: string): boolean {
     'currentemployee',
     'workedherebefore',
     'workedforthiscompany',
+    'workedasacontractor',
     'employedbythis',
     'employedbyus',
     'employedhere',
@@ -1162,6 +1164,12 @@ const PLACEHOLDER_OPTION_KEYS = new Set([
 
 function isPlaceholderKey(key: string): boolean {
   return PLACEHOLDER_OPTION_KEYS.has(key)
+}
+
+// "0 items selected" is the closed multi-select face, not a chosen source.
+function isEmptyPromptKey(key: string): boolean {
+  if (isPlaceholderKey(key)) return true
+  return /^(?:0|no|none) items? selected$/.test(key)
 }
 
 function isYesKey(key: string): boolean {
@@ -1524,7 +1532,7 @@ export function workdayButtonShowsAnswer(button: HTMLElement, answer: 'yes' | 'n
 export function workdayListboxIsEmpty(button: HTMLElement): boolean {
   const shown = workdayListboxValue(button)
   const key = optionKey(shown)
-  if (isPlaceholderKey(key)) {
+  if (isEmptyPromptKey(key)) {
     const aria = button.getAttribute('aria-label') || ''
     if (workdayClosedLabelShowsAnswer(aria, 'yes') || workdayClosedLabelShowsAnswer(aria, 'no')) return false
     return true
@@ -1532,6 +1540,30 @@ export function workdayListboxIsEmpty(button: HTMLElement): boolean {
   if (workdayClosedLabelShowsAnswer(shown, 'yes') || workdayClosedLabelShowsAnswer(shown, 'no')) return false
   const question = optionKey(workdayChoiceQuestionText(button))
   return !!question && key === question
+}
+
+// A custom source input can show the empty face in its value, its placeholder,
+// or a sibling prompt label. A real answer such as Other is not empty.
+export function workdayPromptFaceIsEmpty(control: HTMLElement): boolean {
+  const faces: string[] = []
+  if (control.tagName === 'INPUT' || control.tagName === 'TEXTAREA') {
+    const field = control as HTMLInputElement
+    faces.push(field.value || '')
+    faces.push(field.getAttribute('placeholder') || '')
+  }
+  faces.push(workdayListboxValue(control))
+  const scope = control.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  if (scope && scope !== control) {
+    const selected = scope.querySelector(
+      '[data-automation-id="promptSelectionLabel"], [data-automation-id="selectedItemLabel"]',
+    )
+    if (selected && !control.contains(selected)) faces.push(selected.textContent || '')
+  }
+  const shown = faces
+    .map((value) => value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  if (shown.length === 0) return true
+  return shown.every((value) => isEmptyPromptKey(optionKey(value)))
 }
 
 export function workdayDisabilityOptionIndex(labels: string[], status: string): number {
