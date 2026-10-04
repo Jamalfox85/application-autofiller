@@ -737,11 +737,25 @@ export function workdaySuggestionOption(optionTexts: string[], query: string): s
   return null
 }
 
-type DegreeFamily = 'associate' | 'bachelor' | 'master' | 'doctorate'
+type DegreeFamily =
+  | 'ged'
+  | 'high_school'
+  | 'associate'
+  | 'bachelor'
+  | 'master'
+  | 'jd'
+  | 'doctorate'
 
+// Profile values are the education dialog slugs (high_school_diploma, associates,
+// bachelors, masters, phd, certificate, bootcamp) and resume text such as
+// "Bachelor of Science". JD is checked before doctorate so "Juris Doctor" is
+// not treated as a PhD. GED and High School are different Workday options.
 function degreeFamily(value: string): DegreeFamily | null {
   const key = degreeKey(value)
   if (!key) return null
+  if (/\b(jd|juris doctor|juris doctorate)\b/.test(key) || key === 'j d') return 'jd'
+  if (/\bged\b/.test(key)) return 'ged'
+  if (/\b(high school|secondary school)\b/.test(key)) return 'high_school'
   if (/\b(phd|ph d|doctor|doctorate)\b/.test(key)) return 'doctorate'
   if (/\b(mba|master|masters|ms|msc)\b/.test(key)) return 'master'
   if (/\b(bachelor|bachelors|bs|ba|bsc)\b/.test(key)) return 'bachelor'
@@ -753,10 +767,16 @@ function degreeFamily(value: string): DegreeFamily | null {
 // specific degree ("Bachelor of Arts" or "B.A." for a Bachelor of Science profile).
 function isGenericDegreeLabel(value: string, family: DegreeFamily): boolean {
   const key = degreeKey(value)
-  if (family === 'doctorate') return /^(phd|ph d|doctor|doctorate|doctoral|doctoral degree)$/.test(key)
+  if (family === 'ged') return key === 'ged'
+  if (family === 'high_school') return /^(high school|high school diploma|secondary school)$/.test(key)
+  if (family === 'jd') return /^(jd|j d|juris doctor|juris doctorate)$/.test(key)
+  if (family === 'doctorate') {
+    return /^(phd|ph d|doctor|doctorate|doctoral|doctoral degree|doctor of philosophy)$/.test(key)
+  }
   if (family === 'master') return /^(master|masters|masters degree|master s degree)$/.test(key)
   if (family === 'bachelor') return /^(bachelor|bachelors|bachelors degree|bachelor s degree)$/.test(key)
-  return /^(associate|associates|associates degree|associate s degree)$/.test(key)
+  if (family === 'associate') return /^(associate|associates|associates degree|associate s degree)$/.test(key)
+  return false
 }
 
 // B.S. and Bachelor of Science are the same listed degree. B.A. is not.
@@ -769,6 +789,9 @@ function degreeSpecificity(value: string): string | null {
   if (/master of arts|^ma$/.test(key)) return 'ma'
   if (/master of business|^mba$|business administration/.test(key)) return 'mba'
   if (/doctor of philosophy|^phd$|^ph d$/.test(key)) return 'phd'
+  if (/associate of science|^as$/.test(key)) return 'as'
+  if (/associate of arts|^aa$/.test(key)) return 'aa'
+  if (/^jd$|^j d$|juris doctor/.test(key)) return 'jd'
   return null
 }
 
@@ -779,26 +802,41 @@ function exactDegreeLabel(labels: string[], query: string): string | null {
 }
 
 // Degree is a listed prompt option. Exact catalog text wins, then the same
-// degree under another label ("Bachelor of Science" → "Bachelor's Degree").
-// A different degree in that family is not selected.
+// degree under another label ("Bachelor of Science" → "Bachelors"). A different
+// degree in that family is not selected. Certificate and Bootcamp have no
+// Workday degree on the short Adobe list, so they stay empty.
 export function workdayDegreeOption(optionTexts: string[], degreeType: string): string | null {
   const labels = optionTexts.map(cleanPromptLabel).filter(Boolean)
-  const queries = [degreeType, ...degreeSearchValues(degreeType)]
-  for (const query of queries) {
-    const exact = exactDegreeLabel(labels, query)
-    if (exact) return exact
-  }
+  const exact = exactDegreeLabel(labels, degreeType)
+  if (exact) return exact
   const contained = workdaySuggestionOption(labels, degreeType)
-  if (contained) return contained
+  if (contained) {
+    const wanted = degreeSpecificity(degreeType)
+    const got = degreeSpecificity(contained)
+    if (!wanted || !got || wanted === got) return contained
+  }
   const specificity = degreeSpecificity(degreeType)
   if (specificity) {
     const specific = labels.filter((label) => degreeSpecificity(label) === specificity)
     if (specific.length === 1) return specific[0]
   }
   const family = degreeFamily(degreeType)
-  if (!family) return null
-  const generic = labels.filter((label) => degreeFamily(label) === family && isGenericDegreeLabel(label, family))
-  if (generic.length === 1) return generic[0]
+  if (family) {
+    const inFamily = labels.filter((label) => degreeFamily(label) === family)
+    const generic = inFamily.filter((label) => isGenericDegreeLabel(label, family))
+    if (generic.length === 1) return generic[0]
+    // A generic profile degree ("bachelors") can take the only listed option
+    // in that family. A specific profile degree cannot take a different one.
+    if (!specificity && inFamily.length === 1) return inFamily[0]
+  }
+  for (const query of degreeSearchValues(degreeType)) {
+    const alias = exactDegreeLabel(labels, query)
+    if (!alias || degreeKey(alias) === degreeKey(degreeType)) continue
+    const aliasFamily = degreeFamily(alias)
+    if (family && aliasFamily && aliasFamily !== family) continue
+    if (!family && aliasFamily) continue
+    return alias
+  }
   return null
 }
 

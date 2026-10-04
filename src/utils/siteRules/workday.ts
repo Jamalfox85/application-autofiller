@@ -27,7 +27,6 @@ import {
   workdayContactKeyFromElement,
   workdayDatePartInput,
   workdayDegreeOption,
-  workdayDegreeSearchTexts,
   workdayDisabilityOptionIndex,
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
@@ -741,7 +740,12 @@ async function commitCanvasDegreeTypeahead(
     button.dispatchEvent(new KeyCtor('keydown', { key, bubbles: true, cancelable: true }))
   }
   button.focus()
-  for (const character of label) press(character)
+  for (const character of label) {
+    press(character)
+    // Stop once the closed face is the label being typed. Another character
+    // is not a prefix of that option and clears it back to Select One.
+    if (matches()) return shown() || label
+  }
   press('Enter')
   const started = Date.now()
   while (Date.now() - started < 300) {
@@ -799,7 +803,16 @@ async function settleListedChoice(
   const canvas = canvasSelectInput(button)
   if (canvas && optionDataValue(option)) writeCanvasSelectValue(button, option)
   if (listboxShowsLabel(button, label)) return label
-  if (scanPortals) await commitListedDegreeByKeyboard(button, label)
+  if (scanPortals) {
+    await commitListedDegreeByKeyboard(button, label)
+    if (listboxShowsLabel(button, label)) return label
+    // Click and ArrowDown do not change a Canvas degree face. The closed
+    // label updates when the mapped option ("Bachelors") is typed.
+    if (listboxIsPlaceholder(button)) {
+      const typed = await commitCanvasDegreeTypeahead(button, label)
+      if (typed) return typed
+    }
+  }
   if (listboxShowsLabel(button, label)) return label
   if (canvas) return null
   return label
@@ -905,6 +918,9 @@ async function chooseWorkdayListOption(
           return settled
         }
       }
+      // The open degree list is already painted. Waiting cannot add a degree
+      // the catalog does not offer.
+      if (substantive.length > 0) break
       await new Promise((resolve) => setTimeout(resolve, 100))
       continue
     }
@@ -1577,14 +1593,18 @@ export async function selectWorkdayListedDegree(
 ): Promise<string | null> {
   const trimmed = degreeType.trim()
   if (!trimmed) return null
-  const typed = await commitCanvasDegreeTypeahead(button, trimmed)
-  if (typed) return typed
-  return chooseFirstListedOption(
+  // Read the catalog before typing. "Bachelor of Science" is not a prefix of
+  // the Workday option "Bachelors", so typing the profile string clears the
+  // closed face back to Select One. Commit the mapped label instead.
+  const picked = await chooseFirstListedOption(
     button,
     (labels) => workdayDegreeOption(labels, trimmed),
-    workdayDegreeSearchTexts(trimmed),
+    [],
     true,
   )
+  if (picked) return picked
+  if (!listboxIsPlaceholder(button)) return null
+  return commitCanvasDegreeTypeahead(button, trimmed)
 }
 
 const applicationChoiceAttempts = new WeakMap<HTMLButtonElement, number>()
