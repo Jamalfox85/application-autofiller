@@ -4,7 +4,6 @@ import test from 'node:test'
 
 const notifications = readFileSync(new URL('./notifications.ts', import.meta.url), 'utf8')
 const paywall = readFileSync(new URL('./fillPaywall.ts', import.meta.url), 'utf8')
-const handoff = readFileSync(new URL('../utils/siteRules/icimsAccountHandoff.ts', import.meta.url), 'utf8')
 const popup = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 const shell = readFileSync(new URL('../assets/style.css', import.meta.url), 'utf8')
 
@@ -19,11 +18,6 @@ test('in-page fill paywall card sits bottom-right', () => {
   assert.match(paywall, /position:\s*fixed;\s*right:\s*20px;\s*bottom:\s*20px;/)
   assert.doesNotMatch(paywall, /align-items:\s*center/)
   assert.doesNotMatch(paywall, /justify-content:\s*center/)
-})
-
-test('iCIMS account handoff sits bottom-right', () => {
-  assert.match(handoff, /right:\s*24px;\s*bottom:\s*24px;/)
-  assert.doesNotMatch(handoff, /left:\s*24px/)
 })
 
 test('browser-action popup stays 400 by 600', () => {

@@ -1,4 +1,5 @@
 import { matchFieldToData } from './fieldMatch.ts'
+import { icimsSelectNeedsFill } from '../utils/siteRules/icimsFields.ts'
 import {
   EMPTY_PROFILE_FILL_MESSAGE,
   coerceFillText,
@@ -106,7 +107,15 @@ function isSkippableField(input: FormField, includeFilled?: (input: FormField) =
     return true
   }
 
+  // iCIMS country/state widgets keep a non-empty placeholder value ("-999" or the
+  // "— Make a Selection —" option) until the dropdown is committed. That is not a
+  // filled answer. Other portals are unchanged.
+  const icimsPlaceholder =
+    typeof window !== 'undefined' &&
+    window.location.hostname.toLowerCase().includes('icims.com') &&
+    icimsSelectNeedsFill(input)
   if (
+    !icimsPlaceholder &&
     input.value &&
     input.value.trim() !== '' &&
     input.type != 'checkbox' &&

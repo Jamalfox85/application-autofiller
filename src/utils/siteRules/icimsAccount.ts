@@ -64,8 +64,9 @@ export function isIcimsLoginSurface(page: IcimsPageSignals): boolean {
 
 // Joby Aviation and HireRight (2026-10-04) both stop on "Enter Your Information":
 // an email field, no password, and Next opens hCaptcha. The password step is a
-// later document state (a password input exists). That email step is the
-// account-creation handoff. A combined login that already shows a password is not.
+// later document state (a password input exists). GoFillr writes this step once
+// so captcha DOM changes do not type into the form again. A combined login that
+// already shows a password is not this step.
 export function isIcimsAccountCreationEmailStep(page: IcimsPageSignals): boolean {
   if (page.hasPasswordField === true) return false
   if (page.hasEmailGate !== true) return false
