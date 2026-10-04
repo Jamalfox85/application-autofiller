@@ -1160,3 +1160,180 @@ test('school suggestion commits the visible row and does not blur before that cl
   assert.equal(entered, false)
   assert.equal(doc.getElementById('school-popup') != null, true)
 })
+
+// Cisco's school prompt does not search from the closed field. Opening the
+// multiselect paints a Search box and "No Items." The catalog query is that
+// search box. A matching row commits on the promptLeafNode; the visible label
+// does not. The selected value is a pill, not the typed query.
+function ciscoSchoolPrompt(catalog: string[]) {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-school" data-fkit-id="education-1--school">
+      <div data-automation-id="multiSelectContainer" id="school-field"></div>
+      <div data-automation-id="selectedItemList" id="school-pills"></div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const field = doc.getElementById('school-field')!
+  const clicked: string[] = []
+  const searches: string[] = []
+  const open = () => {
+    if (doc.getElementById('school-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'school-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    popup.setAttribute('data-automation-type', 'singleSelectPrompt')
+    popup.innerHTML = `
+      <div data-automation-id="monikerSearchBox">
+        <input data-automation-id="searchBox" id="school-search" placeholder="Search" value="" />
+      </div>
+      <div id="school-results"></div>
+    `
+    const search = popup.querySelector('#school-search') as HTMLInputElement
+    const results = popup.querySelector('#school-results')!
+    const paint = (query: string) => {
+      searches.push(query)
+      const schools = catalog.filter((label) => query && label.toLowerCase().includes(query.toLowerCase()))
+      const rows = schools.length > 0 ? schools : ['No Items.']
+      results.replaceChildren()
+      for (const label of rows) {
+        const leaf = doc.createElement('div')
+        leaf.setAttribute('data-automation-id', 'promptLeafNode')
+        leaf.id = label === 'No Items.' ? 'no-items-leaf' : `${label.toLowerCase().replace(/[^a-z]+/g, '-')}-leaf`
+        const option = doc.createElement('div')
+        option.setAttribute('data-automation-id', 'promptOption')
+        option.setAttribute('data-automation-label', label)
+        const text = doc.createElement('div')
+        text.textContent = label
+        text.addEventListener('mousedown', (event) => event.stopPropagation())
+        text.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        })
+        option.appendChild(text)
+        leaf.appendChild(option)
+        if (label !== 'No Items.') {
+          leaf.addEventListener('click', () => {
+            clicked.push(label)
+            const pill = doc.createElement('div')
+            pill.setAttribute('data-automation-id', 'selectedItem')
+            pill.textContent = label
+            doc.getElementById('school-pills')!.replaceChildren(pill)
+            search.value = ''
+          })
+        }
+        results.appendChild(leaf)
+      }
+    }
+    search.addEventListener('input', () => paint(search.value.trim()))
+    paint('')
+    doc.body.appendChild(popup)
+  }
+  field.addEventListener('click', open)
+  return { doc, field, clicked, searches, open }
+}
+
+test('Cisco school prompt types the profile school into the search and clicks that leaf', async () => {
+  const { doc, field, clicked, searches } = ciscoSchoolPrompt([
+    'Kenyon College',
+    'Kennesaw State University',
+  ])
+  const { selectWorkdayPromptQuery } = await import('./workday.ts')
+  assert.equal(await selectWorkdayPromptQuery(field, 'Kennesaw State University'), true)
+  assert.equal(searches.includes('Kennesaw State University'), true)
+  assert.deepEqual(clicked, ['Kennesaw State University'])
+  assert.equal(clicked.includes('Kenyon College'), false)
+  assert.equal(doc.getElementById('school-pills')?.textContent, 'Kennesaw State University')
+})
+
+test('Cisco school prompt types into the prompt search when the field input is not that box', async () => {
+  const { doc, field, clicked, searches } = ciscoSchoolPrompt([
+    'Kenyon College',
+    'Kennesaw State University',
+  ])
+  const decoy = doc.createElement('input')
+  decoy.id = 'school-decoy'
+  decoy.value = ''
+  field.appendChild(decoy)
+  const { selectWorkdayPromptQuery } = await import('./workday.ts')
+  assert.equal(await selectWorkdayPromptQuery(decoy, 'Kennesaw State University'), true)
+  assert.equal(decoy.value, '')
+  assert.equal(searches.includes('Kennesaw State University'), true)
+  assert.deepEqual(clicked, ['Kennesaw State University'])
+})
+
+test('Cisco school prompt leaves school blank when the catalog has no match', async () => {
+  const { doc, field, clicked, searches } = ciscoSchoolPrompt(['Kenyon College'])
+  const { selectWorkdayPromptQuery } = await import('./workday.ts')
+  assert.equal(await selectWorkdayPromptQuery(field, 'Kennesaw State University'), false)
+  assert.equal(searches.includes('Kennesaw State University'), true)
+  assert.deepEqual(clicked, [])
+  assert.equal(doc.getElementById('school-pills')?.textContent, '')
+  assert.equal((doc.getElementById('school-search') as HTMLInputElement).value, '')
+})
+
+test('Cisco degree menu selects the visible Bachelor of Science row', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+      <button id="degree" aria-haspopup="listbox" aria-expanded="false">Select One</button>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const chosen: string[] = []
+  button.addEventListener('click', () => {
+    if (button.getAttribute('aria-expanded') === 'true') {
+      button.setAttribute('aria-expanded', 'false')
+      doc.getElementById('degree-menu')?.remove()
+      return
+    }
+    button.setAttribute('aria-expanded', 'true')
+    const menu = doc.createElement('div')
+    menu.id = 'degree-menu'
+    menu.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    menu.innerHTML = `
+      <div data-automation-id="promptLeafNode" id="no-items-leaf">
+        <div data-automation-id="promptOption" data-automation-label="No Items.">No Items.</div>
+      </div>
+    `
+    doc.body.appendChild(menu)
+    setTimeout(() => {
+      if (!menu.isConnected) return
+      menu.replaceChildren()
+      for (const label of [
+        'Select One',
+        'Doctor of Medicine (MD)',
+        'Associate of Science',
+        'Bachelor of Science',
+        'Doctor of Medicine',
+        'Juris Doctorate',
+      ]) {
+        const leaf = doc.createElement('div')
+        leaf.setAttribute('data-automation-id', 'promptLeafNode')
+        leaf.setAttribute('role', 'option')
+        leaf.id = `${label.toLowerCase().replace(/[^a-z]+/g, '-')}-leaf`
+        const option = doc.createElement('div')
+        option.setAttribute('data-automation-id', 'promptOption')
+        option.setAttribute('data-automation-label', label)
+        const text = doc.createElement('div')
+        text.textContent = label
+        text.addEventListener('mousedown', (event) => event.stopPropagation())
+        text.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        })
+        option.appendChild(text)
+        leaf.appendChild(option)
+        leaf.addEventListener('click', () => {
+          if (label === 'Select One') return
+          chosen.push(label)
+          button.textContent = label
+        })
+        menu.appendChild(leaf)
+      }
+    }, 180)
+  })
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.deepEqual(chosen, ['Bachelor of Science'])
+  assert.equal(button.textContent, 'Bachelor of Science')
+})
