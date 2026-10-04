@@ -850,6 +850,8 @@ function assignSelect(input: Writable, value: string) {
 // arrive from /jobs/profileoptions after a search. State is a dependent menu
 // (data-ddd-parent-link): until the country widget's optionSelected runs, the
 // state menu stays on "Please select a country" and its options never load.
+// window.ICIMS lives in the page's JavaScript world. This content script cannot
+// see it, so search and optionSelected run there (country first, then state).
 export function isIcimsMenuPlaceholder(label: string): boolean {
   const normalized = label.toLowerCase().replace(/[^a-z]/g, '')
   if (!normalized) return true
@@ -1013,18 +1015,19 @@ function waitForDropdown(handle: IcimsDropdownHandle): Promise<void> {
   if (!handle.resetOptions) return Promise.resolve()
   return new Promise((resolve) => {
     let settled = false
+    let timer: ReturnType<typeof setTimeout>
     const finish = () => {
       if (settled) return
       settled = true
+      clearTimeout(timer)
       resolve()
     }
+    timer = setTimeout(finish, 4000)
     try {
       handle.resetOptions?.(finish)
     } catch {
       finish()
-      return
     }
-    setTimeout(finish, 4000)
   })
 }
 
@@ -1063,45 +1066,169 @@ function rememberMenu(element: SelectLike, chosen: IcimsOption) {
   committedMenus.add(element)
 }
 
+export type IcimsPageDropdownRequest =
+  | { op: 'read'; id: string }
+  | { op: 'search'; id: string; query: string }
+  | { op: 'commit'; id: string; value: string; label: string }
+
+export type IcimsPageDropdownResult = {
+  ok: boolean
+  words?: Array<{ value?: string; text?: string }>
+  committed?: boolean
+}
+
+export type IcimsPageDropdownBridge = (
+  request: IcimsPageDropdownRequest,
+) => Promise<IcimsPageDropdownResult> | IcimsPageDropdownResult
+
+type MenuSession = {
+  read: () => Promise<IcimsOption[]>
+  search: (query: string) => Promise<IcimsOption[]>
+  commit: (option: IcimsOption) => Promise<void>
+}
+
+function extensionRuntime(): { sendMessage?: (message: unknown) => Promise<unknown> } | null {
+  const host = globalThis as {
+    chrome?: { runtime?: { sendMessage?: (message: unknown) => Promise<unknown> } }
+  }
+  return host.chrome?.runtime ?? null
+}
+
+// The service worker injects icimsPageDropdownCommand into the page frame.
+// A missing worker must not stall street, city, and zip.
+export async function chromeIcimsPageDropdownBridge(
+  request: IcimsPageDropdownRequest,
+): Promise<IcimsPageDropdownResult> {
+  const runtime = extensionRuntime()
+  if (!runtime || typeof runtime.sendMessage !== 'function') return { ok: false }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false }), 6000)
+    try {
+      Promise.resolve(runtime.sendMessage({ action: 'icimsPageDropdown', request })).then(
+        (result) => {
+          clearTimeout(timer)
+          const page = result as IcimsPageDropdownResult | null
+          resolve(page && page.ok === true ? page : { ok: false })
+        },
+        () => {
+          clearTimeout(timer)
+          resolve({ ok: false })
+        },
+      )
+    } catch {
+      clearTimeout(timer)
+      resolve({ ok: false })
+    }
+  })
+}
+
+function localMenuSession(handle: IcimsDropdownHandle): MenuSession {
+  return {
+    async read() {
+      return wordsToOptions(handle.getWords?.(true) ?? [])
+    },
+    async search(query) {
+      if (!handle.resetOptions && !handle.getWords) return []
+      return loadDropdownOptions(handle, query)
+    },
+    async commit(option) {
+      commitDropdown(handle, option)
+    },
+  }
+}
+
+function bridgeMenuSession(id: string, bridge: IcimsPageDropdownBridge): MenuSession {
+  const listed = async (result: Promise<IcimsPageDropdownResult> | IcimsPageDropdownResult) => {
+    const page = await result
+    if (!page?.ok) return []
+    return wordsToOptions((page.words || []).map((word) => ({ value: word.value, text: word.text })))
+  }
+  return {
+    read() {
+      return listed(bridge({ op: 'read', id }))
+    },
+    search(query) {
+      return listed(bridge({ op: 'search', id, query }))
+    },
+    async commit(option) {
+      await bridge({ op: 'commit', id, value: option.value, label: option.label })
+    },
+  }
+}
+
+async function openLocationSession(
+  element: SelectLike,
+  pageBridge: IcimsPageDropdownBridge | undefined,
+): Promise<MenuSession | null> {
+  const id = selectElementId(element)
+  const local = id ? icimsDropdownRegistry()[id] : undefined
+  if (local) return localMenuSession(local)
+  if (!id) return null
+  const bridge = pageBridge ?? chromeIcimsPageDropdownBridge
+  try {
+    const probe = await bridge({ op: 'read', id })
+    if (!probe?.ok) return null
+    return bridgeMenuSession(id, bridge)
+  } catch {
+    return null
+  }
+}
+
+function locationQueries(raw: string, kind: 'state' | 'country'): string[] {
+  return [icimsListedSearchText(raw, kind), raw.replace(/_/g, ' ').trim()].filter(
+    (query, index, all) => query && all.indexOf(query) === index,
+  )
+}
+
 async function commitLocationMenu(
   element: SelectLike,
   kind: 'state' | 'country',
   desired: string,
+  pageBridge: IcimsPageDropdownBridge | undefined,
 ): Promise<void> {
   const raw = desired.trim()
   if (!raw) return
-  const handle = icimsDropdownRegistry()[selectElementId(element)]
+  try {
+    await commitLocationMenuNow(element, kind, raw, pageBridge)
+  } catch {
+    // A page-world failure leaves this menu on its placeholder. Other fields still fill.
+  }
+}
+
+async function commitLocationMenuNow(
+  element: SelectLike,
+  kind: 'state' | 'country',
+  raw: string,
+  pageBridge: IcimsPageDropdownBridge | undefined,
+): Promise<void> {
   const nativeChoice = pickListedOption(kind, raw, readIcimsOptions(element))
   if (nativeChoice && menuAlreadySet(element, nativeChoice)) {
     committedMenus.add(element)
     return
   }
-  if (!handle) {
-    if (!nativeChoice) return
-    rememberMenu(element, nativeChoice)
+  const session = await openLocationSession(element, pageBridge)
+  if (!session) {
+    if (nativeChoice) rememberMenu(element, nativeChoice)
     return
   }
 
-  const alreadyLoaded = pickListedOption(kind, raw, wordsToOptions(handle.getWords?.(true) ?? []))
+  const alreadyLoaded = pickListedOption(kind, raw, await session.read())
   if (alreadyLoaded) {
-    commitDropdown(handle, alreadyLoaded)
+    await session.commit(alreadyLoaded)
     rememberMenu(element, alreadyLoaded)
     return
   }
 
-  const queries = [icimsListedSearchText(raw, kind), raw.replace(/_/g, ' ').trim()].filter(
-    (query, index, all) => query && all.indexOf(query) === index,
-  )
-  for (const query of queries) {
-    const loaded = handle.resetOptions || handle.getWords ? await loadDropdownOptions(handle, query) : []
+  for (const query of locationQueries(raw, kind)) {
+    const loaded = await session.search(query)
     const chosen = pickListedOption(kind, raw, loaded)
     if (!chosen) continue
-    commitDropdown(handle, chosen)
+    await session.commit(chosen)
     rememberMenu(element, chosen)
     return
   }
   if (nativeChoice) {
-    commitDropdown(handle, nativeChoice)
+    await session.commit(nativeChoice)
     rememberMenu(element, nativeChoice)
   }
 }
@@ -1109,6 +1236,7 @@ async function commitLocationMenu(
 export async function fillIcimsLocationMenus(
   doc: { querySelectorAll?: (selector: string) => ArrayLike<SelectLike> } | null | undefined,
   personalInfo: Partial<PersonalInfo> | null | undefined,
+  pageBridge?: IcimsPageDropdownBridge,
 ): Promise<void> {
   if (!doc?.querySelectorAll) return
   const nodes = doc.querySelectorAll('select')
@@ -1123,11 +1251,12 @@ export async function fillIcimsLocationMenus(
   }
   const country = (personalInfo?.country || '').trim()
   const state = (personalInfo?.state || '').trim()
+  // Country optionSelected stores the parent value the state search sends.
   for (const element of countries) {
-    await commitLocationMenu(element, 'country', country)
+    await commitLocationMenu(element, 'country', country, pageBridge)
   }
   for (const element of states) {
-    await commitLocationMenu(element, 'state', state)
+    await commitLocationMenu(element, 'state', state, pageBridge)
   }
 }
 

@@ -15,6 +15,7 @@ import {
 import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
+import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
 
 startExtensionPay()
 
@@ -396,6 +397,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       updateBadge('!', '#b05454')
     }
     sendResponse({ ok: true })
+    return true
+  }
+
+  // The content script cannot see the page's ICIMS.dropdowns registry. Run the
+  // country/state search in that frame's page world. The command only calls
+  // dropdown methods. It does not click Next, Log In, Create Account, Submit, or hCaptcha.
+  if (request.action === 'icimsPageDropdown') {
+    deliverIcimsPageDropdown(request.request, sender, chrome.scripting)
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false }))
     return true
   }
 
