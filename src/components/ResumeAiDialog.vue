@@ -12,7 +12,7 @@ const status = ref('')
 const error = ref('')
 const busy = ref(false)
 
-async function run(action: 'generate' | 'analyze') {
+async function run() {
   error.value = ''
   status.value = ''
   const job_description = jobDescription.value.trim()
@@ -22,7 +22,7 @@ async function run(action: 'generate' | 'analyze') {
   }
   busy.value = true
   try {
-    const result = await callProResume(action, { job_description })
+    const result = await callProResume('generate', { job_description })
     if (!result.ok && 'gate' in result) {
       emit('planRequired')
       return
@@ -44,18 +44,15 @@ async function run(action: 'generate' | 'analyze') {
   <div class="paywall-overlay" @click.self="emit('close')">
     <div class="paywall-card" role="dialog" aria-modal="true">
       <button class="paywall-x" type="button" aria-label="Close" @click="emit('close')">×</button>
-      <h2>Resume tailor + ATS score</h2>
-      <p>Tailor uses resume generate. ATS score uses analyze. Both send your sign-in token.</p>
+      <h2>Resume tailor</h2>
+      <p>Tailor uses resume generate and sends your sign-in token.</p>
       <textarea
         v-model="jobDescription"
         rows="5"
         placeholder="Paste the job description"
       ></textarea>
-      <button class="paywall-primary" type="button" :disabled="busy" @click="run('generate')">
+      <button class="paywall-primary" type="button" :disabled="busy" @click="run">
         Tailor resume
-      </button>
-      <button class="paywall-secondary" type="button" :disabled="busy" @click="run('analyze')">
-        ATS score
       </button>
       <p v-if="status">{{ status }}</p>
       <p v-if="error" class="paywall-error">{{ error }}</p>

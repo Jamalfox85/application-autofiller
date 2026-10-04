@@ -20,6 +20,7 @@ import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
 import { detectAts } from '../utils/ats.ts'
+import { onMatchScoreRender, startMatchScore } from './matchScore.ts'
 import { configureWorkdayAccountNotice } from '../utils/siteRules/workdayAccountNotice.ts'
 import { configureIcimsAccountNotice } from '../utils/siteRules/icimsAccountNotice.ts'
 
@@ -68,6 +69,12 @@ function onRuntimeMessage(request, _sender, sendResponse) {
       sendResponse(result)
     })
     return true // Keep message channel open for async response
+  }
+
+  if (request.action === 'matchScoreRender') {
+    if (isTopFrame()) onMatchScoreRender(request)
+    sendResponse({ ok: true })
+    return false
   }
 
   if (request.action === 'detectApplication') {
@@ -124,6 +131,9 @@ async function initialize() {
   const settings = await chrome.storage.local.get('autoDetectEnabled')
   const autoDetectEnabled = settings.autoDetectEnabled ?? true
 
+  // Match Score waits for a form, then scores without awaiting autofill.
+  void startMatchScore()
+
   if (autoDetectEnabled) {
     // Auto-detect is ON - auto-fill after delay
     setTimeout(async () => {
@@ -177,6 +187,7 @@ async function initialize() {
       hasShownPopup = false
 
       setTimeout(async () => {
+        void startMatchScore()
         if (autoDetectEnabled) {
           const result = await autofillPage('auto_on_detect')
           if (result.code === 'hard_cap' || result.paywall === 'hard') {

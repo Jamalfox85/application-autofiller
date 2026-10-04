@@ -32,7 +32,7 @@ export async function writeEntitlement(cache: EntitlementCache): Promise<void> {
 
 export interface CheckoutSession {
   plan: 'monthly' | 'annual' | null
-  source: 'soft_gate' | 'hard_cap' | 'resume_ai' | 'multi_profile'
+  source: 'soft_gate' | 'hard_cap' | 'resume_ai' | 'multi_profile' | 'match_score'
   fillCount: number | null
   atsSite: string | null
   openedAt: number

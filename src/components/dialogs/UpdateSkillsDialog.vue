@@ -60,6 +60,26 @@ const handleSkillDraftKeydown = (e: KeyboardEvent) => {
 }
 
 watch(
+  () => (props.personalInfo.skills ?? []).join('\u0000'),
+  (next, prev) => {
+    if (!props.show || prev == null) return
+    const previous = new Set(prev.split('\u0000').filter(Boolean).map((skill) => skill.toLowerCase()))
+    const incoming = props.personalInfo.skills ?? []
+    const added = incoming.filter((skill) => skill.trim() && !previous.has(skill.trim().toLowerCase()))
+    if (!added.length) return
+    const current = editableProfile.value.skills ?? []
+    const seen = new Set(current.map((skill) => skill.toLowerCase()))
+    const merged = [...current]
+    for (const skill of added) {
+      if (seen.has(skill.toLowerCase())) continue
+      merged.push(skill)
+      seen.add(skill.toLowerCase())
+    }
+    editableProfile.value = { ...editableProfile.value, skills: merged }
+  },
+)
+
+watch(
   () => props.show,
   (isShowing) => {
     if (isShowing) {

@@ -1,15 +1,5 @@
 import { autofillPage, undoLastFill } from './autofill.ts'
-
-// Inlined rather than loaded via chrome.runtime.getURL so it renders correctly on any page
-// without needing an extra web_accessible_resources entry — matches
-// public/assets/logo/gofillr-icon-small.svg (the current purple mark).
-function brandIcon(size: number) {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 32 32" style="flex-shrink: 0;">
-    <rect width="32" height="32" rx="8" fill="#7C3AED"/>
-    <rect x="6" y="10" width="20" height="4" rx="2" fill="#FFFFFF"/>
-    <rect x="6" y="18" width="13" height="4" rx="2" fill="#FFFFFF"/>
-  </svg>`
-}
+import { brandIcon, mountInToastStack } from './toastStack.ts'
 
 // Shared "on-page toast" chrome: a dark card with a colored accent bar on the left, sized to
 // stay legible when injected into an arbitrary page's own styles/zoom level. Uses the system
@@ -20,10 +10,6 @@ function createToast(accentColor: string, title: string, subtitle?: string) {
   const toast = document.createElement('div')
   toast.className = 'gofillr-autofill-notification'
   toast.style.cssText = `
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
-    z-index: 2147483647;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -53,7 +39,7 @@ function createToast(accentColor: string, title: string, subtitle?: string) {
 }
 
 function showToast(toast: HTMLElement) {
-  document.body.appendChild(toast)
+  mountInToastStack(toast)
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -72,17 +58,19 @@ function showToast(toast: HTMLElement) {
 // Post-fill confirmation card: bottom-right so it never covers the form, dark against the
 // page so it reads as the extension rather than site content. Auto-hides after 6s; hovering
 // holds it open so a mid-read hover doesn't get cut off.
+function removeFillToasts() {
+  document.querySelectorAll('.gofillr-autofill-notification').forEach((node) => {
+    if (node.id === 'match-score') return
+    node.remove()
+  })
+}
+
 export function showAutofillNotification(_summary?: { fieldsCount?: number; totalCount?: number }) {
-  const existing = document.querySelector('.gofillr-autofill-notification')
-  if (existing) existing.remove()
+  removeFillToasts()
 
   const card = document.createElement('div')
   card.className = 'gofillr-autofill-notification'
   card.style.cssText = `
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
-    z-index: 2147483647;
     width: 280px;
     background: #16161a;
     border: 1px solid #2e2e36;
@@ -114,7 +102,7 @@ export function showAutofillNotification(_summary?: { fieldsCount?: number; tota
     </div>
   `
 
-  document.body.appendChild(card)
+  mountInToastStack(card)
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -180,10 +168,6 @@ export function showAutofillPrompt() {
 
   // All styles inline — external pages don't have your stylesheet
   prompt.style.cssText = `
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    z-index: 2147483647;
     background: #1b1b21;
     border: 1px solid #2e2e36;
     color: #ebebee;
@@ -231,7 +215,7 @@ export function showAutofillPrompt() {
     </div>
   `
 
-  document.body.appendChild(prompt)
+  mountInToastStack(prompt)
 
   // Fade in
   requestAnimationFrame(() => {

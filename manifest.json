@@ -11,7 +11,7 @@
     "scopes": ["openid", "email", "profile"]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://extensionpay.com https://app.posthog.com https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co http://localhost:8080 https://api-production-5aca1.up.railway.app"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://extensionpay.com https://app.posthog.com https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co http://localhost:8080 https://api-production-5aca1.up.railway.app https://boards-api.greenhouse.io https://api.lever.co https://api.eu.lever.co https://api.ashbyhq.com https://www.workable.com"
   },
   "action": {
     "default_popup": "popup.html"

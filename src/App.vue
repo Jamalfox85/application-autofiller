@@ -391,9 +391,20 @@ const loadAppState = async () => {
 }
 
 // Lifecycle
+const onPersonalInfoStored = (
+  changes: { [key: string]: chrome.storage.StorageChange },
+  areaName: string,
+) => {
+  if (areaName !== 'local' || !changes.personalInfo?.newValue) return
+  const next = changes.personalInfo.newValue
+  if (!next || typeof next !== 'object') return
+  personalInfo.value = { ...personalInfo.value, ...(next as object) }
+}
+
 onMounted(async () => {
   chrome.storage.onChanged.addListener(onWorkdayNoticeStored)
   chrome.storage.onChanged.addListener(onIcimsNoticeStored)
+  chrome.storage.onChanged.addListener(onPersonalInfoStored)
   if (supabaseConfigError) return
   await initAuth()
   if (authStatus.value === 'signed-in') {
@@ -509,7 +520,7 @@ watch(authStatus, (next, previous) => {
       <div class="section-list">
         <button class="section-row" type="button" @click="billing?.isPro ? (resumeOpen = true) : openPaywall('resume_ai')">
           <span class="section-num">AI</span>
-          <span class="section-label">Resume tailor + ATS score</span>
+          <span class="section-label">Resume tailor</span>
           <span class="section-meta">{{ billing?.isPro ? 'Included' : 'Pro feature' }}</span>
           <span class="section-dot" :class="{ done: billing?.isPro }"></span>
         </button>
