@@ -15,6 +15,12 @@ import {
   pickLocationOption,
 } from './greenhouseFields.ts'
 import {
+  fillGreenhouseResumeInput,
+  greenhouseResumeDecision,
+  prefetchGreenhouseResume,
+  resetGreenhouseResumeCache,
+} from './greenhouseResume.ts'
+import {
   countrySearchValues,
   degreeSearchValues,
   disciplineSearchValues,
@@ -60,6 +66,12 @@ export default function greenhouseConfig(): SiteRule {
       }) === 'greenhouse',
     onMount: (personalInfo) => {
       void ensureGreenhouseEducationRows(personalInfo?.education?.length ?? 0)
+    },
+    // Start the stored-resume read before the field loop. The file handler
+    // awaits the same promise. This does not click Attach or Autofill.
+    prepareFill: () => {
+      resetGreenhouseResumeCache()
+      prefetchGreenhouseResume()
     },
     apply: (input, fieldText, personalInfo) => {
       for (const { match, handle } of fieldHandlers) {
@@ -118,10 +130,26 @@ function commitNativeSelect(select: HTMLSelectElement, value: string) {
   select.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
+function isFileInput(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): input is HTMLInputElement {
+  return typeof HTMLInputElement !== 'undefined' && input instanceof HTMLInputElement && input.type === 'file'
+}
+
 const fieldHandlers: Array<{
   match: FieldMatch
   handle: FieldHandler
 }> = [
+  {
+    // Plain resume choosers only. Setting input.files does not open the picker
+    // and does not activate "Autofill with resume" / "Autofill with Greenhouse".
+    match: (input, fieldText) =>
+      isFileInput(input) && greenhouseResumeDecision(input, fieldText) !== 'ignore',
+    handle: (input, fieldText) => {
+      if (!isFileInput(input)) return false
+      return fillGreenhouseResumeInput(input, fieldText)
+    },
+  },
   {
     // #country is the phone dialing-code combobox ("United States +1"), not a
     // country-of-residence question_* select.
