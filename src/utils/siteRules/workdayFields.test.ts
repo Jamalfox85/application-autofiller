@@ -2352,3 +2352,86 @@ test('nested How Did You Hear opens parents and selects the company site', async
   assert.equal(selected.includes('Contingent Worker'), false)
   assert.equal(selected.includes('Instagram'), false)
 })
+
+test('Autofill opens a 0 items selected How Did You Hear input and selects Other', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <input id="source" type="text" value="0 items selected" aria-labelledby="source-label" aria-controls="source-anchor" />
+      </div>
+      <div id="source-anchor"></div>
+      <button id="closed" type="button" aria-haspopup="listbox">
+        <span data-automation-id="promptSelectionLabel">0 items selected</span>
+      </button>
+    </body>`,
+    { url: 'https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source') as HTMLInputElement
+  const closed = doc.getElementById('closed') as HTMLButtonElement
+  assert.equal(workdayListboxIsEmpty(closed), true)
+  const closedLabel = closed.querySelector('[data-automation-id="promptSelectionLabel"]') as HTMLElement
+  closedLabel.textContent = '1 item selected'
+  assert.equal(workdayListboxIsEmpty(closed), false)
+  closedLabel.textContent = 'Select One'
+  assert.equal(workdayListboxIsEmpty(closed), true)
+
+  const selected: string[] = []
+  input.addEventListener('click', () => {
+    if (doc.getElementById('source-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    for (const label of BLUE_ORIGIN_SOURCES) {
+      popup.appendChild(
+        sourceLeaf(doc, label, (chosen) => {
+          selected.push(chosen)
+          input.value = chosen
+        }),
+      )
+    }
+    doc.body.appendChild(popup)
+  })
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  assert.equal(rule.includeFilled?.(input), true)
+  const info = {} as PersonalInfo
+  assert.equal(await rule.apply(input, 'howdidyouhearaboutus', info), true)
+  assert.equal(input.value, 'Other')
+  assert.deepEqual(selected, ['Other'])
+  for (const forbidden of ['Career Websites', 'College/University', 'Event', 'Job Sites', 'Military/Veteran', 'News']) {
+    assert.equal(selected.includes(forbidden), false)
+  }
+  assert.equal(rule.includeFilled?.(input), false)
+})
+
+test('previously been employed or worked as a contractor selects No', async () => {
+  const question = 'Have you previously been employed or worked as a contractor at Blue Origin?'
+  assert.equal(workdayIsFormerEmployeeQuestion(question), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('Have you previously been employed at Blue Origin?'), true)
+  assert.equal(workdayIsFormerEmployeeQuestion('Have you worked as a contractor at Blue Origin?'), true)
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <fieldset>
+        <legend>${question}</legend>
+        <input type="radio" name="blue-origin-employed" id="employed-yes" value="yes" />
+        <label for="employed-yes">Yes</label>
+        <input type="radio" name="blue-origin-employed" id="employed-no" value="no" />
+        <label for="employed-no">No</label>
+      </fieldset>
+    </body>`,
+    { url: 'https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply' },
+  )
+  const doc = dom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const yes = doc.getElementById('employed-yes') as HTMLInputElement
+  const no = doc.getElementById('employed-no') as HTMLInputElement
+  const info = {} as PersonalInfo
+  assert.equal(await rule.apply(yes, '', info), true)
+  assert.equal(yes.checked, false)
+  assert.equal(await rule.apply(no, '', info), true)
+  assert.equal(no.checked, true)
+  assert.equal(yes.checked, false)
+})
