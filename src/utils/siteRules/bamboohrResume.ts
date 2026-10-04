@@ -68,6 +68,33 @@ export function resumeObjectPath(path: string | null | undefined, userId: string
   return parts.join('/')
 }
 
+function fileExtension(value: string): string {
+  const base = value.split('/').pop() || ''
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0 || dot === base.length - 1) return ''
+  return base.slice(dot + 1).toLowerCase()
+}
+
+// profiles.resume_file_name is the original filename (admin-resume.docx).
+// profiles.resume_file_path is the object ({userId}/resume.docx, or an older
+// {userId}/resume.pdf). When those extensions disagree, the path is a leftover
+// object — do not download it. The saved file is the canonical object for the
+// filename's extension. This runs in the shared loadSavedResume worker, so a
+// docx profile no longer returns the leftover pdf on any board that uses it.
+export function resumeObjectForProfile(
+  path: string | null | undefined,
+  fileName: string | null | undefined,
+  userId: string,
+): string | null {
+  const stored = resumeObjectPath(path, userId)
+  if (!stored) return null
+  const nameExt = fileExtension(fileName || '')
+  const storedExt = fileExtension(stored)
+  if (!nameExt || nameExt === storedExt) return stored
+  if (nameExt !== 'pdf' && nameExt !== 'docx' && nameExt !== 'doc') return stored
+  return resumeObjectPath(`${userId}/resume.${nameExt}`, userId)
+}
+
 export function resumeDisplayName(profileName: string | null | undefined, path: string): string {
   const name = (profileName ?? '').trim()
   if (name && !name.includes('/') && !name.includes('\\') && name !== '.' && name !== '..') return name
@@ -115,7 +142,11 @@ export async function loadSavedResumeFile(deps: SavedResumeDeps): Promise<File |
   const profile = Array.isArray(body) ? body[0] : body
   if (!profile) return null
 
-  const objectPath = resumeObjectPath(profile.resume_file_path, session.userId)
+  const objectPath = resumeObjectForProfile(
+    profile.resume_file_path,
+    profile.resume_file_name,
+    session.userId,
+  )
   if (!objectPath) return null
 
   const encoded = objectPath.split('/').map(encodeURIComponent).join('/')
@@ -197,6 +228,43 @@ export async function requestSavedResume(): Promise<File | null> {
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
     const message = await chrome.runtime.sendMessage({ action: 'loadSavedResume' })
     return fileFromSavedResumeMessage(message)
+  } catch {
+    return null
+  }
+}
+
+function bytesFromBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value.trim())
+    if (!binary.length) return null
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
+}
+
+// chrome.runtime.sendMessage JSON-serializes the worker reply. The Uint8Array
+// arrives as {"0":80,"1":75}, which is not a file. The worker also sends
+// bytesBase64. Greenhouse and Ashby decode that in their own callers.
+// requestSavedResume stays on the typed-array path for the other boards.
+export function fileFromBambooSavedResumeMessage(message: unknown): File | null {
+  const direct = fileFromSavedResumeMessage(message)
+  if (direct) return direct
+  if (!message || typeof message !== 'object') return null
+  const record = message as { bytesBase64?: unknown }
+  if (typeof record.bytesBase64 !== 'string' || !record.bytesBase64.trim()) return null
+  const bytes = bytesFromBase64(record.bytesBase64)
+  if (!bytes) return null
+  return fileFromSavedResumeMessage({ ...(message as Record<string, unknown>), bytes })
+}
+
+export async function requestBambooSavedResume(): Promise<File | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
+    const message = await chrome.runtime.sendMessage({ action: 'loadSavedResume' })
+    return fileFromBambooSavedResumeMessage(message)
   } catch {
     return null
   }
