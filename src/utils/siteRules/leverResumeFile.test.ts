@@ -15,6 +15,25 @@ const RESUME = {
   bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]),
 }
 
+const SAVED_RESUMES = [
+  {
+    name: 'admin-resume.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    bytes: Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]),
+  },
+  {
+    name: 'Ada Lovelace.pdf',
+    mimeType: 'application/pdf',
+    bytes: Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]),
+  },
+]
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
 function installDataTransfer(view: Window & typeof globalThis) {
   class DataTransfer {
     private entries: File[] = []
@@ -125,6 +144,78 @@ describe('Lever resume attach', () => {
     trackFiles(cover)
     assert.equal(await leverConfig().apply(cover, '', {}), false)
     assert.equal(cover.files, null)
+  })
+
+  it('puts the saved docx and pdf on a plain resume input from the worker base64 reply', async () => {
+    const sent: unknown[] = []
+    let response: unknown = { ok: false }
+    const previous = (globalThis as { chrome?: unknown }).chrome
+    ;(globalThis as { chrome?: unknown }).chrome = {
+      runtime: {
+        async sendMessage(message: unknown) {
+          sent.push(message)
+          return response
+        },
+      },
+    }
+    setLeverResumeSourceForTests(null)
+    try {
+      for (const saved of SAVED_RESUMES) {
+        const wire = {
+          ok: true as const,
+          fileName: saved.name,
+          mimeType: saved.mimeType,
+          bytes: saved.bytes,
+          bytesBase64: bytesToBase64(saved.bytes),
+        }
+        response = JSON.parse(JSON.stringify(wire))
+        const delivered = response as { bytes?: unknown; bytesBase64?: unknown }
+        assert.equal(typeof delivered.bytesBase64, 'string')
+        assert.equal(delivered.bytes instanceof Uint8Array, false)
+        assert.equal(Array.isArray(delivered.bytes), false)
+
+        sent.length = 0
+        beginLeverFill()
+        const { doc, resume, clicks, parseSends } = leverDom()
+        assert.equal(await leverConfig().apply(resume, '', {}), true)
+        const attached = resume.files?.[0]
+        assert.ok(attached)
+        assert.equal(attached.name, saved.name)
+        assert.equal(attached.size, saved.bytes.byteLength)
+        assert.ok(attached.size > 0)
+        assert.deepEqual(Array.from(new Uint8Array(await attached.arrayBuffer())), Array.from(saved.bytes))
+        assert.equal(doc.querySelector('.filename')?.textContent, saved.name)
+        assert.equal((doc.querySelector('.default-label') as HTMLElement).style.display, 'none')
+        assert.equal((doc.querySelector('.resume-upload-working') as HTMLElement).style.display, 'none')
+        assert.equal(parseSends(), 0)
+        assert.deepEqual(clicks, [])
+        assert.deepEqual(sent, [{ action: 'loadSavedResume' }])
+
+        const cover = doc.getElementById('cover') as HTMLInputElement
+        trackFiles(cover)
+        assert.equal(await leverConfig().apply(cover, '', {}), false)
+        assert.equal(cover.files, null)
+      }
+
+      response = JSON.parse(
+        JSON.stringify({
+          ok: true,
+          fileName: 'admin-resume.docx',
+          mimeType: SAVED_RESUMES[0].mimeType,
+          bytes: SAVED_RESUMES[0].bytes,
+        }),
+      )
+      sent.length = 0
+      beginLeverFill()
+      const empty = leverDom()
+      assert.equal(await leverConfig().apply(empty.resume, '', {}), false)
+      assert.equal(empty.resume.files, null)
+      assert.deepEqual(empty.clicks, [])
+      assert.deepEqual(sent, [{ action: 'loadSavedResume' }])
+    } finally {
+      ;(globalThis as { chrome?: unknown }).chrome = previous
+      setLeverResumeSourceForTests(null)
+    }
   })
 
   it('leaves an autofill-with-resume file control alone', async () => {

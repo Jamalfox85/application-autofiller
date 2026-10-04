@@ -2,7 +2,6 @@ import type { SiteRule } from '../../types/index.ts'
 import { detectAts, type AtsPageContext } from '../ats.ts'
 import { fillNativeInput, setReactInputValue } from '../inputHandlers.ts'
 import { assignLeverResumeFile } from './leverResumeFile.ts'
-import { requestSavedResume as requestAccountResume } from './bamboohrResume.ts'
 import {
   isLeverPlainResumeFile,
   isLeverResumeField,
@@ -52,15 +51,68 @@ function loadSavedResume(): Promise<SavedResume | null> {
   return resumeRequest
 }
 
-// Same account download BambooHR already uses. Lever only assigns the file.
+// Same loadSavedResume reply the service worker already returns. Messaging
+// turns its Uint8Array into a plain object and keeps the file in bytesBase64.
 async function accountResumePayload(): Promise<SavedResume | null> {
-  const file = await requestAccountResume()
-  if (!file || file.size <= 0 || !file.name.trim()) return null
-  return {
-    name: file.name,
-    mimeType: file.type || 'application/octet-stream',
-    bytes: new Uint8Array(await file.arrayBuffer()),
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
+    const message: unknown = await chrome.runtime.sendMessage({ action: 'loadSavedResume' })
+    return leverResumeFromSavedMessage(message)
+  } catch {
+    return null
   }
+}
+
+function leverResumeFromSavedMessage(message: unknown): SavedResume | null {
+  if (!message || typeof message !== 'object') return null
+  const record = message as {
+    ok?: unknown
+    fileName?: unknown
+    mimeType?: unknown
+    bytes?: unknown
+    bytesBase64?: unknown
+  }
+  if (record.ok !== true || typeof record.fileName !== 'string' || !record.fileName.trim()) return null
+  const bytes = bytesFromSavedReply(record)
+  if (!bytes) return null
+  const mimeType =
+    typeof record.mimeType === 'string' && record.mimeType.trim()
+      ? record.mimeType.trim()
+      : 'application/octet-stream'
+  return { name: record.fileName.trim(), mimeType, bytes }
+}
+
+function bytesFromSavedReply(record: { bytes?: unknown; bytesBase64?: unknown }): Uint8Array | null {
+  if (typeof record.bytesBase64 === 'string' && record.bytesBase64.trim()) {
+    return bytesFromBase64(record.bytesBase64)
+  }
+  return liveResumeBytes(record.bytes)
+}
+
+function bytesFromBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value.trim())
+    if (!binary.length) return null
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
+}
+
+// A Uint8Array, ArrayBuffer, or number list still in this realm. A plain
+// object left by messaging ({"0":37,"1":80}) is not a file.
+function liveResumeBytes(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) return value.byteLength > 0 ? new Uint8Array(value) : null
+  if (value instanceof ArrayBuffer) {
+    const bytes = new Uint8Array(value)
+    return bytes.byteLength > 0 ? bytes : null
+  }
+  if (Array.isArray(value) && value.length > 0 && value.every((part) => typeof part === 'number')) {
+    return Uint8Array.from(value)
+  }
+  return null
 }
 
 export function readLeverEeoTelemetry() {
