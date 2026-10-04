@@ -4,12 +4,15 @@
 // firing change is what that chooser does after the user picks a file. The
 // filename is the one stored on the profile.
 //
+// loadSavedResume returns a Uint8Array plus bytesBase64. chrome.runtime.sendMessage
+// JSON-serializes that array into a plain object, so the file is the base64 text.
+//
 // Cover letters and other uploads stay empty. "Autofill with resume",
 // "Autofill with Greenhouse", "Autofill my application", and Quick Apply parse
 // or import an application. They are not clicked or focused.
 
 import { assignResumeFile } from './bamboohrFields.ts'
-import { requestSavedResume } from './bamboohrResume.ts'
+import { fileFromSavedResumeMessage } from './bamboohrResume.ts'
 
 export type GreenhouseResumeDecision = 'attach' | 'skip' | 'ignore'
 
@@ -57,7 +60,7 @@ export async function applyGreenhouseResumeFile(
 
 function loadGreenhouseSavedResume(): Promise<File | null> {
   if (!inflight) {
-    inflight = requestSavedResume()
+    inflight = requestGreenhouseSavedResume()
       .then((file) => {
         if (!file) inflight = null
         return file
@@ -68,6 +71,42 @@ function loadGreenhouseSavedResume(): Promise<File | null> {
       })
   }
   return inflight
+}
+
+// A typed array still in this realm is a file. After messaging, `bytes` is a
+// plain object and the saved file is bytesBase64. Other boards keep their own
+// decoders; this one is only used for a Greenhouse Resume/CV input.
+async function requestGreenhouseSavedResume(): Promise<File | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
+    const message = await chrome.runtime.sendMessage({ action: 'loadSavedResume' })
+    return fileFromGreenhouseSavedResume(message)
+  } catch {
+    return null
+  }
+}
+
+function fileFromGreenhouseSavedResume(message: unknown): File | null {
+  const direct = fileFromSavedResumeMessage(message)
+  if (direct) return direct
+  if (!message || typeof message !== 'object') return null
+  const record = message as { bytesBase64?: unknown }
+  if (typeof record.bytesBase64 !== 'string' || !record.bytesBase64.trim()) return null
+  const bytes = bytesFromBase64(record.bytesBase64)
+  if (!bytes) return null
+  return fileFromSavedResumeMessage({ ...record, bytes })
+}
+
+function bytesFromBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value.trim())
+    if (!binary.length) return null
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
 }
 
 function isFileInput(input: FieldControl): boolean {

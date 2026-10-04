@@ -217,6 +217,53 @@ test('the Greenhouse rule attaches the saved file on Resume/CV and leaves the ot
   assert.deepEqual(messages, [{ action: 'loadSavedResume' }])
 })
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
+}
+
+test('a loadSavedResume reply with plain-object bytes and bytesBase64 still attaches the saved file', async () => {
+  const fileName = 'stored-on-profile.docx'
+  const wire = {
+    ok: true,
+    fileName,
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    bytes: DOCX,
+    bytesBase64: bytesToBase64(DOCX),
+  }
+  const delivered = JSON.parse(JSON.stringify(wire)) as { bytes?: unknown; bytesBase64?: unknown }
+  assert.equal(typeof delivered.bytesBase64, 'string')
+  assert.equal((delivered.bytesBase64 as string).length > 0, true)
+  assert.equal(delivered.bytes instanceof Uint8Array, false)
+  assert.equal(Array.isArray(delivered.bytes), false)
+  assert.equal(typeof delivered.bytes, 'object')
+
+  const messages = await withResume(delivered, async () => {
+    const { doc, clicks, focused, submits } = greenhouseDom()
+    const rule = greenhouseConfig()
+    rule.prepareFill?.()
+    const profile = {} as PersonalInfo
+    const resume = doc.getElementById('resume') as HTMLInputElement
+    assert.equal(await rule.apply(resume, 'resumeattachfile', profile), true)
+    const selected = resume.files?.[0]
+    assert.equal(selected?.name, fileName)
+    assert.equal(selected?.size, DOCX.byteLength)
+    assert.deepEqual(Array.from(new Uint8Array(await selected!.arrayBuffer())), Array.from(DOCX))
+    assert.equal(doc.getElementById('resume-filename')?.textContent, fileName)
+
+    const cover = doc.getElementById('cover_letter') as HTMLInputElement
+    assert.equal(await rule.apply(cover, 'coverletterattachfile', profile), 'skip')
+    assert.equal(cover.files, null)
+    assert.equal((doc.getElementById('work_sample') as HTMLInputElement).files, null)
+    assert.equal((doc.getElementById('parser') as HTMLInputElement).files, null)
+    assert.deepEqual(clicks, [])
+    assert.deepEqual(focused, [])
+    assert.deepEqual(submits, [])
+  })
+  assert.deepEqual(messages, [{ action: 'loadSavedResume' }])
+})
+
 test('an account with no stored file leaves the Resume/CV input blank', async () => {
   const messages = await withResume({ ok: false }, async () => {
     const { doc, clicks, focused, submits } = greenhouseDom()
