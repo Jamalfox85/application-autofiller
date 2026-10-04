@@ -43,6 +43,8 @@ import {
   workdayOptionElement,
   workdayOptionLabels,
   workdayPhoneDeviceTypeButton,
+  workdayCompanyOwnedSourceOption,
+  workdayCompanyToken,
   workdayPhoneTypeOption,
   workdayPreferredSourceOption,
   workdayProfileChoice,
@@ -2143,4 +2145,210 @@ test('Cisco application questions are not a miss when the closed label is the qu
   assert.equal(government.button.textContent, 'Select One')
   assert.equal(family.button.textContent, 'Select One')
   assert.equal(years.value, '')
+})
+
+const BLUE_ORIGIN_SOURCES = [
+  'Career Websites',
+  'College/University',
+  'Event',
+  'Job Sites',
+  'Military/Veteran',
+  'News',
+  'Other',
+]
+
+function sourceLeaf(doc: Document, label: string, onCommit: (label: string) => void): HTMLElement {
+  const item = doc.createElement('div')
+  item.setAttribute('role', 'option')
+  item.setAttribute('data-automation-id', 'menuItem')
+  const leaf = doc.createElement('div')
+  leaf.setAttribute('data-automation-id', 'promptLeafNode')
+  leaf.setAttribute('data-automation-label', label)
+  const text = doc.createElement('div')
+  text.textContent = label
+  text.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+  })
+  leaf.appendChild(text)
+  leaf.addEventListener('click', () => onCommit(label))
+  item.appendChild(leaf)
+  return item
+}
+
+function sourceFolder(doc: Document, label: string): HTMLElement {
+  const item = doc.createElement('div')
+  item.setAttribute('role', 'option')
+  item.setAttribute('data-automation-id', 'promptOption')
+  item.setAttribute('data-automation-label', label)
+  const text = doc.createElement('div')
+  text.textContent = label
+  const icon = doc.createElement('svg')
+  icon.setAttribute('class', 'wd-icon-chevron-right wd-icon')
+  item.append(text, icon)
+  return item
+}
+
+test('Blue Origin flat How Did You Hear selects Other and Chevron stays empty', async () => {
+  assert.equal(workdayCompanyToken('blueorigin.wd5.myworkdayjobs.com'), 'blueorigin')
+  assert.equal(workdayCompanyOwnedSourceOption(BLUE_ORIGIN_SOURCES, 'blueorigin'), 'Other')
+  assert.equal(
+    workdayCompanyOwnedSourceOption(
+      BLUE_ORIGIN_SOURCES.filter((label) => label !== 'Other'),
+      'blueorigin',
+    ),
+    'Career Websites',
+  )
+  assert.equal(
+    workdayCompanyOwnedSourceOption(['Conference/Professional Organization', 'University'], 'chevron'),
+    null,
+  )
+  assert.equal(
+    workdayCompanyOwnedSourceOption(['LinkedIn', 'Cisco.com', 'Know Someone at the Company'], 'cisco'),
+    'Cisco.com',
+  )
+
+  const openFlat = (url: string, labels: string[]) => {
+    const dom = new JSDOM(
+      `<!doctype html><body>
+        <div data-automation-id="formField-source">
+          <label id="source-label">How Did You Hear About Us?</label>
+          <button id="source" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="source-anchor" aria-labelledby="source-label">
+            <span data-automation-id="promptSelectionLabel">Select One</span>
+          </button>
+        </div>
+        <div id="source-anchor"></div>
+      </body>`,
+      { url },
+    )
+    const doc = dom.window.document
+    const button = doc.getElementById('source') as HTMLButtonElement
+    const value = button.querySelector('[data-automation-id="promptSelectionLabel"]') as HTMLElement
+    const selected: string[] = []
+    const paint = (parent: HTMLElement) => {
+      parent.replaceChildren()
+      for (const label of labels) {
+        parent.appendChild(
+          sourceLeaf(doc, label, (chosen) => {
+            selected.push(chosen)
+            value.textContent = chosen
+            button.setAttribute('aria-expanded', 'false')
+            doc.getElementById('source-popup')?.remove()
+          }),
+        )
+      }
+    }
+    button.addEventListener('click', () => {
+      if (button.getAttribute('aria-expanded') === 'true') {
+        button.setAttribute('aria-expanded', 'false')
+        doc.getElementById('source-popup')?.remove()
+        return
+      }
+      button.setAttribute('aria-expanded', 'true')
+      const popup = doc.createElement('div')
+      popup.id = 'source-popup'
+      popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+      paint(popup)
+      doc.body.appendChild(popup)
+    })
+    return { button, value, selected }
+  }
+
+  const { selectWorkdaySource } = await import('./workday.ts')
+  const blue = openFlat('https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply', BLUE_ORIGIN_SOURCES)
+  assert.equal(await selectWorkdaySource(blue.button), 'Other')
+  assert.equal(blue.value.textContent, 'Other')
+  assert.deepEqual(blue.selected, ['Other'])
+
+  const websites = openFlat(
+    'https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply',
+    BLUE_ORIGIN_SOURCES.filter((label) => label !== 'Other'),
+  )
+  assert.equal(await selectWorkdaySource(websites.button), 'Career Websites')
+  assert.equal(websites.value.textContent, 'Career Websites')
+  assert.deepEqual(websites.selected, ['Career Websites'])
+
+  const chevron = openFlat('https://chevron.wd5.myworkdayjobs.com/en-US/external/apply', [
+    'Conference/Professional Organization',
+    'University',
+  ])
+  assert.equal(await selectWorkdaySource(chevron.button), null)
+  assert.equal(chevron.value.textContent, 'Select One')
+  assert.deepEqual(chevron.selected, [])
+})
+
+test('nested How Did You Hear opens parents and selects the company site', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <button id="source" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="source-label">
+          <span data-automation-id="promptSelectionLabel">Select One</span>
+        </button>
+      </div>
+    </body>`,
+    { url: 'https://adobe.wd5.myworkdayjobs.com/en-US/external_university/apply' },
+  )
+  const doc = dom.window.document
+  const button = doc.getElementById('source') as HTMLButtonElement
+  const value = button.querySelector('[data-automation-id="promptSelectionLabel"]') as HTMLElement
+  const selected: string[] = []
+  const children: Record<string, string[]> = {
+    'Adobe Source': [
+      'Adobe Career Academy',
+      'Know Someone at the Company',
+      'Adobe.com',
+      'University Research Faculty',
+    ],
+    'Contingent Worker-Specific': ['Contingent Worker'],
+    'Job Board': ['LinkedIn', 'Indeed'],
+    'Social Media': ['Instagram', 'GitHub'],
+    'Through my University': ['Career Fair'],
+  }
+  const paintParents = (popup: HTMLElement) => {
+    popup.replaceChildren()
+    for (const label of Object.keys(children)) {
+      const folder = sourceFolder(doc, label)
+      folder.addEventListener('click', () => {
+        popup.replaceChildren()
+        const back = doc.createElement('button')
+        back.type = 'button'
+        back.setAttribute('data-automation-id', 'backButton')
+        back.textContent = 'Back'
+        back.addEventListener('click', () => paintParents(popup))
+        popup.appendChild(back)
+        for (const child of children[label]) {
+          popup.appendChild(
+            sourceLeaf(doc, child, (chosen) => {
+              selected.push(chosen)
+              value.textContent = chosen
+            }),
+          )
+        }
+      })
+      popup.appendChild(folder)
+    }
+  }
+  button.addEventListener('click', () => {
+    if (button.getAttribute('aria-expanded') === 'true') {
+      button.setAttribute('aria-expanded', 'false')
+      doc.getElementById('source-popup')?.remove()
+      return
+    }
+    button.setAttribute('aria-expanded', 'true')
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    paintParents(popup)
+    doc.body.appendChild(popup)
+  })
+  const { selectWorkdaySource } = await import('./workday.ts')
+  assert.equal(await selectWorkdaySource(button), 'Adobe.com')
+  assert.equal(value.textContent, 'Adobe.com')
+  assert.deepEqual(selected, ['Adobe.com'])
+  assert.equal(selected.includes('LinkedIn'), false)
+  assert.equal(selected.includes('Career Fair'), false)
+  assert.equal(selected.includes('Know Someone at the Company'), false)
+  assert.equal(selected.includes('Contingent Worker'), false)
+  assert.equal(selected.includes('Instagram'), false)
 })
