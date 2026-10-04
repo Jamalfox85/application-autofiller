@@ -2682,6 +2682,140 @@ test('Blue Origin root Other is committed without opening the Career Websites fo
   assert.equal(workdayPromptFaceIsEmpty(input), false)
 })
 
+test('Blue Origin catalog Other commits a pill from a menuItem leaf, not a highlight', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <span data-automation-id="promptIcon" id="other-icon" aria-hidden="true"></span>
+      <div data-automation-id="formField-source" data-fkit-id="source--source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" aria-required="true" />
+          <div data-automation-id="promptAriaInstruction" aria-hidden="true">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const decoy = doc.getElementById('other-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  const leafClicks: string[] = []
+  let pointerDown = false
+  let decoyPressed = false
+  decoy.addEventListener('mousedown', () => {
+    decoyPressed = true
+  })
+  // The live catalog row is menuItem > promptLeafNode > promptOption.
+  // No chevron, radio, checkbox, aria-haspopup, or aria-expanded. aria-selected
+  // stays false until a click, and that highlight is not a selected pill.
+  // A root row also has no radio, so its click opens the row instead of painting
+  // a pill. The selectable Other is the child list, and it does have a radio.
+  const catalogRow = (label: string, onLeaf: () => void) => {
+    const item = doc.createElement('div')
+    item.setAttribute('data-automation-id', 'menuItem')
+    item.setAttribute('role', 'option')
+    item.setAttribute('aria-selected', 'false')
+    const leaf = doc.createElement('div')
+    leaf.setAttribute('data-automation-id', 'promptLeafNode')
+    const option = doc.createElement('div')
+    option.setAttribute('data-automation-id', 'promptOption')
+    option.setAttribute('data-automation-label', label)
+    option.textContent = label
+    leaf.appendChild(option)
+    item.appendChild(leaf)
+    item.addEventListener('click', () => {
+      item.setAttribute('aria-selected', 'true')
+    })
+    leaf.addEventListener('click', () => {
+      leafClicks.push(label)
+      onLeaf()
+    })
+    return item
+  }
+  const paintChild = (popup: HTMLElement) => {
+    popup.replaceChildren()
+    popup.setAttribute('aria-label', 'Options Expanded')
+    const back = doc.createElement('button')
+    back.type = 'button'
+    back.setAttribute('data-automation-id', 'backButton')
+    back.textContent = 'Other'
+    popup.appendChild(back)
+    const website = catalogRow('Blue Origin Website', () => {})
+    const radio = doc.createElement('div')
+    radio.setAttribute('data-automation-id', 'radioBtn')
+    website.setAttribute('aria-selected', 'true')
+    website.appendChild(radio)
+    popup.appendChild(website)
+    const other = catalogRow('Other', () => {
+      const pill = doc.createElement('div')
+      pill.setAttribute('data-automation-id', 'selectedItem')
+      const charm = doc.createElement('span')
+      charm.setAttribute('data-automation-id', 'DELETE_charm')
+      charm.textContent = 'Delete'
+      const text = doc.createElement('p')
+      text.setAttribute('data-automation-id', 'promptOption')
+      text.setAttribute('data-automation-label', 'Other')
+      text.textContent = 'Other'
+      pill.append(charm, text)
+      icon.parentElement?.appendChild(pill)
+      instruction.textContent = '1 item selected, Other'
+      popup.remove()
+    })
+    const otherRadio = doc.createElement('div')
+    otherRadio.setAttribute('data-automation-id', 'radioBtn')
+    other.appendChild(otherRadio)
+    popup.appendChild(other)
+  }
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  icon.addEventListener('mouseup', (event) => {
+    if (event.button !== 0) pointerDown = false
+  })
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    if (doc.getElementById('source-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('role', 'listbox')
+    popup.setAttribute('aria-label', 'Options Expanded')
+    for (const label of BLUE_ORIGIN_SOURCES) {
+      popup.appendChild(
+        catalogRow(label, () => {
+          if (label !== 'Other') return
+          paintChild(popup)
+        }),
+      )
+    }
+    doc.body.appendChild(popup)
+  })
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    doc.getElementById('source-popup')?.remove()
+  })
+  const { selectWorkdaySource } = await import('./workday.ts')
+  assert.equal(await selectWorkdaySource(input), 'Other')
+  assert.equal(decoyPressed, false)
+  assert.deepEqual(leafClicks, ['Other', 'Other'])
+  assert.equal(leafClicks.includes('Career Websites'), false)
+  assert.equal(leafClicks.includes('Blue Origin Website'), false)
+  assert.equal(leafClicks.includes('College/University'), false)
+  assert.equal(leafClicks.includes('Event'), false)
+  assert.equal(leafClicks.includes('Job Sites'), false)
+  assert.equal(leafClicks.includes('Military/Veteran'), false)
+  assert.equal(leafClicks.includes('News'), false)
+  const pill = doc.querySelector('[data-automation-id="selectedItem"]')
+  assert.equal(pill?.querySelector('[data-automation-id="promptOption"]')?.textContent, 'Other')
+  assert.equal(doc.getElementById('source-popup'), null)
+  assert.notEqual(instruction.textContent, '0 items selected')
+  assert.equal(input.value, '')
+  assert.equal(workdayPromptFaceIsEmpty(input), false)
+})
+
 test('previously been employed or worked as a contractor selects No', async () => {
   const question = 'Have you previously been employed or worked as a contractor at Blue Origin?'
   assert.equal(workdayIsFormerEmployeeQuestion(question), true)
