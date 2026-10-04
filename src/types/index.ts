@@ -17,6 +17,10 @@ export interface PersonalInfo {
   // Filename shown in the UI. During onboarding the file is only parsed; from the Links sheet
   // (signed in) the file itself is uploaded to and stored with the user's account.
   resumeFileName?: string
+  // Object path in the private `resumes` bucket (`{userId}/{object}`). Read from
+  // profiles.resume_file_path so a later fill can download the file. The extension
+  // does not write this column.
+  resumeFilePath?: string
   education: Education[]
   experience: Experience[]
   skills: string[]

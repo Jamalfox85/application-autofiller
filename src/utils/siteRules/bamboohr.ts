@@ -2,20 +2,56 @@ import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { fillNativeInput, fillBambooHRSelect } from '../inputHandlers.ts'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
+  assignResumeFile,
   bambooCountryLabel,
   bambooSelectToggle,
   bambooToggleLabel,
+  bambooUploadRole,
+  describeBambooUpload,
   isBambooCountryControl,
   pickBambooCountryOption,
 } from './bamboohrFields.ts'
+import { requestSavedResume } from './bamboohrResume.ts'
 
 let bambooHRFormLoaded = false
 let lastBambooHRFormSignature = ''
 
+type ResumeLoader = () => Promise<File | null>
+let resumeLoader: ResumeLoader = requestSavedResume
+let resumeTask: Promise<File | null> | null = null
+
+// Tests pass the already-saved file here. Production reads the resumes bucket.
+export function setBambooResumeLoader(loader: ResumeLoader | null) {
+  resumeLoader = loader ?? requestSavedResume
+  resumeTask = null
+}
+
+function savedResume(): Promise<File | null> {
+  if (!resumeTask) {
+    resumeTask = Promise.resolve()
+      .then(() => resumeLoader())
+      .catch(() => null)
+  }
+  return resumeTask
+}
+
 export default function bambooHrConfig(): SiteRule {
   return {
     detect: () => window.location.hostname.includes('bamboohr.com'),
-    apply: (input, fieldText, personalInfo) => {
+    prepareFill: () => {
+      resumeTask = null
+    },
+    apply: async (input, fieldText, personalInfo) => {
+      const role = bambooUploadRole(describeBambooUpload(input, fieldText))
+      // Cover letter stays empty. Autofill-from-resume is a different control
+      // and is not clicked. No saved file means the resume input stays empty.
+      if (role === 'cover' || role === 'autofill') return 'skip'
+      if (role === 'resume') {
+        const file = await savedResume()
+        if (!file) return 'skip'
+        return (await assignResumeFile(input as HTMLInputElement, file)) ? true : 'skip'
+      }
+
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {
           return handle(input, fieldText, personalInfo, '')

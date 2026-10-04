@@ -19,10 +19,10 @@ import {
   type WorkableProfile,
 } from './workableFields.ts'
 import {
+  bytesToBase64,
   profileSavedResume,
   savedResumeFromMessage,
   savedResumeFromStored,
-  savedResumeWireMessage,
 } from './workableResume.ts'
 import workableConfig, {
   describeWorkableField,
@@ -130,14 +130,23 @@ test('resume is recognized and not written from the filename', () => {
   const jsonUint8 = JSON.parse(
     JSON.stringify({
       ok: true,
-      name: 'ada-lovelace.pdf',
-      type: 'application/pdf',
+      fileName: 'ada-lovelace.pdf',
+      mimeType: 'application/pdf',
       bytes: Uint8Array.from([0x25, 0x50, 0x44, 0x46]),
     }),
   ) as { bytes: unknown }
   assert.equal(jsonUint8.bytes instanceof Uint8Array, false)
   assert.equal(Array.isArray(jsonUint8.bytes), false)
   assert.equal(savedResumeFromMessage(jsonUint8), null)
+  assert.equal(
+    savedResumeFromMessage({
+      ok: true,
+      name: 'ada-lovelace.pdf',
+      type: 'application/pdf',
+      bytes: { 0: 0x25, 1: 0x50, 2: 0x44, 3: 0x46 },
+    }),
+    null,
+  )
 })
 
 const SAVED_BYTES = [0x25, 0x50, 0x44, 0x46, 0x2d]
@@ -1097,11 +1106,16 @@ test('attaches the saved resume to a plain file input and does not drive autofil
 
 test('the stored resume download is attached, and a missing file stays empty', async () => {
   const sent: unknown[] = []
-  const wire = savedResumeWireMessage({
-    name: 'ada-lovelace.pdf',
-    type: 'application/pdf',
-    bytes: Uint8Array.from(SAVED_BYTES),
-  })
+  const bytes = Uint8Array.from(SAVED_BYTES)
+  // The shared worker returns both. Messaging keeps the base64 and turns the
+  // Uint8Array into a plain object, which must not become the attached file.
+  const wire = {
+    ok: true as const,
+    fileName: 'ada-lovelace.pdf',
+    mimeType: 'application/pdf',
+    bytes,
+    bytesBase64: bytesToBase64(bytes),
+  }
   // The same trip chrome.runtime.sendMessage makes: stringify, then parse.
   let response: unknown = JSON.parse(JSON.stringify(wire))
   const previous = (globalThis as { chrome?: unknown }).chrome
@@ -1126,7 +1140,9 @@ test('the stored resume download is attached, and a missing file stays empty', a
     }
     const delivered = response as { bytesBase64?: unknown; bytes?: unknown }
     assert.equal(typeof delivered.bytesBase64, 'string')
-    assert.equal(delivered.bytes, undefined)
+    assert.equal(delivered.bytes instanceof Uint8Array, false)
+    assert.equal(Array.isArray(delivered.bytes), false)
+    assert.equal(savedResumeFromMessage({ ...delivered, bytesBase64: undefined }), null)
     assert.deepEqual(Array.from(savedResumeFromMessage(response)?.bytes ?? []), SAVED_BYTES)
     const rule = workableConfig()
     assert.equal(await rule.apply(read('resume-file'), '', profile as PersonalInfo), true)

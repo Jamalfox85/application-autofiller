@@ -111,11 +111,8 @@ export function savedResumeFromStored(input: {
 }
 
 // Extension messaging JSON-serializes. A Uint8Array becomes {"0":37,"1":80}
-// after stringify/parse, which is not a file. The wire value is base64 text.
-export type SavedResumeWireMessage =
-  | { ok: true; name: string; type: string; bytesBase64: string }
-  | { ok: false }
-
+// after stringify/parse, which is not a file. The shared worker reply carries
+// fileName, mimeType, bytes, and bytesBase64. Only the base64 text is a file.
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''
   const chunk = 0x8000
@@ -123,15 +120,6 @@ export function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
   }
   return btoa(binary)
-}
-
-export function savedResumeWireMessage(saved: SavedResume): Extract<SavedResumeWireMessage, { ok: true }> {
-  return {
-    ok: true,
-    name: saved.name,
-    type: saved.type,
-    bytesBase64: bytesToBase64(saved.bytes),
-  }
 }
 
 function messageBytes(body: { bytes?: unknown; bytesBase64?: unknown }): ResumeBytes {
@@ -143,14 +131,27 @@ function messageBytes(body: { bytes?: unknown; bytesBase64?: unknown }): ResumeB
   return null
 }
 
+function messageText(primary: unknown, fallback: unknown): string {
+  if (typeof primary === 'string' && primary.trim()) return primary
+  return typeof fallback === 'string' ? fallback : ''
+}
+
 export function savedResumeFromMessage(response: unknown): SavedResume | null {
   if (!response || typeof response !== 'object') return null
-  const body = response as { ok?: unknown; name?: unknown; type?: unknown; bytes?: unknown; bytesBase64?: unknown }
+  const body = response as {
+    ok?: unknown
+    name?: unknown
+    fileName?: unknown
+    type?: unknown
+    mimeType?: unknown
+    bytes?: unknown
+    bytesBase64?: unknown
+  }
   if (body.ok !== true) return null
   return profileSavedResume({
     resumeFile: {
-      name: typeof body.name === 'string' ? body.name : '',
-      type: typeof body.type === 'string' ? body.type : '',
+      name: messageText(body.fileName, body.name),
+      type: messageText(body.mimeType, body.type),
       bytes: messageBytes(body),
     },
   })

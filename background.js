@@ -16,7 +16,7 @@ import { handleBillingMessage, startExtensionPay } from './src/services/extensio
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
-import { loadSavedResumeInWorker } from './src/services/savedResumeWorker.js'
+import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 
 startExtensionPay()
 
@@ -266,11 +266,65 @@ function classifyResumeUploadError(status, apiMessage) {
   }
 }
 
+// Same key as src/utils/savedResumeFile.ts SAVED_RESUME_STORAGE_KEY. The content
+// script reads it when a Jobvite file input needs the bytes. Sign-out removes it.
+const SAVED_RESUME_STORAGE_KEY = 'savedResumeFile'
+
+function userIdFromAccessToken(token) {
+  if (!token || typeof token !== 'string') return ''
+  const part = token.split('.')[1]
+  if (!part) return ''
+  try {
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (part.length % 4)) % 4)
+    const json = JSON.parse(atob(padded))
+    return typeof json.sub === 'string' ? json.sub : ''
+  } catch {
+    return ''
+  }
+}
+
+async function cacheUploadedResume({ token, fileName, fileType, fileBytesBase64, storagePath }) {
+  if (!fileName || !fileBytesBase64) return
+  try {
+    await chrome.storage.local.set({
+      [SAVED_RESUME_STORAGE_KEY]: {
+        userId: userIdFromAccessToken(token),
+        fileName,
+        fileType: fileType || 'application/octet-stream',
+        bytesBase64: fileBytesBase64,
+        storagePath: storagePath || null,
+        updatedAt: Date.now(),
+      },
+    })
+  } catch (err) {
+    console.error('[resume-upload] could not cache the resume file', err)
+  }
+}
+
 function base64ToBytes(b64) {
   const binary = atob(b64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return bytes
+}
+
+function bytesToBase64(bytes) {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+// chrome.runtime.sendMessage JSON-serializes. A Uint8Array arrives as
+// {"0":37,"1":80}, so the same reply also carries base64. Callers that still
+// read `bytes` in memory are unchanged.
+function savedResumeReply(result) {
+  if (!result || result.ok !== true || !(result.bytes instanceof Uint8Array) || result.bytes.byteLength === 0) {
+    return result
+  }
+  return { ...result, bytesBase64: bytesToBase64(result.bytes) }
 }
 
 async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBase64 }) {
@@ -322,12 +376,14 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
 
   try {
     if (res.ok && body && body.success === true) {
+      const storagePath = body.data ? body.data.storage_path ?? null : null
+      await cacheUploadedResume({ token, fileName, fileType, fileBytesBase64, storagePath })
       await writeResumeJob({
         phase: 'done',
         fileName,
         firstUpload: body.data ? body.data.first_upload ?? null : null,
         parsed: body.data ? body.data.parsed ?? null : null,
-        storagePath: body.data ? body.data.storage_path ?? null : null,
+        storagePath,
       })
       return
     }
@@ -411,6 +467,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  // Apply pages block a content-script fetch to Supabase. One download of the
+  // signed-in user's stored resume serves every ATS that asks. This does not
+  // click Apply or any autofill-from-resume control.
+  if (request.action === 'loadSavedResume') {
+    loadSavedResumeForWorker()
+      .then((result) => sendResponse(savedResumeReply(result)))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
   if (request.action === 'signInWithGoogle') {
     // Same reason as resume upload: the popup is destroyed when the Google
     // account window takes focus, which cancels launchWebAuthFlow if it was
@@ -441,15 +507,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // chrome.storage.local for the result rather than waiting on this response.
     handleResumeUpload(request)
     sendResponse({ started: true })
-  }
-
-  // Workable fill asks for the signed-in user's stored resume. The page does not
-  // choose the path. No stored file returns ok: false and the field stays empty.
-  if (request.action === 'loadSavedResume') {
-    loadSavedResumeInWorker()
-      .then((result) => sendResponse(result))
-      .catch(() => sendResponse({ ok: false }))
-    return true
   }
 
   if (request.action === 'trackAutofill') {
