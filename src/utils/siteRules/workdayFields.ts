@@ -1,4 +1,5 @@
 import { RELATIVE_MATCHES } from '../relativeMatches.ts'
+import { degreeSearchValues } from './greenhouseValues.ts'
 
 // Selectors and page ids taken from the current candidate-experience bundles
 // (cx-jobs and candidate-experience-apply-flow): Apply Manually is
@@ -551,25 +552,162 @@ function promptOptionLabel(node: Element): string {
 }
 
 export function workdayOptionElements(root: ParentNode): Array<{ label: string; element: HTMLElement }> {
-  const nodes = Array.from(root.querySelectorAll(PROMPT_OPTION_SELECTOR))
-  const choices: Array<{ label: string; element: HTMLElement }> = []
-  for (const node of nodes) {
-    if (node.querySelector(PROMPT_OPTION_SELECTOR)) continue
-    const label = promptOptionLabel(node)
-    if (!label) continue
-    choices.push({ label, element: node as HTMLElement })
-  }
-  return choices
+  const labeled = Array.from(root.querySelectorAll(PROMPT_OPTION_SELECTOR))
+    .map((node) => ({ element: node as HTMLElement, label: promptOptionLabel(node) }))
+    .filter((choice) => choice.label.length > 0)
+  // A promptOption often wraps an empty role=option plus the visible text row.
+  // Dropping every parent that contains another selector match hides that label.
+  // Keep the innermost node that actually has a label.
+  return labeled.filter(
+    (choice) =>
+      !labeled.some(
+        (other) => other.element !== choice.element && choice.element.contains(other.element),
+      ),
+  )
 }
 
 export function workdayOptionLabels(root: ParentNode): string[] {
   return workdayOptionElements(root).map((choice) => choice.label)
 }
 
+// The node Workday paints the label on. Clicking the promptOption wrapper
+// misses when the handler is on the inner row (the text the menu shows).
+function visiblePromptRow(element: HTMLElement, label: string): HTMLElement {
+  const want = label.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!want) return element
+  const matches = Array.from(element.querySelectorAll('*')).filter((node) => {
+    const text = (node.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text !== want) return false
+    return !Array.from(node.children).some(
+      (child) => (child.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim() === want,
+    )
+  })
+  return (matches[matches.length - 1] as HTMLElement) || element
+}
+
 export function workdayOptionElement(root: ParentNode, label: string): HTMLElement | null {
   const want = normalizeListedKey(label)
   if (!want) return null
-  return workdayOptionElements(root).find((choice) => normalizeListedKey(choice.label) === want)?.element || null
+  const match = workdayOptionElements(root).find((choice) => normalizeListedKey(choice.label) === want)
+  if (!match) return null
+  return visiblePromptRow(match.element, match.label)
+}
+
+function cleanPromptLabel(value: string): string {
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function degreeKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/['’.]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+// School and field-of-study suggestions commit only when the row is the typed
+// name or that name plus a location suffix. A shorter catalog row that merely
+// shares a word ("State University") is not a match.
+export function workdaySuggestionOption(optionTexts: string[], query: string): string | null {
+  const labels = optionTexts.map(cleanPromptLabel).filter(Boolean)
+  const want = query.toLowerCase().trim()
+  if (want.length < 2) return null
+  const norm = labels.map((label) => label.toLowerCase())
+  const exact = norm.findIndex((text) => text === want)
+  if (exact >= 0) return labels[exact]
+  const starts = norm
+    .map((text, index) => ({ text, index }))
+    .filter((entry) => entry.text.startsWith(want))
+  if (starts.length > 0) {
+    starts.sort((a, b) => a.text.length - b.text.length)
+    return labels[starts[0].index]
+  }
+  const includes = norm
+    .map((text, index) => ({ text, index }))
+    .filter((entry) => entry.text.includes(want))
+  if (includes.length > 0) {
+    includes.sort((a, b) => a.text.length - b.text.length)
+    return labels[includes[0].index]
+  }
+  return null
+}
+
+type DegreeFamily = 'associate' | 'bachelor' | 'master' | 'doctorate'
+
+function degreeFamily(value: string): DegreeFamily | null {
+  const key = degreeKey(value)
+  if (!key) return null
+  if (/\b(phd|ph d|doctor|doctorate)\b/.test(key)) return 'doctorate'
+  if (/\b(mba|master|masters|ms|msc)\b/.test(key)) return 'master'
+  if (/\b(bachelor|bachelors|bs|ba|bsc)\b/.test(key)) return 'bachelor'
+  if (/\b(associate|associates|aa|as)\b/.test(key)) return 'associate'
+  return null
+}
+
+// A generic list label ("Bachelor's Degree", "Bachelors"), not a different
+// specific degree ("Bachelor of Arts" or "B.A." for a Bachelor of Science profile).
+function isGenericDegreeLabel(value: string, family: DegreeFamily): boolean {
+  const key = degreeKey(value)
+  if (family === 'doctorate') return /^(phd|ph d|doctor|doctorate|doctoral|doctoral degree)$/.test(key)
+  if (family === 'master') return /^(master|masters|masters degree|master s degree)$/.test(key)
+  if (family === 'bachelor') return /^(bachelor|bachelors|bachelors degree|bachelor s degree)$/.test(key)
+  return /^(associate|associates|associates degree|associate s degree)$/.test(key)
+}
+
+// B.S. and Bachelor of Science are the same listed degree. B.A. is not.
+function degreeSpecificity(value: string): string | null {
+  const key = degreeKey(value)
+  if (!key) return null
+  if (/bachelor of science|^bs$|^bsc$/.test(key)) return 'bs'
+  if (/bachelor of arts|^ba$/.test(key)) return 'ba'
+  if (/master of science|^ms$|^msc$/.test(key)) return 'ms'
+  if (/master of arts|^ma$/.test(key)) return 'ma'
+  if (/master of business|^mba$|business administration/.test(key)) return 'mba'
+  if (/doctor of philosophy|^phd$|^ph d$/.test(key)) return 'phd'
+  return null
+}
+
+function exactDegreeLabel(labels: string[], query: string): string | null {
+  const want = degreeKey(query)
+  if (!want) return null
+  return labels.find((label) => degreeKey(label) === want) || null
+}
+
+// Degree is a listed prompt option. Exact catalog text wins, then the same
+// degree under another label ("Bachelor of Science" → "Bachelor's Degree").
+// A different degree in that family is not selected.
+export function workdayDegreeOption(optionTexts: string[], degreeType: string): string | null {
+  const labels = optionTexts.map(cleanPromptLabel).filter(Boolean)
+  const queries = [degreeType, ...degreeSearchValues(degreeType)]
+  for (const query of queries) {
+    const exact = exactDegreeLabel(labels, query)
+    if (exact) return exact
+  }
+  const contained = workdaySuggestionOption(labels, degreeType)
+  if (contained) return contained
+  const specificity = degreeSpecificity(degreeType)
+  if (specificity) {
+    const specific = labels.filter((label) => degreeSpecificity(label) === specificity)
+    if (specific.length === 1) return specific[0]
+  }
+  const family = degreeFamily(degreeType)
+  if (!family) return null
+  const generic = labels.filter((label) => degreeFamily(label) === family && isGenericDegreeLabel(label, family))
+  if (generic.length === 1) return generic[0]
+  return null
+}
+
+export function workdayDegreeSearchTexts(degreeType: string): string[] {
+  const out: string[] = []
+  const push = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    if (out.some((item) => degreeKey(item) === degreeKey(trimmed))) return
+    out.push(trimmed)
+  }
+  push(degreeType)
+  for (const candidate of degreeSearchValues(degreeType)) push(candidate)
+  return out.slice(0, 3)
 }
 
 export function workdayPromptSearchInput(root: ParentNode): HTMLInputElement | null {

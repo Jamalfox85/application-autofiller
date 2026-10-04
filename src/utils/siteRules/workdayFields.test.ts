@@ -24,6 +24,7 @@ import {
   workdayActivePrompt,
   workdayContactKey,
   workdayDatePartInput,
+  workdayDegreeOption,
   workdayDisabilityOptionIndex,
   workdayElementIsFormerEmployee,
   workdayElementIsPhoneDeviceType,
@@ -46,6 +47,7 @@ import {
   workdaySectionKindFromLabel,
   workdaySourceListboxButton,
   workdaySourceOption,
+  workdaySuggestionOption,
   workdaySelectKind,
   workdaySelectValue,
 } from './workdayFields.ts'
@@ -971,4 +973,190 @@ test('phone device type stays Mobile or Cell and is not a source or former-emplo
   )
   assert.equal(formerSelect.value, 'no')
   assert.notEqual(formerSelect.value, 'yes')
+})
+
+test('education school and degree options match the listed prompt row', () => {
+  assert.equal(
+    workdaySuggestionOption(
+      ['Kenyon College', 'Kennesaw State University'],
+      'Kennesaw State University',
+    ),
+    'Kennesaw State University',
+  )
+  assert.equal(workdaySuggestionOption(['Kenyon College', 'State University'], 'Kennesaw State University'), null)
+  assert.equal(
+    workdaySuggestionOption(['Kennesaw State University - Kennesaw, Georgia'], 'Kennesaw State University'),
+    'Kennesaw State University - Kennesaw, Georgia',
+  )
+  assert.equal(
+    workdayDegreeOption(['Master of Science', 'Bachelor of Science'], 'Bachelor of Science'),
+    'Bachelor of Science',
+  )
+  assert.equal(
+    workdayDegreeOption(["Master's Degree", "Bachelor's Degree"], 'Bachelor of Science'),
+    "Bachelor's Degree",
+  )
+  assert.equal(workdayDegreeOption(['Bachelors', 'Masters'], 'Bachelor of Science'), 'Bachelors')
+  assert.equal(workdayDegreeOption(['B.S.', 'M.S.'], 'Bachelor of Science'), 'B.S.')
+  assert.equal(workdayDegreeOption(['Bachelor of Arts', 'Master of Science'], 'Bachelor of Science'), null)
+  assert.equal(workdayDegreeOption(['Mobile', 'Landline', 'Fax'], 'Bachelor of Science'), null)
+})
+
+test('education prompts select the matching school suggestion and degree list option', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-schoolName">
+      <input id="school" data-automation-id="searchBox" aria-controls="school-menu" value="" />
+    </div>
+    <div id="school-menu" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" id="kenyon" data-automation-label="Kenyon College">Kenyon College</div>
+      <div data-automation-id="promptOption" id="ksu" data-automation-label="Kennesaw State University"></div>
+    </div>
+    <button id="degree" name="degree" aria-haspopup="listbox" aria-controls="degree-list">Select One</button>
+    <div id="degree-list" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" id="ms" data-automation-label="Master of Science">Master of Science</div>
+      <div data-automation-id="promptOption" id="bs" data-automation-label="Bachelor of Science">Bachelor of Science</div>
+    </div>
+    <button id="degree-generic" name="degree" aria-haspopup="listbox" aria-controls="degree-generic-list">Select One</button>
+    <div id="degree-generic-list" data-automation-id="responsiveMonikerPrompt">
+      <div data-automation-id="promptOption" id="masters" data-automation-label="Masters">Masters</div>
+      <div data-automation-id="promptOption" id="bachelors" data-automation-label="Bachelor's Degree">Bachelor's Degree</div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const clicked: string[] = []
+  for (const id of ['kenyon', 'ksu', 'ms', 'bs', 'masters', 'bachelors']) {
+    doc.getElementById(id)!.addEventListener('click', () => clicked.push(id))
+  }
+  let entered = false
+  doc.getElementById('school')!.addEventListener('keydown', (event) => {
+    if ((event as KeyboardEvent).key === 'Enter') entered = true
+  })
+  const { selectWorkdayListedDegree, selectWorkdayPromptQuery } = await import('./workday.ts')
+  const school = doc.getElementById('school') as HTMLInputElement
+  assert.equal(await selectWorkdayPromptQuery(school, 'Kennesaw State University'), true)
+  assert.deepEqual(clicked, ['ksu'])
+  assert.equal(entered, false)
+  const degree = doc.getElementById('degree') as HTMLButtonElement
+  assert.equal(await selectWorkdayListedDegree(degree, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.deepEqual(clicked, ['ksu', 'bs'])
+  const generic = doc.getElementById('degree-generic') as HTMLButtonElement
+  assert.equal(await selectWorkdayListedDegree(generic, 'Bachelor of Science'), "Bachelor's Degree")
+  assert.deepEqual(clicked, ['ksu', 'bs', 'bachelors'])
+})
+
+test('degree option target is the visible row, not the prompt wrapper', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div id="degree-list">
+      <div data-automation-id="promptOption" id="bs-prompt" data-automation-label="Bachelor of Science">
+        <div role="option" id="bs-empty"></div>
+        <div id="bs-row">Bachelor of Science</div>
+      </div>
+      <div data-automation-id="promptOption" id="ba-prompt" data-automation-label="Bachelor of Arts">
+        <div id="ba-row">Bachelor of Arts</div>
+      </div>
+    </div>
+  </body>`)
+  const list = dom.window.document.getElementById('degree-list')!
+  assert.equal(workdayOptionLabels(list).includes('Bachelor of Science'), true)
+  assert.equal(workdayOptionElement(list, 'Bachelor of Science')?.id, 'bs-row')
+  assert.notEqual(workdayOptionElement(list, 'Bachelor of Science')?.id, 'bs-prompt')
+  assert.notEqual(workdayOptionElement(list, 'Bachelor of Science')?.id, 'bs-empty')
+  assert.equal(workdayDegreeOption(workdayOptionLabels(list), 'Bachelor of Science'), 'Bachelor of Science')
+})
+
+test('open degree menu selects the visible Bachelor of Science row after the rows exist', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <button id="degree" name="degree" aria-haspopup="listbox" aria-expanded="false" aria-controls="degree-anchor">
+      <span data-automation-id="promptSelectionLabel">Select One</span>
+    </button>
+    <div id="degree-anchor"></div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const targets: string[] = []
+  let buttonClicks = 0
+  button.addEventListener('click', () => {
+    buttonClicks += 1
+    if (button.getAttribute('aria-expanded') === 'true') {
+      button.setAttribute('aria-expanded', 'false')
+      doc.getElementById('degree-popup')?.remove()
+      return
+    }
+    button.setAttribute('aria-expanded', 'true')
+    setTimeout(() => {
+      const popup = doc.createElement('div')
+      popup.id = 'degree-popup'
+      popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+      popup.innerHTML = `
+        <div data-automation-id="promptOption" data-automation-label="Select One"><div>Select One</div></div>
+        <div data-automation-id="promptOption" data-automation-label="Doctor of Medicine (MD)"><div>Doctor of Medicine (MD)</div></div>
+        <div data-automation-id="promptOption" data-automation-label="Associate of Science"><div>Associate of Science</div></div>
+        <div data-automation-id="promptOption" id="ba-prompt" data-automation-label="Bachelor of Arts"><div id="ba-row">Bachelor of Arts</div></div>
+        <div data-automation-id="promptOption" id="bs-prompt" data-automation-label="Bachelor of Science">
+          <div role="option" id="bs-empty"></div>
+          <div id="bs-row">Bachelor of Science</div>
+        </div>
+        <div data-automation-id="promptOption" data-automation-label="Doctor of Medicine"><div>Doctor of Medicine</div></div>
+        <div data-automation-id="promptOption" data-automation-label="Juris Doctorate"><div>Juris Doctorate</div></div>
+      `
+      popup.addEventListener('mousedown', (event) => {
+        targets.push((event.target as HTMLElement).id || '')
+      })
+      doc.body.appendChild(popup)
+    }, 200)
+  })
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.deepEqual(targets, ['bs-row'])
+  assert.equal(targets.includes('ba-row'), false)
+  assert.equal(buttonClicks, 1)
+  assert.equal(button.getAttribute('aria-expanded'), 'true')
+})
+
+test('school suggestion commits the visible row and does not blur before that click', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-schoolName">
+      <input id="school" aria-controls="school-anchor" value="" />
+    </div>
+    <div id="school-anchor"></div>
+  </body>`)
+  const doc = dom.window.document
+  const school = doc.getElementById('school') as HTMLInputElement
+  const targets: string[] = []
+  let dismissed = false
+  school.addEventListener('change', () => {
+    school.blur()
+  })
+  school.addEventListener('blur', () => {
+    dismissed = true
+    doc.getElementById('school-popup')?.remove()
+  })
+  school.addEventListener('input', () => {
+    setTimeout(() => {
+      if (dismissed) return
+      const popup = doc.createElement('div')
+      popup.id = 'school-popup'
+      popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+      popup.innerHTML = `
+        <div data-automation-id="promptOption" data-automation-label="Kenyon College"><div id="kenyon-row">Kenyon College</div></div>
+        <div data-automation-id="promptOption" id="ksu-prompt" data-automation-label="Kennesaw State University">
+          <div id="ksu-row">Kennesaw State University</div>
+        </div>
+      `
+      popup.addEventListener('mousedown', (event) => {
+        targets.push((event.target as HTMLElement).id || '')
+      })
+      doc.body.appendChild(popup)
+    }, 120)
+  })
+  let entered = false
+  school.addEventListener('keydown', (event) => {
+    if ((event as KeyboardEvent).key === 'Enter') entered = true
+  })
+  const { selectWorkdayPromptQuery } = await import('./workday.ts')
+  assert.equal(await selectWorkdayPromptQuery(school, 'Kennesaw State University'), true)
+  assert.deepEqual(targets, ['ksu-row'])
+  assert.equal(dismissed, false)
+  assert.equal(entered, false)
+  assert.equal(doc.getElementById('school-popup') != null, true)
 })

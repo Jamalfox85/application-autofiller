@@ -6,6 +6,8 @@ import greenhouseConfig from './greenhouse.ts'
 import icimsConfig from './icims.ts'
 import ashbyConfig from './ashby.ts'
 import bambooHrConfig from './bamboohr.ts'
+import jobviteConfig from './jobvite.ts'
+import workableConfig from './workable.ts'
 
 export const siteRules: SiteRule[] = [
   workdayConfig(),
@@ -14,4 +16,6 @@ export const siteRules: SiteRule[] = [
   icimsConfig(),
   ashbyConfig(),
   bambooHrConfig(),
+  jobviteConfig(),
+  workableConfig(),
 ]

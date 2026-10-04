@@ -130,11 +130,13 @@ export type NotificationType = 'success' | 'error'
 export type SiteRule = {
   detect: () => boolean
   onMount?: (personalInfo: PersonalInfo) => void | (() => void)
+  // true: this rule wrote the field. 'skip': the rule owns the field and left it
+  // blank, so the generic matcher must not invent a value. false: not this rule's field.
   apply: (
     input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
     fieldText: string,
     personalInfo: PersonalInfo,
-  ) => boolean | Promise<boolean>
+  ) => boolean | 'skip' | Promise<boolean | 'skip'>
   formChanged?: (mutations: MutationRecord[]) => boolean
   // Optional per-fill bookkeeping. prepareFill runs once before apply().
   // fillTelemetry is read after the pass and must not decide success or failure.
