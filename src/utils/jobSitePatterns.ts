@@ -9,6 +9,8 @@ export const jobPlatforms = [
   'bamboohr.com',
   'ashbyhq.com',
   'jobvite.com',
+  // Hosted apply only. www.workable.com is the marketing site.
+  'apply.workable.com',
   'ultipro.com',
   'breezy.hr',
   'recruitee.com',
@@ -44,6 +46,7 @@ export function getSiteLabel(hostname: string): string {
   const lower = hostname.toLowerCase()
   const matched = jobPlatforms.find((platform) => lower.includes(platform))
   if (!matched) return hostname
+  if (matched === 'apply.workable.com') return 'Workable'
 
   const name = matched.split('.')[0]
   return name.charAt(0).toUpperCase() + name.slice(1)

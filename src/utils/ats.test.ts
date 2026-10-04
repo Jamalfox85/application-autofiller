@@ -4,7 +4,10 @@ import {
   atsFromHostname,
   detectAts,
   documentHasGreenhouseMarkers,
+  documentHasWorkableForm,
+  documentHasWorkableMarkers,
   hrefHasGreenhouseJobId,
+  isWorkableApplyHost,
 } from './ats.ts'
 
 test('maps Greenhouse job-board hosts', () => {
@@ -133,6 +136,90 @@ test('Greenhouse DOM markers still win over an unrelated host', () => {
   const doc = {
     getElementById: (id: string) => (id === 'application-form' ? ({} as HTMLElement) : null),
     querySelector: () => null,
+  }
+  assert.equal(
+    detectAts({
+      hostname: 'www.carvana.com',
+      href: 'https://www.carvana.com/careers/apply',
+      document: doc,
+    }),
+    'greenhouse',
+  )
+})
+
+test('hosted Workable apply is workable and the marketing site is not', () => {
+  assert.equal(atsFromHostname('apply.workable.com'), 'workable')
+  assert.equal(atsFromHostname('Apply.Workable.com'), 'workable')
+  assert.equal(isWorkableApplyHost('jobs.apply.workable.com'), true)
+  assert.equal(atsFromHostname('www.workable.com'), null)
+  assert.equal(atsFromHostname('workable.com'), null)
+  assert.equal(atsFromHostname('help.workable.com'), null)
+  assert.equal(atsFromHostname('resources.workable.com'), null)
+  assert.equal(
+    detectAts({
+      hostname: 'apply.workable.com',
+      href: 'https://apply.workable.com/acely/j/876996D5A3/apply/',
+    }),
+    'workable',
+  )
+})
+
+test('embedded Workable apply is workable and a job-list widget is not', () => {
+  const meta = { getAttribute: (name: string) => (name === 'content' ? 'workable.com' : null) }
+  const form = {}
+  const iframe = {}
+  const customDomain = {
+    getElementById: () => null,
+    querySelector: (selector: string) => {
+      if (selector === 'meta[name="domain"]') return meta
+      if (selector === '[data-ui="application-form"]') return form
+      return null
+    },
+  }
+  assert.equal(documentHasWorkableForm(customDomain), true)
+  assert.equal(
+    detectAts({
+      hostname: 'careers.acme.com',
+      href: 'https://careers.acme.com/j/abc/apply',
+      document: customDomain,
+    }),
+    'workable',
+  )
+
+  const embed = {
+    getElementById: () => null,
+    querySelector: (selector: string) =>
+      selector === 'iframe[src*="apply.workable.com"]' ? iframe : null,
+  }
+  assert.equal(documentHasWorkableMarkers(embed), true)
+  assert.equal(
+    detectAts({
+      hostname: 'www.acme.com',
+      href: 'https://www.acme.com/careers',
+      document: embed,
+    }),
+    'workable',
+  )
+
+  const listing = {
+    getElementById: () => null,
+    querySelector: (selector: string) => (selector === '#whr_embed_hook' ? {} : null),
+  }
+  assert.equal(
+    detectAts({
+      hostname: 'www.acme.com',
+      href: 'https://www.acme.com/careers',
+      document: listing,
+    }),
+    null,
+  )
+})
+
+test('a Greenhouse apply form keeps its tag when a Workable iframe is also present', () => {
+  const doc = {
+    getElementById: (id: string) => (id === 'application-form' ? ({} as HTMLElement) : null),
+    querySelector: (selector: string) =>
+      selector === 'iframe[src*="apply.workable.com"]' ? ({} as Element) : null,
   }
   assert.equal(
     detectAts({
