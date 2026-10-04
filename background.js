@@ -16,6 +16,7 @@ import { handleBillingMessage, startExtensionPay } from './src/services/extensio
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
+import { readSavedResumeMessage } from './src/services/savedResumeWorker.js'
 
 startExtensionPay()
 
@@ -432,6 +433,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           error: error instanceof Error ? error.message : 'Sign-in failed. Please try again.',
         }),
       )
+    return true
+  }
+
+  // The content script assigns the returned bytes to a plain input[type=file].
+  // This handler does not click, submit, or open a file dialog.
+  if (request.action === 'getSavedResume') {
+    readSavedResumeMessage()
+      .then((payload) => sendResponse(payload))
+      .catch(() => sendResponse({ ok: false }))
     return true
   }
 

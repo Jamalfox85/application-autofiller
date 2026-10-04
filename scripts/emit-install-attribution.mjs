@@ -81,3 +81,12 @@ await esbuild.build({
   bundle: true,
   platform: 'neutral',
 })
+
+await esbuild.build({
+  entryPoints: ['src/services/savedResumeWorker.ts'],
+  outfile: 'dist/src/services/savedResumeWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})
