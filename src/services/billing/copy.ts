@@ -18,7 +18,7 @@ export const PAYWALL_COPY = {
     annual: 'Get Pro \u2014 $49/yr',
   },
   resumeAi: {
-    title: 'Resume tailor + ATS score is a Pro feature.',
+    title: 'Resume Matching Analysis is a Pro feature.',
     cta: 'Upgrade to Pro',
   },
   multiProfile: {

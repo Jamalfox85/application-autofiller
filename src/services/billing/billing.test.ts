@@ -149,7 +149,7 @@ test('locked paywall copy and mixpanel names', () => {
     'Unlock unlimited fills, resume AI tailor + ATS score, and multi-profile with Pro.',
   )
   assert.equal(PAYWALL_COPY.hard.primary, 'Get Pro \u2014 $5.99/mo or $49/yr')
-  assert.equal(PAYWALL_COPY.resumeAi.title, 'Resume tailor + ATS score is a Pro feature.')
+  assert.equal(PAYWALL_COPY.resumeAi.title, 'Resume Matching Analysis is a Pro feature.')
   assert.equal(PAYWALL_COPY.resumeAi.cta, 'Upgrade to Pro')
   assert.equal(PAYWALL_COPY.multiProfile.title, 'Multiple profiles are a Pro feature.')
   assert.equal(JSON.stringify(PAYWALL_COPY).toLowerCase().includes('workday'), false)
@@ -280,7 +280,7 @@ test('generate and ats analyze send the supabase bearer token', async () => {
   assert.equal((calls[2].init.headers as Record<string, string>).Authorization, 'Bearer jwt-2')
 
   const app = readFileSync('src/App.vue', 'utf8')
-  assert.match(app, /@plan-required="resumeOpen = false; openPaywall\('resume_ai'\)"/)
+  assert.match(app, /<ProFeatures [^>]*@upgrade="openPaywall\('resume_ai'\)"/)
   const proApi = readFileSync('src/services/billing/proApi.ts', 'utf8')
   assert.match(proApi, /getValidAccessToken/)
 })

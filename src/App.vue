@@ -25,8 +25,6 @@ import UpdateOtherInfoDialog from './components/dialogs/UpdateOtherInfoDialog.vu
 import CustomResponsesDialog from './components/dialogs/CustomResponsesDialog.vue'
 import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDialog.vue'
 import PaywallDialog from './components/PaywallDialog.vue'
-import ResumeAiDialog from './components/ResumeAiDialog.vue'
-import ProfileRosterDialog from './components/ProfileRosterDialog.vue'
 import ProFeatures from './components/ProFeatures.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
 import { rememberActiveProfile } from '@/services/billing/profileRoster'
@@ -65,8 +63,6 @@ const paywall = ref<{
   fillsRemaining?: number
   ats?: string
 } | null>(null)
-const resumeOpen = ref(false)
-const profilesOpen = ref(false)
 
 const refreshBilling = async () => {
   billing.value = await fetchBillingState()
@@ -629,13 +625,6 @@ watch(authStatus, (next, previous) => {
       :fills-remaining="paywall.fillsRemaining"
       :ats="paywall.ats"
       @close="paywall = null"
-    />
-    <ResumeAiDialog v-if="resumeOpen" @close="resumeOpen = false" @plan-required="resumeOpen = false; openPaywall('resume_ai')" />
-    <ProfileRosterDialog
-      :show="profilesOpen"
-      :personal-info="personalInfo"
-      @close="profilesOpen = false"
-      @use="saveProfile"
     />
   </div>
 </template>
