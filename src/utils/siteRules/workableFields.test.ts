@@ -350,6 +350,59 @@ test('a free-text work-authorization basis is filled from the saved status', () 
   assert.equal(workableMaySubmit(), false)
 })
 
+const REQUIRE_WORK_AUTH = 'Will you require work authorization of any kind?'
+
+test('requiring work authorization is answered like sponsorship, before the authorized rule', () => {
+  assert.equal(classifyWorkableQuestion(REQUIRE_WORK_AUTH), 'sponsorship')
+  assert.equal(classifyWorkableQuestion('Will you need work authorization?'), 'sponsorship')
+  assert.equal(classifyWorkableQuestion(ELIGIBILITY), 'authorized')
+  assert.equal(classifyWorkableQuestion('Are you authorized to work in the United States?'), 'authorized')
+  assert.equal(classifyWorkableQuestion(BASIS), 'basis')
+  assert.equal(workableWorkAuthAnswer('sponsorship', profile), 'no')
+
+  const yes = field({
+    name: 'QA_12248294',
+    type: 'radio',
+    optionValue: 'true',
+    optionLabel: 'YES',
+    label: REQUIRE_WORK_AUTH,
+  })
+  const no = field({ ...yes, optionValue: 'false', optionLabel: 'NO' })
+  assert.equal(workablePhase(yes), 'work-authorization')
+  assert.deepEqual(workablePlan(yes, profile), { action: 'skip' })
+  assert.deepEqual(workablePlan(no, profile), { action: 'click' })
+  assert.deepEqual(
+    workablePlan(yes, { ...profile, sponsorshipRequired: 'Yes' }),
+    { action: 'click' },
+  )
+  assert.deepEqual(
+    workablePlan(
+      field({
+        name: 'QA_authorized',
+        type: 'radio',
+        optionValue: 'true',
+        optionLabel: 'YES',
+        label: 'Are you authorized to work in the United States?',
+      }),
+      profile,
+    ),
+    { action: 'click' },
+  )
+  assert.deepEqual(
+    workablePlan(
+      field({
+        name: 'QA_eligibility',
+        type: 'radio',
+        optionValue: 'true',
+        optionLabel: 'YES',
+        label: ELIGIBILITY,
+      }),
+      profile,
+    ),
+    { action: 'click' },
+  )
+})
+
 test('EEO radios map when answers are enabled and stay blank when they are not', () => {
   const female = field({ group: 'eeo', name: 'gender', type: 'radio', optionValue: 'female' })
   const male = field({ group: 'eeo', name: 'gender', type: 'radio', optionValue: 'male' })
@@ -563,12 +616,12 @@ test('the site rule fills in priority order and does not submit or answer custom
     'title',
     'company',
     'exp_summary',
-    'exp_start',
+    ...Array(6).fill('exp_start'),
     'school',
     'field_of_study',
     'degree',
-    'edu_start',
-    'edu_end',
+    ...Array(6).fill('edu_start'),
+    ...Array(6).fill('edu_end'),
   ])
   assert.equal(read('firstname').value, 'Ada')
   assert.equal(read('address').value, '1 Analytical Engine, San Francisco, CA, 94107, United States')
@@ -693,4 +746,142 @@ test('formChanged refills only when the Workable form gains controls', () => {
     resetWorkableFormWatch()
     Object.assign(globalThis, { document: previous })
   }
+})
+
+test('month/year datepicker text sticks and requiring work authorization selects No', async () => {
+  assert.equal(workableMonthYear('January 2022'), '01/2022')
+  assert.equal(workableMonthYear('2016'), '01/2016')
+  assert.equal(workableMonthYear('2020'), '01/2020')
+
+  const raydar: WorkableProfile = {
+    ...profile,
+    experience: [
+      {
+        companyName: 'Raydar',
+        jobTitle: 'Engineer',
+        startDate: 'January 2022',
+        present: true,
+        description: 'Shipped the product',
+      },
+    ],
+    education: [
+      {
+        schoolName: 'State University',
+        degreeType: 'Bachelor of Science',
+        major: 'Computer Science',
+        startYear: '2016',
+        graduationYear: '2020',
+        current: false,
+      },
+    ],
+  }
+  assert.deepEqual(
+    workablePlan(field({ group: 'experience', name: 'start_date' }), raydar, 0),
+    { action: 'text', value: '01/2022' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ group: 'experience', name: 'end_date' }), raydar, 0),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ group: 'education', name: 'start_date' }), raydar, 0),
+    { action: 'text', value: '01/2016' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ group: 'education', name: 'end_date' }), raydar, 0),
+    { action: 'text', value: '01/2020' },
+  )
+
+  const dom = new JSDOM(`<!doctype html><body>
+    <form data-ui="application-form">
+      <div data-ui="experience">
+        <div data-ui="editor">
+          <input name="title" id="title" />
+          <input name="company" id="company" />
+          <textarea name="summary" id="summary"></textarea>
+          <div class="react-datepicker-wrapper">
+            <div class="react-datepicker__input-container">
+              <input name="start_date" id="exp_start" placeholder="MM/YYYY" />
+            </div>
+          </div>
+          <div class="react-datepicker-wrapper">
+            <div class="react-datepicker__input-container">
+              <input name="end_date" id="exp_end" placeholder="MM/YYYY" />
+            </div>
+          </div>
+          <input name="current" id="current" type="checkbox" />
+        </div>
+      </div>
+      <div data-ui="education">
+        <div data-ui="editor">
+          <input name="school" id="school" />
+          <input name="field_of_study" id="field_of_study" />
+          <input name="degree" id="degree" />
+          <input name="start_date" id="edu_start" placeholder="MM/YYYY" />
+          <input name="end_date" id="edu_end" placeholder="MM/YYYY" />
+        </div>
+      </div>
+      <div id="require-q">
+        <p>${REQUIRE_WORK_AUTH}</p>
+        <fieldset data-ui="QA_12248294">
+          <label>YES <input type="radio" name="QA_12248294" value="true" id="req-yes" /></label>
+          <label>NO <input type="radio" name="QA_12248294" value="false" id="req-no" /></label>
+        </fieldset>
+      </div>
+      <div id="custom-q">
+        <p>Are you willing to commute to the office 5x a week?</p>
+        <fieldset data-ui="QA_12248295">
+          <label>YES <input type="radio" name="QA_12248295" value="true" id="custom-yes" /></label>
+          <label>NO <input type="radio" name="QA_12248295" value="false" id="custom-no" /></label>
+        </fieldset>
+      </div>
+      <input data-ui="resume" id="resume" type="file" />
+      <button type="submit" data-ui="apply-button" id="apply-button">Submit application</button>
+    </form>
+  </body>`)
+  const doc = dom.window.document
+  const clicks: string[] = []
+  for (const id of ['req-yes', 'req-no', 'custom-yes', 'custom-no', 'apply-button', 'current']) {
+    doc.getElementById(id)?.addEventListener('click', () => clicks.push(id))
+  }
+  // Workable's datepicker drops the value when one input event carries the
+  // whole MM/YYYY. A single digit does not.
+  for (const id of ['exp_start', 'exp_end', 'edu_start', 'edu_end']) {
+    doc.getElementById(id)?.addEventListener('input', (event) => {
+      const data = (event as InputEvent).data
+      if (data && data.length > 1) {
+        const target = event.target as HTMLInputElement
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
+        setter?.call(target, '')
+      }
+    })
+  }
+
+  resetWorkableFormWatch()
+  const rule = workableConfig()
+  const school = doc.getElementById('school') as HTMLInputElement
+  assert.equal(await rule.apply(school, '', raydar as PersonalInfo), true)
+
+  const read = (id: string) => doc.getElementById(id) as HTMLInputElement
+  assert.equal(read('title').value, 'Engineer')
+  assert.equal(read('company').value, 'Raydar')
+  assert.equal(read('summary').value, 'Shipped the product')
+  assert.equal(read('exp_start').value, '01/2022')
+  assert.equal(read('exp_end').value, '')
+  assert.equal(read('current').checked, true)
+  assert.equal(read('school').value, 'State University')
+  assert.equal(read('field_of_study').value, 'Computer Science')
+  assert.equal(read('degree').value, 'Bachelor of Science')
+  assert.equal(read('edu_start').value, '01/2016')
+  assert.equal(read('edu_end').value, '01/2020')
+  assert.equal(read('req-yes').checked, false)
+  assert.equal(read('req-no').checked, true)
+  assert.equal(read('custom-yes').checked, false)
+  assert.equal(read('custom-no').checked, false)
+  assert.equal(read('resume').value, '')
+  assert.equal(clicks.includes('apply-button'), false)
+  assert.equal(clicks.includes('req-yes'), false)
+  assert.equal(clicks.includes('custom-yes'), false)
+  assert.equal(clicks.includes('custom-no'), false)
+  assert.equal(workableMaySubmit(), false)
 })
