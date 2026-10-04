@@ -1019,6 +1019,144 @@ test('education school and degree options match the listed prompt row', () => {
   assert.equal(workdayDegreeOption(['B.S.', 'M.S.'], 'Bachelor of Science'), 'B.S.')
   assert.equal(workdayDegreeOption(['Bachelor of Arts', 'Master of Science'], 'Bachelor of Science'), null)
   assert.equal(workdayDegreeOption(['Mobile', 'Landline', 'Fax'], 'Bachelor of Science'), null)
+
+  const adobeDegrees = ['Select One', 'GED', 'High School', 'Associates', 'Bachelors', 'Masters', 'Doctorate', 'JD']
+  const adobePairs: Array<[string, string]> = [
+    ['Bachelor of Science', 'Bachelors'],
+    ['B.S.', 'Bachelors'],
+    ['bachelors', 'Bachelors'],
+    ["Bachelor's", 'Bachelors'],
+    ['Bachelor of Arts', 'Bachelors'],
+    ['Master of Science', 'Masters'],
+    ['M.S.', 'Masters'],
+    ['masters', 'Masters'],
+    ["Master's", 'Masters'],
+    ['MBA', 'Masters'],
+    ['PhD', 'Doctorate'],
+    ['phd', 'Doctorate'],
+    ['associates', 'Associates'],
+    ["Associate's", 'Associates'],
+    ['Associate of Science', 'Associates'],
+    ['high_school_diploma', 'High School'],
+    ['High School Diploma', 'High School'],
+    ['GED', 'GED'],
+    ['JD', 'JD'],
+    ['Juris Doctor', 'JD'],
+  ]
+  for (const [profileDegree, workdayLabel] of adobePairs) {
+    assert.equal(workdayDegreeOption(adobeDegrees, profileDegree), workdayLabel)
+  }
+  assert.equal(workdayDegreeOption(adobeDegrees, 'certificate'), null)
+  assert.equal(workdayDegreeOption(adobeDegrees, 'bootcamp'), null)
+  assert.equal(workdayDegreeOption(adobeDegrees, 'Certificate'), null)
+  assert.equal(workdayDegreeOption(adobeDegrees, 'Bootcamp'), null)
+  assert.equal(workdayDegreeOption(['Bachelor of Science', 'Bachelors'], 'Bachelor of Science'), 'Bachelor of Science')
+  assert.equal(workdayDegreeOption(['Doctorate', 'JD'], 'PhD'), 'Doctorate')
+  assert.equal(workdayDegreeOption(['Doctorate', 'JD'], 'JD'), 'JD')
+  assert.equal(workdayDegreeOption(['GED', 'High School'], 'GED'), 'GED')
+  assert.equal(workdayDegreeOption(['GED', 'High School'], 'high_school_diploma'), 'High School')
+  assert.equal(workdayDegreeOption(['High School'], 'GED'), null)
+  assert.equal(workdayDegreeOption(['JD'], 'PhD'), null)
+  assert.equal(workdayDegreeOption(['Associate of Arts'], 'Associate of Science'), null)
+})
+
+// Adobe's degree menu is a short Canvas list. Typing the profile string
+// "Bachelor of Science" is not a prefix of "Bachelors", so Enter leaves the
+// closed face on Select One. The mapped label is what gets typed.
+test('Adobe degree list commits the Workday label for each profile degree', async () => {
+  const optionLabels = ['GED', 'High School', 'Associates', 'Bachelors', 'Masters', 'Doctorate', 'JD']
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+      <button id="degree" type="button" aria-haspopup="listbox" aria-expanded="false">Select One</button>
+      <input id="degree-value" type="text" value="" />
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const labels = ['Select One', ...optionLabels]
+  const state = { keys: '' }
+  button.addEventListener('click', () => {
+    if (button.getAttribute('aria-expanded') === 'true') {
+      button.setAttribute('aria-expanded', 'false')
+      button.removeAttribute('aria-controls')
+      doc.getElementById('degree-menu')?.remove()
+      return
+    }
+    button.setAttribute('aria-expanded', 'true')
+    button.setAttribute('aria-controls', 'degree-menu')
+    const menu = doc.createElement('ul')
+    menu.id = 'degree-menu'
+    menu.setAttribute('role', 'listbox')
+    for (const label of labels) {
+      const option = doc.createElement('li')
+      option.setAttribute('role', 'option')
+      option.textContent = label
+      option.addEventListener('mousedown', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      })
+      option.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      })
+      menu.appendChild(option)
+    }
+    doc.body.appendChild(menu)
+  })
+  button.addEventListener('keydown', (event) => {
+    const key = (event as KeyboardEvent).key
+    if (key.length === 1) {
+      state.keys += key
+      return
+    }
+    if (key !== 'Enter') return
+    const buffer = state.keys.toLowerCase()
+    state.keys = ''
+    if (!buffer) return
+    const matches = labels.filter((label, index) => index > 0 && label.toLowerCase().startsWith(buffer))
+    if (matches.length !== 1) return
+    button.textContent = matches[0]
+  })
+  const reset = () => {
+    state.keys = ''
+    button.textContent = 'Select One'
+    button.setAttribute('aria-expanded', 'false')
+    button.removeAttribute('aria-controls')
+    doc.getElementById('degree-menu')?.remove()
+  }
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  const pairs: Array<[string, string]> = [
+    ['Bachelor of Science', 'Bachelors'],
+    ['B.S.', 'Bachelors'],
+    ['bachelors', 'Bachelors'],
+    ["Bachelor's", 'Bachelors'],
+    ['Bachelor of Arts', 'Bachelors'],
+    ['Master of Science', 'Masters'],
+    ['masters', 'Masters'],
+    ["Master's", 'Masters'],
+    ['MBA', 'Masters'],
+    ['PhD', 'Doctorate'],
+    ['phd', 'Doctorate'],
+    ['associates', 'Associates'],
+    ["Associate's", 'Associates'],
+    ['Associate of Science', 'Associates'],
+    ['high_school_diploma', 'High School'],
+    ['High School Diploma', 'High School'],
+    ['GED', 'GED'],
+    ['JD', 'JD'],
+    ['Juris Doctor', 'JD'],
+  ]
+  for (const [profileDegree, workdayLabel] of pairs) {
+    reset()
+    assert.equal(await selectWorkdayListedDegree(button, profileDegree), workdayLabel)
+    assert.equal(button.textContent, workdayLabel)
+    assert.notEqual(button.textContent, 'Select One')
+  }
+  for (const profileDegree of ['certificate', 'bootcamp']) {
+    reset()
+    assert.equal(await selectWorkdayListedDegree(button, profileDegree), null)
+    assert.equal(button.textContent, 'Select One')
+  }
 })
 
 test('education prompts select the matching school suggestion and degree list option', async () => {
