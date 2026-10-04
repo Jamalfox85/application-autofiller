@@ -93,6 +93,7 @@ export function useAuth() {
       'customResponses',
       'fillHistory',
       'resumeUploadJob',
+      'savedResumeFile',
       'localToSupabaseMigrated_v1',
       USER_ID_KEY,
     ])

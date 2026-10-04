@@ -3,12 +3,10 @@ import test from 'node:test'
 import type { PersonalInfo } from '../../types/index.ts'
 import { icimsGateMayAdvance, planIcimsFill, type IcimsControl } from './icimsFields.ts'
 import { applyIcimsResumeFile, loadIcimsSavedResume, resetIcimsSavedResumeCache } from './icimsResumeFile.ts'
-import { bytesToBase64 } from '../../services/savedResume.ts'
 
 const PDF = new TextEncoder().encode('%PDF-1.4 saved-resume')
 
-function useFakeDataTransfer() {
-  const previous = globalThis.DataTransfer
+function pageRealm() {
   class FakeDataTransfer {
     files: File[] = []
     items = {
@@ -17,9 +15,10 @@ function useFakeDataTransfer() {
       },
     }
   }
-  globalThis.DataTransfer = FakeDataTransfer as unknown as typeof DataTransfer
-  return () => {
-    globalThis.DataTransfer = previous
+  return {
+    File,
+    DataTransfer: FakeDataTransfer as unknown as typeof DataTransfer,
+    Event,
   }
 }
 
@@ -40,6 +39,7 @@ function fileInput(label: string) {
     id: 'PortalProfileFields.Resume_File',
     value: '',
     files: null as File[] | null,
+    ownerDocument: { defaultView: pageRealm() },
     form: {
       submit() {
         submits.push('submit')
@@ -122,29 +122,28 @@ test('autofill-with-resume and other documents are not attached', () => {
   assert.equal(button.action, 'ignore')
 })
 
-test('applyIcimsResumeFile selects the saved resume and does not submit', () => {
-  const restore = useFakeDataTransfer()
+test('applyIcimsResumeFile selects the saved resume and does not submit', async () => {
   const saved = new File([PDF], 'Ada Lovelace.pdf', { type: 'application/pdf' })
   const { input, events, clicks, submits } = fileInput('Resume')
-  try {
-    assert.equal(applyIcimsResumeFile(input, saved), true)
-    assert.equal(input.files?.length, 1)
-    assert.equal(input.files?.[0]?.name, 'Ada Lovelace.pdf')
-    assert.equal(input.files?.[0]?.size, saved.size)
-    assert.equal(input.files?.[0]?.type, 'application/pdf')
-    assert.deepEqual(events, ['input', 'change'])
-    assert.deepEqual(clicks, [])
-    assert.deepEqual(submits, [])
-    assert.equal(icimsGateMayAdvance(), false)
+  assert.equal(await applyIcimsResumeFile(input, saved), true)
+  assert.equal(input.files?.length, 1)
+  assert.equal(input.files?.[0]?.name, 'Ada Lovelace.pdf')
+  assert.equal(input.files?.[0]?.size, saved.size)
+  assert.equal(input.files?.[0]?.type, 'application/pdf')
+  assert.equal(
+    new TextDecoder().decode(new Uint8Array(await input.files![0].arrayBuffer())),
+    '%PDF-1.4 saved-resume',
+  )
+  assert.deepEqual(events, ['input', 'change'])
+  assert.deepEqual(clicks, [])
+  assert.deepEqual(submits, [])
+  assert.equal(icimsGateMayAdvance(), false)
 
-    const empty = fileInput('Resume')
-    assert.equal(applyIcimsResumeFile(empty.input, null), 'skip')
-    assert.equal(empty.input.files, null)
-    assert.deepEqual(empty.events, [])
-    assert.deepEqual(empty.submits, [])
-  } finally {
-    restore()
-  }
+  const empty = fileInput('Resume')
+  assert.equal(await applyIcimsResumeFile(empty.input, null), 'skip')
+  assert.equal(empty.input.files, null)
+  assert.deepEqual(empty.events, [])
+  assert.deepEqual(empty.submits, [])
 })
 
 test('the iCIMS site rule puts the saved resume on the plain file input and skips autofill with resume', async () => {
@@ -167,14 +166,13 @@ test('the iCIMS site rule puts the saved resume on the plain file input and skip
             ok: true,
             fileName: 'Ada Lovelace.pdf',
             mimeType: 'application/pdf',
-            bytesBase64: bytesToBase64(PDF),
+            bytes: PDF,
           }
         },
       },
     },
   })
   resetIcimsSavedResumeCache()
-  const restoreTransfer = useFakeDataTransfer()
   try {
     const { default: icimsConfig } = await import('./icims.ts')
     const rule = icimsConfig()
@@ -195,7 +193,7 @@ test('the iCIMS site rule puts the saved resume on the plain file input and skip
       await rule.apply(plain.input as unknown as HTMLInputElement, 'resume choose file', {} as PersonalInfo),
       true,
     )
-    assert.deepEqual(messages, [{ action: 'getSavedResume' }])
+    assert.deepEqual(messages, [{ action: 'loadSavedResume' }])
     const selected = plain.input.files?.[0]
     assert.equal(selected?.name, 'Ada Lovelace.pdf')
     assert.equal(selected?.type, 'application/pdf')
@@ -221,7 +219,6 @@ test('the iCIMS site rule puts the saved resume on the plain file input and skip
     assert.deepEqual(missing.submits, [])
     assert.equal(await loadIcimsSavedResume(), null)
   } finally {
-    restoreTransfer()
     resetIcimsSavedResumeCache()
     globalThis.window = previousWindow
     Object.assign(globalThis, { chrome: previousChrome })

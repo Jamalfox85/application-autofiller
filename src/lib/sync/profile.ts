@@ -69,6 +69,7 @@ export function profileToDbRows(info: PersonalInfo, userId: string): ProfileDbRo
       website: nullIfEmpty(info.website),
       github: nullIfEmpty(info.github),
       resume_file_name: nullIfEmpty(info.resumeFileName),
+      // resume_file_path stays with the resume API. Omitting it keeps the stored object.
       eeo_answers_enabled: info.eeoAnswersEnabled ?? true,
       gender: nullIfEmpty(info.gender),
       race_ethnicity: nullIfEmpty(info.raceEthnicity),
@@ -190,6 +191,7 @@ export function dbRowsToProfile(rows: {
     website: str(p.website),
     github: str(p.github),
     resumeFileName: str(p.resume_file_name),
+    resumeFilePath: str(p.resume_file_path),
     eeoAnswersEnabled: p.eeo_answers_enabled ?? true,
     gender: str(p.gender),
     raceEthnicity: str(p.race_ethnicity),

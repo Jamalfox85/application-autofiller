@@ -1,67 +1,63 @@
-// Puts the already-uploaded resume on a plain iCIMS choose-file input.
-// Setting input.files is the same result as a person picking the file.
+// Puts the resume already saved in GoFillr on a plain iCIMS choose-file input.
+// The bytes come from the shared loadSavedResume worker (the same download
+// BambooHR uses). Setting input.files is the same result as picking the file.
 // This does not click the control, does not click "Autofill with resume",
 // and does not submit the form.
 
-import { fileFromSavedResumePayload } from '../../services/savedResume.ts'
+import { requestSavedResume } from './bamboohrResume.ts'
 
-type FileCarrier = {
+type PageRealm = {
+  File?: typeof File
+  DataTransfer?: typeof DataTransfer
+  Event?: typeof Event
+}
+
+type FileInputLike = {
+  tagName?: string
   type?: string
+  disabled?: boolean
   files?: ArrayLike<File> | null
+  ownerDocument?: { defaultView?: PageRealm | null } | null
+  getAttribute?: (name: string) => string | null
   dispatchEvent?: (event: Event) => boolean
 }
 
-type FileTransfer = {
-  items: { add: (file: File) => void }
-  files: ArrayLike<File>
-}
-
-function transferWith(file: File): FileTransfer {
-  const DataTransferCtor = (globalThis as { DataTransfer?: new () => DataTransfer }).DataTransfer
-  if (typeof DataTransferCtor === 'function') {
-    const transfer = new DataTransferCtor()
-    transfer.items.add(file)
-    return transfer
-  }
-  return {
-    items: { add() {} },
-    files: [file],
-  }
-}
-
-export function applyIcimsResumeFile(input: FileCarrier, file: File | null): boolean | 'skip' {
-  if ((input.type || '').toLowerCase() !== 'file' || !file) return 'skip'
+export async function applyIcimsResumeFile(
+  input: FileInputLike,
+  file: File | null,
+): Promise<boolean | 'skip'> {
+  if (!file || file.size <= 0 || !file.name) return 'skip'
+  const type = (input.getAttribute?.('type') || input.type || '').toLowerCase()
+  const tag = (input.tagName || 'INPUT').toUpperCase()
+  if (tag !== 'INPUT' || type !== 'file' || input.disabled) return 'skip'
   try {
-    const transfer = transferWith(file)
+    const view = input.ownerDocument?.defaultView
+    const FileCtor = view?.File
+    const DataTransferCtor = view?.DataTransfer
+    if (typeof FileCtor !== 'function' || typeof DataTransferCtor !== 'function') return 'skip'
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (bytes.byteLength === 0) return 'skip'
+    const localFile = new FileCtor([bytes], file.name, {
+      type: file.type || 'application/octet-stream',
+    })
+    const transfer = new DataTransferCtor()
+    transfer.items.add(localFile)
     input.files = transfer.files
-    input.dispatchEvent?.(new Event('input', { bubbles: true }))
-    input.dispatchEvent?.(new Event('change', { bubbles: true }))
+    const assigned = input.files?.[0]
+    if (!assigned || assigned.name !== file.name || assigned.size !== file.size) return 'skip'
+    const EventCtor = view.Event ?? Event
+    input.dispatchEvent?.(new EventCtor('input', { bubbles: true }))
+    input.dispatchEvent?.(new EventCtor('change', { bubbles: true }))
+    return true
   } catch {
     return 'skip'
   }
-  const selected = input.files?.[0]
-  if (!selected || selected.name !== file.name || selected.size !== file.size) return 'skip'
-  return true
 }
 
 let inflight: Promise<File | null> | null = null
 
 export function resetIcimsSavedResumeCache() {
   inflight = null
-}
-
-async function requestSavedResume(): Promise<File | null> {
-  const runtime = (globalThis as { chrome?: { runtime?: { sendMessage?: (message: unknown) => Promise<unknown> } } })
-    .chrome?.runtime
-  if (!runtime?.sendMessage) return null
-  const response = (await runtime.sendMessage({ action: 'getSavedResume' })) as {
-    ok?: boolean
-    fileName?: unknown
-    mimeType?: unknown
-    bytesBase64?: unknown
-  } | null
-  if (!response?.ok) return null
-  return fileFromSavedResumePayload(response)
 }
 
 export function loadIcimsSavedResume(): Promise<File | null> {

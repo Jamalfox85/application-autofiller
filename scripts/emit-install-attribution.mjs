@@ -83,8 +83,8 @@ await esbuild.build({
 })
 
 await esbuild.build({
-  entryPoints: ['src/services/savedResumeWorker.ts'],
-  outfile: 'dist/src/services/savedResumeWorker.js',
+  entryPoints: ['src/utils/siteRules/bamboohrResumeWorker.ts'],
+  outfile: 'dist/src/utils/siteRules/bamboohrResumeWorker.js',
   format: 'esm',
   bundle: true,
   platform: 'browser',

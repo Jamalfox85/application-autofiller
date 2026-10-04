@@ -1061,8 +1061,10 @@ async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> 
   collapseOpenListbox()
   openListbox = button
   // A multiselect search input does not open the list. The prompt icon does.
-  // A listbox button has no icon, so this still clicks that button.
-  openWorkdayPrompt(button)
+  // A listbox button has no icon, so this still clicks that button. Do not
+  // focus that search box: focus turns the catalog into a typeahead, and the
+  // visible Other in that result is not a committed selection.
+  openWorkdayPrompt(button, false)
   const labels = await waitForSourceLabels(button, (rows) => rows.length > 0)
   const prompt = activeSourcePrompt(button)
   if (!labels || !prompt) {
@@ -1323,10 +1325,13 @@ function promptOpenTarget(control: HTMLElement): HTMLElement {
   return control
 }
 
-function openWorkdayPrompt(control: HTMLElement) {
+function openWorkdayPrompt(control: HTMLElement, focusControl = true) {
   // element.click() does not fire mousedown. This multiselect opens on the same
   // pointer sequence as a prompt row, so a bare click leaves the list closed.
   activateWorkdayOption(promptOpenTarget(control))
+  // School types into the search box, so that caller still focuses it. Source
+  // must not: focusing this input replaces the catalog with a search result.
+  if (!focusControl) return
   if (control.tagName === 'INPUT') (control as HTMLInputElement).focus()
 }
 

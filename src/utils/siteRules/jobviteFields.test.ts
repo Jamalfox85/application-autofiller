@@ -501,6 +501,55 @@ test('custom screening questions, resume files, and out-of-scope prompts are ski
   assert.equal(jobvitePlan(field({ label: 'Send Application', type: 'submit' }), profile).action, 'skip')
 })
 
+test('a plain resume file attaches when a filename is saved and skips autofill-from-resume controls', () => {
+  const withFile = { ...profile, resumeFileName: 'ada-lovelace-resume.pdf' }
+  assert.deepEqual(jobvitePlan(field({ label: 'Resume', type: 'file' }), withFile), {
+    action: 'attachResume',
+  })
+  assert.deepEqual(jobvitePlan(field({ label: 'CV', type: 'file' }), withFile), {
+    action: 'attachResume',
+  })
+  assert.deepEqual(
+    jobvitePlan(
+      field({ label: 'File', type: 'file', context: 'Type or paste your Resume here' }),
+      withFile,
+    ),
+    { action: 'attachResume' },
+  )
+  assert.deepEqual(
+    jobvitePlan(field({ label: '', type: 'file', context: 'Add Resume' }), withFile),
+    { action: 'attachResume' },
+  )
+  assert.deepEqual(jobvitePlan(field({ label: 'Resume', type: 'file' }), profile), { action: 'skip' })
+  assert.deepEqual(jobvitePlan(field({ label: 'Resume', type: 'text' }), withFile), { action: 'skip' })
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Autofill with Resume', type: 'file' }), withFile),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Type or paste your Resume here', type: 'textarea' }), withFile),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'LinkedIn', type: 'button', context: 'Add Resume' }), withFile),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    jobvitePlan(
+      field({ label: 'File', type: 'file', context: 'Type or paste your Cover Letter here' }),
+      withFile,
+    ),
+    { action: 'skip' },
+  )
+  assert.deepEqual(jobvitePlan(field({ label: 'Cover letter', type: 'file' }), withFile), {
+    action: 'skip',
+  })
+  assert.deepEqual(jobvitePlan(field({ label: 'First Name' }), withFile), {
+    action: 'text',
+    value: 'Ada',
+  })
+})
+
 test('experience and education use the row index and leave extra rows blank', () => {
   assert.deepEqual(jobvitePlan(field({ label: 'Company Name' }), profile, 0), {
     action: 'text',
@@ -678,6 +727,146 @@ test('the site rule fills a hosted apply form and leaves everything else blank',
   assert.equal(describeJobviteField(read('jv-field-first')).label, 'First Name')
 })
 
+const RESUME_ATTACH_HTML = `<!doctype html><body>
+  <form class="jv-apply-form">
+    <div class="jv-form-field">
+      <label class="jv-form-field-label">First Name</label>
+      <input id="first" type="text" autocomplete="given-name" />
+    </div>
+    <div class="jv-form-field">
+      <label class="jv-form-field-label">Resume</label>
+      <input id="resume" type="file" />
+    </div>
+    <div class="jv-form-field">
+      <label class="jv-form-field-label">Autofill with Resume</label>
+      <input id="autofill" type="file" />
+    </div>
+    <div class="jv-form-field">
+      <label class="jv-form-field-label">How did you hear about us?</label>
+      <input id="source" type="text" />
+    </div>
+    <button type="button" id="next">Next</button>
+    <button type="button" id="send">Send Application</button>
+  </form>
+  <div class="jv-add-attachment" id="resume-menu">
+    <label class="jv-visually-hidden">Type or paste your Resume here</label>
+    <label for="file-input-0">File</label>
+    <input id="file-input-0" type="file" />
+    <span id="linkedin" role="button">LinkedIn</span>
+    <span id="paste" role="button">Type or Paste Resume</span>
+    <button type="button" id="select-resume">Select</button>
+  </div>
+  <div class="jv-add-attachment" id="cover-menu">
+    <label class="jv-visually-hidden">Type or paste your Cover Letter here</label>
+    <label for="file-input-1">File</label>
+    <input id="file-input-1" type="file" />
+  </div>
+</body>`
+
+function installFileInputSupport(window: JSDOM['window']) {
+  const filesByInput = new WeakMap<object, { length: number; [index: number]: File }>()
+  window.DataTransfer = class {
+    items: { add: (file: File) => void }
+    files!: { length: number; [index: number]: File }
+    constructor() {
+      const files: File[] = []
+      this.items = {
+        add(file: File) {
+          files.push(file)
+        },
+      }
+      Object.defineProperty(this, 'files', {
+        get() {
+          const list: { length: number; [index: number]: File } = { length: files.length }
+          files.forEach((file, index) => {
+            list[index] = file
+          })
+          return list
+        },
+      })
+    }
+  } as unknown as typeof DataTransfer
+  Object.defineProperty(window.HTMLInputElement.prototype, 'files', {
+    configurable: true,
+    get() {
+      return filesByInput.get(this) ?? null
+    },
+    set(value) {
+      filesByInput.set(this, value)
+    },
+  })
+}
+
+function fileName(input: HTMLInputElement): string {
+  return input.files?.[0]?.name ?? ''
+}
+
+test('the site rule attaches the saved resume and leaves autofill-from-resume controls alone', async () => {
+  const dom = new JSDOM(RESUME_ATTACH_HTML)
+  installFileInputSupport(dom.window)
+  const bytes = new TextEncoder().encode('%PDF-1.4 resume')
+  let loads = 0
+  const rule = jobviteConfig({
+    loadResume: async () => {
+      loads += 1
+      return new File([bytes], 'ada-lovelace-resume.pdf', { type: 'application/pdf' })
+    },
+  })
+  const info = { ...profile, resumeFileName: 'ada-lovelace-resume.pdf' } as PersonalInfo
+  const doc = dom.window.document
+  const read = (id: string) => doc.getElementById(id) as HTMLInputElement
+  const clicks: string[] = []
+  for (const id of ['next', 'send', 'linkedin', 'paste', 'autofill', 'select-resume']) {
+    doc.getElementById(id)?.addEventListener('click', () => clicks.push(id))
+  }
+  const inputClick = dom.window.HTMLInputElement.prototype.click
+  dom.window.HTMLInputElement.prototype.click = function clicked(this: HTMLInputElement) {
+    clicks.push(`input:${this.id}`)
+    return inputClick.call(this)
+  }
+
+  assert.equal(await rule.apply(read('first'), '', info), true)
+  assert.equal(read('first').value, 'Ada')
+
+  let changed = 0
+  read('resume').addEventListener('change', () => changed++)
+  assert.equal(await rule.apply(read('resume'), '', info), true)
+  assert.equal(fileName(read('resume')), 'ada-lovelace-resume.pdf')
+  assert.equal(changed, 1)
+
+  assert.equal(await rule.apply(read('file-input-0'), '', info), true)
+  assert.equal(fileName(read('file-input-0')), 'ada-lovelace-resume.pdf')
+  assert.equal(describeJobviteField(read('file-input-0')).label, 'File')
+  assert.match(describeJobviteField(read('file-input-0')).context || '', /Resume/)
+
+  assert.equal(await rule.apply(read('file-input-1'), '', info), 'skip')
+  assert.equal(fileName(read('file-input-1')), '')
+  assert.equal(await rule.apply(read('autofill'), '', info), 'skip')
+  assert.equal(fileName(read('autofill')), '')
+  assert.equal(await rule.apply(read('source'), '', info), 'skip')
+  assert.equal(read('source').value, '')
+  assert.equal(loads, 2)
+  assert.deepEqual(clicks, [])
+})
+
+test('the site rule leaves the resume control empty when no file is available', async () => {
+  const dom = new JSDOM(RESUME_ATTACH_HTML)
+  installFileInputSupport(dom.window)
+  const rule = jobviteConfig({ loadResume: async () => null })
+  const info = { ...profile, resumeFileName: 'ada-lovelace-resume.pdf' } as PersonalInfo
+  const input = dom.window.document.getElementById('resume') as HTMLInputElement
+  assert.equal(await rule.apply(input, '', info), 'skip')
+  assert.equal(fileName(input), '')
+
+  const unnamed = jobviteConfig({
+    loadResume: async () => {
+      throw new Error('should not load without a filename')
+    },
+  })
+  assert.equal(await unnamed.apply(input, '', profile as PersonalInfo), 'skip')
+  assert.equal(fileName(input), '')
+})
+
 test('hosted Jobvite URLs match and other ATS hosts do not', () => {
   assert.equal(
     isHostedJobvitePage({
@@ -733,6 +922,12 @@ test('formChanged refills only when the apply form gains controls', () => {
     dom.window.document
       .querySelector('.jv-apply-form')
       ?.insertAdjacentHTML('beforeend', '<input id="c" /><select id="d"></select>')
+    assert.equal(rule.formChanged?.([]), true)
+    assert.equal(rule.formChanged?.([]), false)
+    dom.window.document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div class="jv-add-attachment"><input id="late-file" type="file" /></div>',
+    )
     assert.equal(rule.formChanged?.([]), true)
     assert.equal(rule.formChanged?.([]), false)
   } finally {
