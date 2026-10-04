@@ -552,25 +552,45 @@ function promptOptionLabel(node: Element): string {
 }
 
 export function workdayOptionElements(root: ParentNode): Array<{ label: string; element: HTMLElement }> {
-  const nodes = Array.from(root.querySelectorAll(PROMPT_OPTION_SELECTOR))
-  const choices: Array<{ label: string; element: HTMLElement }> = []
-  for (const node of nodes) {
-    if (node.querySelector(PROMPT_OPTION_SELECTOR)) continue
-    const label = promptOptionLabel(node)
-    if (!label) continue
-    choices.push({ label, element: node as HTMLElement })
-  }
-  return choices
+  const labeled = Array.from(root.querySelectorAll(PROMPT_OPTION_SELECTOR))
+    .map((node) => ({ element: node as HTMLElement, label: promptOptionLabel(node) }))
+    .filter((choice) => choice.label.length > 0)
+  // A promptOption often wraps an empty role=option plus the visible text row.
+  // Dropping every parent that contains another selector match hides that label.
+  // Keep the innermost node that actually has a label.
+  return labeled.filter(
+    (choice) =>
+      !labeled.some(
+        (other) => other.element !== choice.element && choice.element.contains(other.element),
+      ),
+  )
 }
 
 export function workdayOptionLabels(root: ParentNode): string[] {
   return workdayOptionElements(root).map((choice) => choice.label)
 }
 
+// The node Workday paints the label on. Clicking the promptOption wrapper
+// misses when the handler is on the inner row (the text the menu shows).
+function visiblePromptRow(element: HTMLElement, label: string): HTMLElement {
+  const want = label.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!want) return element
+  const matches = Array.from(element.querySelectorAll('*')).filter((node) => {
+    const text = (node.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text !== want) return false
+    return !Array.from(node.children).some(
+      (child) => (child.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim() === want,
+    )
+  })
+  return (matches[matches.length - 1] as HTMLElement) || element
+}
+
 export function workdayOptionElement(root: ParentNode, label: string): HTMLElement | null {
   const want = normalizeListedKey(label)
   if (!want) return null
-  return workdayOptionElements(root).find((choice) => normalizeListedKey(choice.label) === want)?.element || null
+  const match = workdayOptionElements(root).find((choice) => normalizeListedKey(choice.label) === want)
+  if (!match) return null
+  return visiblePromptRow(match.element, match.label)
 }
 
 function cleanPromptLabel(value: string): string {

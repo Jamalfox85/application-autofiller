@@ -592,12 +592,41 @@ function collapseOpenListbox() {
   button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
 }
 
+// Rows for this button that were painted outside its aria-controls node.
+// Country and state stay on the controlled list so Georgia cannot be taken
+// from the menu that is still open. Degree and school opt in.
+function activateMatchingPortalOption(
+  button: HTMLButtonElement,
+  controlled: ParentNode | null,
+  pick: (labels: string[]) => string | null,
+): string | null {
+  const doc = button.ownerDocument
+  if (!doc) return null
+  const popups = promptPopups(doc, elementNode(controlled)).filter(
+    (node) => !button.contains(node),
+  )
+  for (let index = popups.length - 1; index >= 0; index--) {
+    const labels = workdayOptionLabels(popups[index])
+    if (substantivePromptLabels(labels).length === 0) continue
+    const label = pick(labels)
+    if (!label) continue
+    const option = workdayOptionElement(popups[index], label)
+    if (!option) continue
+    activateWorkdayOption(option)
+    return label
+  }
+  return null
+}
+
 // Open one prompt, optionally filter it, and click the picked label inside that
 // prompt only. Escape closes a miss so the next field cannot click a leftover option.
+// scanPortals is for degree and school: the open menu's rows can arrive after
+// the click, and they can live outside the empty aria-controls anchor.
 async function chooseWorkdayListOption(
   button: HTMLButtonElement,
   pick: (labels: string[]) => string | null,
   searchText: string,
+  scanPortals = false,
 ): Promise<string | null> {
   collapseOpenListbox()
   openListbox = button
@@ -607,11 +636,7 @@ async function chooseWorkdayListOption(
   let missesAfterType = 0
   while (Date.now() - started < 1500) {
     const prompt = workdayActivePrompt(button)
-    if (!prompt) {
-      await new Promise((resolve) => setTimeout(resolve, 100))
-      continue
-    }
-    if (searchText && !typed) {
+    if (prompt && searchText && !typed) {
       const search = workdayPromptSearchInput(prompt)
       if (search) {
         await fillWorkdayInput(search, searchText)
@@ -620,19 +645,33 @@ async function chooseWorkdayListOption(
         continue
       }
     }
-    const labels = workdayOptionLabels(prompt)
-    const label = labels.length > 0 ? pick(labels) : null
-    if (label) {
+    const labels = prompt ? workdayOptionLabels(prompt) : []
+    const substantive = substantivePromptLabels(labels)
+    // "Select One" alone is the closed-state placeholder, not the degree list.
+    // Clicking before the real rows exist closes the menu with nothing selected.
+    if (substantive.length === 0) {
+      if (scanPortals) {
+        const portalLabel = activateMatchingPortalOption(button, prompt, pick)
+        if (portalLabel) {
+          openListbox = null
+          return portalLabel
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      continue
+    }
+    const label = pick(labels)
+    if (label && prompt) {
       const option = workdayOptionElement(prompt, label)
       if (option) {
-        option.click()
+        activateWorkdayOption(option)
         openListbox = null
         return label
       }
     }
     // A visible slice that does not contain the target is not a click. After a
     // search, give the filtered rows a moment to replace that slice.
-    if (labels.length > 0 && (!searchText || typed)) {
+    if (!searchText || typed) {
       if (typed && missesAfterType < 3) {
         missesAfterType++
         await new Promise((resolve) => setTimeout(resolve, 150))
@@ -650,11 +689,12 @@ async function chooseFirstListedOption(
   button: HTMLButtonElement,
   pick: (labels: string[]) => string | null,
   searches: string[],
+  scanPortals = false,
 ): Promise<string | null> {
-  const direct = await chooseWorkdayListOption(button, pick, '')
+  const direct = await chooseWorkdayListOption(button, pick, '', scanPortals)
   if (direct) return direct
   for (const search of searches) {
-    const label = await chooseWorkdayListOption(button, pick, search)
+    const label = await chooseWorkdayListOption(button, pick, search, scanPortals)
     if (label) return label
   }
   return null
@@ -787,32 +827,82 @@ const fillWorkdayDate = (section: Element, metadataId: string, value: string) =>
   if (yearInput && year) fillWorkdayInput(yearInput, year)
 }
 
-function promptRootForInput(input: HTMLInputElement): ParentNode {
-  const doc = input.ownerDocument
-  const controls = input.getAttribute('aria-controls')
-  if (controls) {
-    const owned = doc.getElementById(controls)
-    if (owned) return owned
-  }
-  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
-  const button = field?.querySelector('button[aria-haspopup="listbox"]') as HTMLButtonElement | null
-  if (button) {
-    const active = workdayActivePrompt(button)
-    if (active) return active
-  }
-  const prompts = Array.from(
+function elementNode(node: ParentNode | null): Element | null {
+  if (!node || node.nodeType !== 1) return null
+  return node as Element
+}
+
+function promptPopups(doc: Document, except: Element | null): Element[] {
+  return Array.from(
     doc.querySelectorAll(
       '[data-automation-id="responsiveMonikerPrompt"], [data-automation-id="promptPopup"], [role="listbox"]',
     ),
-  ).filter((node) => !input.contains(node))
-  if (prompts.length === 1) return prompts[0]
-  return doc
+  ).filter((node) => node !== except)
+}
+
+function substantivePromptLabels(labels: string[]): string[] {
+  return labels.filter((label) => {
+    const key = label.toLowerCase().replace(/[^a-z]/g, '')
+    return key !== 'selectone' && key !== 'select' && key !== 'pleaseselect' && key !== 'chooseone' && key !== 'choose'
+  })
+}
+
+// Workday commits a prompt row on mousedown. element.click() only fires click,
+// which runs after blur and is dropped, so the menu closes on Select One.
+function activateWorkdayOption(option: HTMLElement) {
+  const view = option.ownerDocument?.defaultView
+  const MouseCtor = view?.MouseEvent ?? MouseEvent
+  const init: MouseEventInit = { bubbles: true, cancelable: true }
+  option.dispatchEvent(new MouseCtor('mousedown', init))
+  option.dispatchEvent(new MouseCtor('mouseup', init))
+  option.dispatchEvent(new MouseCtor('click', init))
+}
+
+function ownedPrompt(input: HTMLInputElement): ParentNode | null {
+  const controls = input.getAttribute('aria-controls')
+  if (!controls) return null
+  return input.ownerDocument.getElementById(controls)
+}
+
+// The menu Workday actually painted. An aria-controls anchor can stay empty
+// while the suggestion rows are portaled elsewhere. A menu that is already
+// showing other schools is not a license to click a different popup.
+function matchingSuggestionRow(
+  input: HTMLInputElement,
+  pick: (labels: string[]) => string | null,
+): HTMLElement | null {
+  const owned = ownedPrompt(input)
+  const ownedLabels = owned ? workdayOptionLabels(owned) : []
+  if (substantivePromptLabels(ownedLabels).length > 0) {
+    const label = pick(ownedLabels)
+    return label && owned ? workdayOptionElement(owned, label) : null
+  }
+  const popups = promptPopups(input.ownerDocument, elementNode(owned)).filter(
+    (node) => !input.contains(node),
+  )
+  for (let index = popups.length - 1; index >= 0; index--) {
+    const labels = workdayOptionLabels(popups[index])
+    if (substantivePromptLabels(labels).length === 0) continue
+    const label = pick(labels)
+    if (!label) continue
+    const option = workdayOptionElement(popups[index], label)
+    if (option) return option
+  }
+  return null
+}
+
+function suggestionMenuIsOpen(input: HTMLInputElement): boolean {
+  const owned = ownedPrompt(input)
+  if (owned && substantivePromptLabels(workdayOptionLabels(owned)).length > 0) return true
+  return promptPopups(input.ownerDocument, elementNode(owned)).some(
+    (node) => !input.contains(node) && substantivePromptLabels(workdayOptionLabels(node)).length > 0,
+  )
 }
 
 // Type into a school or field-of-study prompt and click the matching suggestion.
-// fillWorkdayInput blurs, which closes the menu before the row can be chosen and
-// leaves the typed name uncommitted. Enter is only for a catalog that never
-// opened; an open menu that does not match is not the highlighted wrong school.
+// change and blur dismiss the list before the row can be chosen and leave the
+// typed name uncommitted. Enter is only for a catalog that never opened; an
+// open menu that does not match is not the highlighted wrong school.
 export async function selectWorkdayPromptQuery(
   input: HTMLInputElement,
   query: string,
@@ -823,25 +913,17 @@ export async function selectWorkdayPromptQuery(
   input.click()
   input.focus()
   setReactInputValue(input, trimmed)
-  const EventCtor = input.ownerDocument?.defaultView?.Event ?? Event
-  input.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
-  const doc = input.ownerDocument
   const started = Date.now()
   while (Date.now() - started < 1500) {
-    const root = promptRootForInput(input)
-    const label = pick(workdayOptionLabels(root))
-    if (label) {
-      const option = workdayOptionElement(root, label)
-      if (option) {
-        option.click()
-        return true
-      }
+    const option = matchingSuggestionRow(input, pick)
+    if (option) {
+      activateWorkdayOption(option)
+      return true
     }
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  const root = promptRootForInput(input)
-  if (workdayOptionLabels(root).length === 0 && root === doc) {
-    const view = doc.defaultView
+  if (!suggestionMenuIsOpen(input)) {
+    const view = input.ownerDocument?.defaultView
     const KeyCtor = view?.KeyboardEvent ?? KeyboardEvent
     input.dispatchEvent(new KeyCtor('keydown', { key: 'Enter', keyCode: 13, bubbles: true }))
     input.dispatchEvent(new KeyCtor('keyup', { key: 'Enter', keyCode: 13, bubbles: true }))
@@ -859,6 +941,7 @@ export async function selectWorkdayListedDegree(
     button,
     (labels) => workdayDegreeOption(labels, trimmed),
     workdayDegreeSearchTexts(trimmed),
+    true,
   )
 }
 
@@ -1104,6 +1187,7 @@ const handleEducation = async (personalInfo: PersonalInfo) => {
             schoolButton,
             (labels) => workdaySuggestionOption(labels, schoolQuery),
             [schoolQuery],
+            true,
           )
           schoolSelected = !!label
         }
