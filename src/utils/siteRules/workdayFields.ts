@@ -261,6 +261,55 @@ export function listWorkdayPanels(root: ParentNode, kind: WorkdaySectionKind): E
   })
 }
 
+function workdayPanelElement(node: Element): Element | null {
+  return node.closest('[role="group"][aria-labelledby$="-panel"]')
+}
+
+export function workdayInputInExperiencePanel(node: Element): boolean {
+  const panel = workdayPanelElement(node)
+  if (!panel) return false
+  const labelledBy = panel.getAttribute('aria-labelledby') || ''
+  const text = headingText(panel, labelledBy) || labelledBy.replace(/-panel$/, '').replace(/-/g, ' ')
+  return workdaySectionKindFromLabel(text) === 'experience'
+}
+
+function experienceControlValue(panel: ParentNode, metadataId: string): string {
+  const control = workdayFieldControl(panel, metadataId)
+  if (!control) return ''
+  if (control.tagName !== 'INPUT' && control.tagName !== 'TEXTAREA') return ''
+  return ((control as HTMLInputElement).value || '').replace(/\s+/g, ' ').trim()
+}
+
+export function workdayExperiencePanelIdentity(panel: ParentNode): { jobTitle: string; companyName: string } {
+  return {
+    jobTitle: experienceControlValue(panel, 'jobTitle'),
+    companyName: experienceControlValue(panel, 'companyName'),
+  }
+}
+
+function sameExperienceText(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase()
+}
+
+// A row already on the page is the profile job when both title and company match.
+// An empty title or company is not that job; the filler reuses a fully blank row
+// instead of treating it as a copy.
+export function workdayPanelMatchesExperience(
+  panel: ParentNode,
+  job: { jobTitle?: string | null; companyName?: string | null },
+): boolean {
+  const have = workdayExperiencePanelIdentity(panel)
+  const title = (job.jobTitle || '').replace(/\s+/g, ' ').trim()
+  const company = (job.companyName || '').replace(/\s+/g, ' ').trim()
+  if (!title || !company || !have.jobTitle || !have.companyName) return false
+  return sameExperienceText(have.jobTitle, title) && sameExperienceText(have.companyName, company)
+}
+
+export function workdayExperiencePanelIsBlank(panel: ParentNode): boolean {
+  const have = workdayExperiencePanelIdentity(panel)
+  return !have.jobTitle && !have.companyName
+}
+
 function isWorkdayTextControl(el: Element): boolean {
   return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
 }

@@ -15,6 +15,9 @@ import {
   workdaySignInWithEmailButton,
   listWorkdayPanels,
   matchingOptionText,
+  workdayExperiencePanelIsBlank,
+  workdayInputInExperiencePanel,
+  workdayPanelMatchesExperience,
   nextWorkdayFormSignature,
   workdayAccountCredentialKind,
   workdayAccountInputs,
@@ -185,7 +188,7 @@ export default function workdayConfig(): SiteRule {
               formStarted = true
               console.log('✓ Work experience section found')
               try {
-                await handleWorkExperience(personalInfo)
+                await fillWorkdayWorkExperience(document, personalInfo)
               } catch (e) {
                 console.error('Error handling work experience:', e)
               }
@@ -425,6 +428,10 @@ export default function workdayConfig(): SiteRule {
       }
     },
     apply: async (input, fieldText, personalInfo) => {
+      // Experience rows are filled by the section handler. The generic matcher
+      // only knows the first profile job, so letting it through copies that job
+      // into every empty row.
+      if (workdayInputInExperiencePanel(input)) return 'skip'
       const application = await workdayApplicationApply(input, fieldText, personalInfo)
       if (application !== false) return application
       for (const { match, handle } of fieldHandlers) {
@@ -1480,102 +1487,114 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
   }
 }
 
-const handleWorkExperience = async (personalInfo: PersonalInfo) => {
-  if (!personalInfo?.experience?.length) return
-  for (let idx = 0; idx < personalInfo.experience.length; idx++) {
-    const experience = personalInfo.experience[idx]
-    console.log(`Processing work experience ${idx + 1}/${personalInfo.experience.length}`)
+function experienceDatePartsEmpty(section: ParentNode, metadataId: string): boolean {
+  const scope = fieldScope(section, metadataId)
+  if (!scope) return false
+  const month = workdayDatePartInput(scope, 'month')
+  const year = workdayDatePartInput(scope, 'year')
+  if (!month && !year) return false
+  return !month?.value.trim() || !year?.value.trim()
+}
 
-    const addBtn = findWorkdaySectionAddButton(document, 'experience')
+async function ensureExperiencePanel(section: Element, experience: PersonalInfo['experience'][number]) {
+  const jobTitleInput = workdayFieldControl(section, 'jobTitle') as HTMLInputElement | null
+  const companyInput = workdayFieldControl(section, 'companyName') as HTMLInputElement | null
+  const descriptionInput = workdayFieldControl(section, 'roleDescription') as HTMLTextAreaElement | null
+  const locationInput = workdayFieldControl(section, 'location') as HTMLInputElement | null
 
-    if (!addBtn) {
-      console.error('Add button not found')
-      break
-    }
-
-    const sectionsBefore = listWorkdayPanels(document, 'experience').length
-    console.log(`Sections before add: ${sectionsBefore}`)
-
-    addBtn.click()
-    console.log('✓ Clicked add button')
-
-    let section: Element | null = null
-    let attempts = 0
-    while (!section && attempts < 10) {
-      await new Promise((resolve) => setTimeout(resolve, 200))
-      const sectionsNow = listWorkdayPanels(document, 'experience')
-      if (sectionsNow.length > sectionsBefore) {
-        section = sectionsNow[sectionsNow.length - 1]
-        console.log(`✓ Found new section (attempt ${attempts + 1})`)
-        break
-      }
-      attempts++
-    }
-
-    if (!section) {
-      console.error('Could not find new work experience section')
-      break
-    }
-
-    // Fill text inputs
-    const jobTitleInput = workdayFieldControl(section, 'jobTitle') as HTMLInputElement | null
-    const companyInput = workdayFieldControl(section, 'companyName') as HTMLInputElement | null
-    const descriptionInput = workdayFieldControl(section, 'roleDescription') as HTMLTextAreaElement | null
-    const locationInput = workdayFieldControl(section, 'location') as HTMLInputElement | null
-
-    console.log(
-      'Inputs found - jobTitle:',
-      !!jobTitleInput,
-      'company:',
-      !!companyInput,
-      'description:',
-      !!descriptionInput,
-      'location:',
-      !!locationInput,
-    )
-
-    if (jobTitleInput) {
-      await fillWorkdayInput(jobTitleInput, experience.jobTitle || '')
-      console.log('✓ Filled job title:', experience.jobTitle)
-    }
-    if (companyInput) {
-      await fillWorkdayInput(companyInput, experience.companyName || '')
-      console.log('✓ Filled company:', experience.companyName)
-    }
-    if (descriptionInput) {
-      await fillWorkdayInput(descriptionInput, experience.description || '')
-      console.log('✓ Filled description')
-    }
-    const location = workdayExperienceLocation(experience.locationCity, experience.locationState)
-    if (locationInput && location) {
-      await fillWorkdayInput(locationInput, location)
-      console.log('✓ Filled location')
-    }
-
-    if (experience.startDate) {
-      await fillWorkdayDate(section, 'startDate', experience.startDate)
-      console.log('✓ Filled start date')
-    }
-
-    // Handle endDate - check "currently work here" if no end date
-    if (experience.present || !experience.endDate) {
-      const currentlyScope = fieldScope(section, 'currentlyWorkHere')
-      const currentlyWorkHere = currentlyScope?.querySelector(
-        'input[type="checkbox"]',
-      ) as HTMLInputElement | null
-      if (currentlyWorkHere) {
-        currentlyWorkHere.click()
-        console.log('✓ Checked currently work here')
-      }
-    } else {
-      await fillWorkdayDate(section, 'endDate', experience.endDate)
-      console.log('✓ Filled end date')
-    }
-
-    // Wait before adding the next experience
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+  if (jobTitleInput && !jobTitleInput.value.trim() && experience.jobTitle) {
+    await fillWorkdayInput(jobTitleInput, experience.jobTitle)
   }
-  console.log('✓ Finished handling all work experiences')
+  if (companyInput && !companyInput.value.trim() && experience.companyName) {
+    await fillWorkdayInput(companyInput, experience.companyName)
+  }
+  if (descriptionInput && !descriptionInput.value.trim() && experience.description) {
+    await fillWorkdayInput(descriptionInput, experience.description)
+  }
+  const location = workdayExperienceLocation(experience.locationCity, experience.locationState)
+  if (locationInput && !locationInput.value.trim() && location) {
+    await fillWorkdayInput(locationInput, location)
+  }
+
+  if (experience.startDate && experienceDatePartsEmpty(section, 'startDate')) {
+    await fillWorkdayDate(section, 'startDate', experience.startDate)
+  }
+
+  // A current role has no end date on the profile. Check the box. Do not write a To date.
+  if (experience.present || !experience.endDate) {
+    const currentlyScope = fieldScope(section, 'currentlyWorkHere')
+    const currentlyWorkHere = currentlyScope?.querySelector(
+      'input[type="checkbox"]',
+    ) as HTMLInputElement | null
+    if (currentlyWorkHere && !currentlyWorkHere.checked) currentlyWorkHere.click()
+    return
+  }
+
+  if (experienceDatePartsEmpty(section, 'endDate')) {
+    await fillWorkdayDate(section, 'endDate', experience.endDate)
+  }
+}
+
+async function waitForAddedExperiencePanel(root: ParentNode, before: number): Promise<Element | null> {
+  for (let attempt = 0; attempt < 11; attempt++) {
+    const sectionsNow = listWorkdayPanels(root, 'experience')
+    if (sectionsNow.length > before) return sectionsNow[sectionsNow.length - 1]
+    if (attempt === 10) break
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  return null
+}
+
+let experienceFillQueue: Promise<unknown> = Promise.resolve()
+
+// One row per profile job. A job whose title and company are already on the page
+// is left in place. A fully blank row is reused. Add is only for a job that is
+// not on the page yet. Calls are serialized so a second autofill cannot click
+// Add while the first is still writing the title.
+export function fillWorkdayWorkExperience(
+  root: ParentNode,
+  personalInfo: PersonalInfo | null | undefined,
+): Promise<number> {
+  const run = experienceFillQueue.then(() => fillWorkdayWorkExperienceOnce(root, personalInfo))
+  experienceFillQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+async function fillWorkdayWorkExperienceOnce(
+  root: ParentNode,
+  personalInfo: PersonalInfo | null | undefined,
+): Promise<number> {
+  const jobs = personalInfo?.experience || []
+  if (jobs.length === 0) return 0
+  let filled = 0
+  for (const experience of jobs) {
+    const panels = listWorkdayPanels(root, 'experience')
+    const existing = panels.find((panel) => workdayPanelMatchesExperience(panel, experience))
+    if (existing) {
+      await ensureExperiencePanel(existing, experience)
+      continue
+    }
+
+    let section = panels.find((panel) => workdayExperiencePanelIsBlank(panel)) || null
+    let added = false
+    if (!section) {
+      const addBtn = findWorkdaySectionAddButton(root, 'experience')
+      if (!addBtn) break
+      const sectionsBefore = panels.length
+      addBtn.click()
+      added = true
+      section = await waitForAddedExperiencePanel(root, sectionsBefore)
+      if (!section) break
+    }
+
+    await ensureExperiencePanel(section, experience)
+    filled += 1
+    if (added) await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  return filled
 }
 
 const handleEducation = async (personalInfo: PersonalInfo) => {
