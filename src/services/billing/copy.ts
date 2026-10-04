@@ -3,7 +3,7 @@
 
 export const PAYWALL_COPY = {
   soft: {
-    title: 'You\u2019ve used 10 of 25 free fills this month',
+    title: 'You\u2019ve used 10 of 25 free fills this week',
     body: 'Go Pro for unlimited autofills \u2014 plus resume AI tailor, ATS score, and multi-profile.',
     primary: 'Upgrade to Pro \u2014 $5.99/mo',
     secondary: 'Continue free (15 fills left)',

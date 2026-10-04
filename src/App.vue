@@ -500,7 +500,7 @@ watch(authStatus, (next, previous) => {
       <AutoDetectSwitch class="section" />
 
       <p v-if="billing" class="quota-note">
-        {{ billing.isPro ? 'Pro · unlimited fills' : `${billing.fillCount} of 25 free fills this month` }}
+        {{ billing.isPro ? 'Pro · unlimited fills' : `${billing.fillCount} of 25 free fills this week` }}
       </p>
 
       <div class="section-header-row">

@@ -3,7 +3,7 @@ import { mergeQuotaRecords, type FillQuotaRecord } from './quota.ts'
 export const FILL_QUOTA_KEY = 'fillQuota'
 
 // Local is the source the content script reads. Sync is best-effort so a second
-// signed-in Chrome profile on the same Google account keeps the monthly count.
+// signed-in Chrome profile on the same Google account keeps the weekly count.
 export async function readFillQuota(now = new Date()): Promise<FillQuotaRecord> {
   const local = await chrome.storage.local.get(FILL_QUOTA_KEY)
   let synced: unknown = null

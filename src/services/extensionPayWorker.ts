@@ -166,7 +166,7 @@ export async function handleBillingMessage(request: {
       plan: entitlement.plan,
       fillCount: quota.successfulFills,
       fillsRemaining: fillsRemaining(quota.successfulFills),
-      month: quota.month,
+      week: quota.week,
       extensionPayConfigured: configured,
     }
   }
