@@ -265,6 +265,41 @@ function classifyResumeUploadError(status, apiMessage) {
   }
 }
 
+// Same key as src/utils/savedResumeFile.ts SAVED_RESUME_STORAGE_KEY. The content
+// script reads it when a Jobvite file input needs the bytes. Sign-out removes it.
+const SAVED_RESUME_STORAGE_KEY = 'savedResumeFile'
+
+function userIdFromAccessToken(token) {
+  if (!token || typeof token !== 'string') return ''
+  const part = token.split('.')[1]
+  if (!part) return ''
+  try {
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (part.length % 4)) % 4)
+    const json = JSON.parse(atob(padded))
+    return typeof json.sub === 'string' ? json.sub : ''
+  } catch {
+    return ''
+  }
+}
+
+async function cacheUploadedResume({ token, fileName, fileType, fileBytesBase64, storagePath }) {
+  if (!fileName || !fileBytesBase64) return
+  try {
+    await chrome.storage.local.set({
+      [SAVED_RESUME_STORAGE_KEY]: {
+        userId: userIdFromAccessToken(token),
+        fileName,
+        fileType: fileType || 'application/octet-stream',
+        bytesBase64: fileBytesBase64,
+        storagePath: storagePath || null,
+        updatedAt: Date.now(),
+      },
+    })
+  } catch (err) {
+    console.error('[resume-upload] could not cache the resume file', err)
+  }
+}
+
 function base64ToBytes(b64) {
   const binary = atob(b64)
   const bytes = new Uint8Array(binary.length)
@@ -321,12 +356,14 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
 
   try {
     if (res.ok && body && body.success === true) {
+      const storagePath = body.data ? body.data.storage_path ?? null : null
+      await cacheUploadedResume({ token, fileName, fileType, fileBytesBase64, storagePath })
       await writeResumeJob({
         phase: 'done',
         fileName,
         firstUpload: body.data ? body.data.first_upload ?? null : null,
         parsed: body.data ? body.data.parsed ?? null : null,
-        storagePath: body.data ? body.data.storage_path ?? null : null,
+        storagePath,
       })
       return
     }
