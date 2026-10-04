@@ -24,11 +24,13 @@ import {
   workdayContactKeyFromElement,
   workdayDatePartInput,
   workdayDisabilityOptionIndex,
+  workdayElementIsFormerEmployee,
+  workdayElementIsSource,
   workdayExperienceLocation,
   workdayFieldControl,
-  workdayIsCustomSourceField,
-  workdayIsFormerEmployeeQuestion,
+  workdayFormerEmployeeListboxButton,
   workdayListboxButton,
+  workdayListboxIsEmpty,
   workdayListboxValue,
   workdayListedSearchText,
   workdayListedValueMatches,
@@ -36,7 +38,11 @@ import {
   workdayOptionLabels,
   workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
+  workdayPreferredSourceOption,
   workdayPromptSearchInput,
+  workdaySafeNoOption,
+  workdaySourceListboxButton,
+  workdaySourceOption,
   workdaySelectKind,
   workdaySelectValue,
 } from './workdayFields.ts'
@@ -62,6 +68,8 @@ export default function workdayConfig(): SiteRule {
       let phoneTypeHandled = false
       let countryHandled = false
       let stateHandled = false
+      let sourceHandled = false
+      let formerEmployeeHandled = false
       let listboxBusy = false
       let disabilityHandled = false
       let selfIdNameHandled = false
@@ -258,6 +266,40 @@ export default function workdayConfig(): SiteRule {
                   }
                 }
               }
+
+              // Required source and former-employee questions have no vault answer.
+              // Country and phone type above are unchanged. Never answer Yes.
+              if (!sourceHandled) {
+                const sourceButton = workdaySourceListboxButton(document)
+                if (sourceButton) {
+                  sourceHandled = true
+                  if (workdayListboxIsEmpty(sourceButton)) {
+                    const optionText = await chooseWorkdaySource(sourceButton)
+                    if (optionText) {
+                      console.log('✓ Selected how you heard about us:', optionText)
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('Source option not found')
+                    }
+                  }
+                }
+              }
+
+              if (!formerEmployeeHandled) {
+                const formerButton = workdayFormerEmployeeListboxButton(document)
+                if (formerButton) {
+                  formerEmployeeHandled = true
+                  if (workdayListboxIsEmpty(formerButton)) {
+                    const optionText = await chooseFirstListedOption(formerButton, workdaySafeNoOption, ['no'])
+                    if (optionText) {
+                      console.log('✓ Selected former employee: No')
+                      await new Promise((resolve) => setTimeout(resolve, 500))
+                    } else {
+                      console.error('Former employee No option not found')
+                    }
+                  }
+                }
+              }
             } finally {
               listboxBusy = false
             }
@@ -394,17 +436,15 @@ const fieldHandlers: Array<{
   handle: FieldHandler
 }> = [
   {
-    // Source / "How did you hear about us" and former-employee / email-id Yes/No
-    // are tenant customs. The vault has neither answer. Claiming them keeps the
-    // generic matcher from inventing Job Board, LinkedIn, Yes, or No.
-    match: (input, fieldText) => {
-      return (
-        fieldText.includes('howdidyouhearaboutus') ||
-        workdayIsCustomSourceField(input) ||
-        workdayIsFormerEmployeeQuestion(fieldText)
-      )
-    },
-    handle: async () => true,
+    // "How did you hear" is a dropdown. Pick a listed option. Claiming the field
+    // keeps the generic matcher from inventing LinkedIn or clicking Yes.
+    match: (input, fieldText) => workdayElementIsSource(input, fieldText),
+    handle: async (input) => chooseWorkdaySourceControl(input),
+  },
+  {
+    // Former / previous employee and "have you worked here" are Yes/No. Safe answer is No.
+    match: (input, fieldText) => workdayElementIsFormerEmployee(input, fieldText),
+    handle: async (input) => chooseWorkdayNoControl(input),
   },
   {
     match: (input, fieldText) => workdaySelectKind(input, fieldText) === 'country',
@@ -597,10 +637,37 @@ async function chooseWorkdayListOption(
   return null
 }
 
+async function chooseFirstListedOption(
+  button: HTMLButtonElement,
+  pick: (labels: string[]) => string | null,
+  searches: string[],
+): Promise<string | null> {
+  const direct = await chooseWorkdayListOption(button, pick, '')
+  if (direct) return direct
+  for (const search of searches) {
+    const label = await chooseWorkdayListOption(button, pick, search)
+    if (label) return label
+  }
+  return null
+}
+
+// Prefer Other, company website, career site, or the tenant careers page.
+// A later pass may use another listed option when those labels are not present.
+async function chooseWorkdaySource(button: HTMLButtonElement): Promise<string | null> {
+  const preferred = await chooseFirstListedOption(button, workdayPreferredSourceOption, [
+    'other',
+    'company website',
+    'career site',
+    'careers',
+  ])
+  if (preferred) return preferred
+  return chooseWorkdayListOption(button, workdaySourceOption, '')
+}
+
 function chooseWorkdaySelect(
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   desired: string,
-  kind: 'country' | 'state' | 'phone',
+  kind: 'country' | 'state' | 'phone' | 'source' | 'no',
 ): boolean {
   // tagName, not instanceof: the element can come from a frame whose
   // HTMLSelectElement is not this window's constructor.
@@ -621,7 +688,9 @@ function chooseWorkdaySelect(
 
 function checkboxLabel(input: HTMLInputElement): string {
   if (input.id) {
-    const label = input.ownerDocument.querySelector(`label[for="${CSS.escape(input.id)}"]`)
+    const escape = input.ownerDocument.defaultView?.CSS?.escape
+    const id = escape ? escape(input.id) : input.id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    const label = input.ownerDocument.querySelector(`label[for="${id}"]`)
     if (label?.textContent) return label.textContent
   }
   return input.closest('label')?.textContent || input.parentElement?.textContent || ''
@@ -639,6 +708,48 @@ function selfIdentificationNameInput(): HTMLInputElement | null {
   if (!fallback || fallback.tagName !== 'INPUT') return null
   if ((fallback.id || '').toLowerCase().includes('legalname')) return null
   return fallback as HTMLInputElement
+}
+
+function radioGroup(input: HTMLInputElement): HTMLInputElement[] {
+  const name = input.getAttribute('name') || input.name
+  const root = input.form || input.ownerDocument
+  if (!name || !root) return [input]
+  const radios = Array.from(root.querySelectorAll('input[type="radio"]')).filter(
+    (radio): radio is HTMLInputElement => radio.getAttribute('name') === name,
+  )
+  return radios.length > 0 ? radios : [input]
+}
+
+function chooseWorkdayRadio(input: HTMLInputElement, pick: (labels: string[]) => string | null): boolean {
+  const group = radioGroup(input)
+  const labels = group.map((radio) => checkboxLabel(radio) || radio.value || '')
+  const choice = pick(labels)
+  if (!choice) return true
+  const want = choice.replace(/\s+/g, ' ').trim().toLowerCase()
+  const mine = (checkboxLabel(input) || input.value || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  if (mine !== want) return true
+  if (!input.checked) input.click()
+  return true
+}
+
+function chooseWorkdaySourceControl(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): boolean {
+  if (input.tagName === 'SELECT') return chooseWorkdaySelect(input, '', 'source')
+  if (input.tagName === 'INPUT' && (input as HTMLInputElement).type === 'radio') {
+    return chooseWorkdayRadio(input as HTMLInputElement, workdaySourceOption)
+  }
+  return true
+}
+
+function chooseWorkdayNoControl(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): boolean {
+  if (input.tagName === 'SELECT') return chooseWorkdaySelect(input, '', 'no')
+  if (input.tagName === 'INPUT' && (input as HTMLInputElement).type === 'radio') {
+    return chooseWorkdayRadio(input as HTMLInputElement, workdaySafeNoOption)
+  }
+  return true
 }
 
 function fieldScope(section: ParentNode, metadataId: string): ParentNode | null {

@@ -642,7 +642,7 @@ export function workdayPhoneTypeOption(optionTexts: string[]): string | null {
   return best
 }
 
-export type WorkdaySelectKind = 'country' | 'state' | 'phone'
+export type WorkdaySelectKind = 'country' | 'state' | 'phone' | 'source' | 'no'
 
 export function workdaySelectKind(input: Element, fieldText = ''): WorkdaySelectKind | null {
   if (input.tagName !== 'SELECT') return null
@@ -686,34 +686,336 @@ export function workdaySelectValue(
   desired: string,
   kind: WorkdaySelectKind,
 ): string | null {
+  const texts = options.map((option) => option.text)
   const label =
     kind === 'phone'
-      ? workdayPhoneTypeOption(options.map((option) => option.text))
-      : matchingOptionText(
-          options.map((option) => option.text),
-          desired,
-          kind,
-        )
+      ? workdayPhoneTypeOption(texts)
+      : kind === 'source'
+        ? workdaySourceOption(texts)
+        : kind === 'no'
+          ? workdaySafeNoOption(texts)
+          : matchingOptionText(texts, desired, kind)
   if (!label) return null
   const want = normalizeListedKey(label)
   const match = options.find((option) => normalizeListedKey(option.text) === want)
   return match ? match.value : null
 }
 
-// "How did you hear" and former-employee / email-id questions have no vault field.
-// Claim them so generic fill cannot invent Job Board, LinkedIn, Yes, or No.
+// "How did you hear" has no vault answer. It is still required on My Information.
+// Pick a listed neutral option. Do not invent a label, and do not answer Yes.
+export function workdayIsSourceQuestion(fieldText: string): boolean {
+  const compact = fieldText.toLowerCase().replace(/[^a-z]/g, '')
+  if (!compact) return false
+  return (
+    compact.includes('howdidyouhear') ||
+    compact.includes('wheredidyouhear') ||
+    compact.includes('howdidyoufindthis') ||
+    compact.includes('howdidyoufindout') ||
+    compact.includes('howdidyoulearnabout')
+  )
+}
+
+// Former / previous employee and "have you worked here" are Yes/No. The safe
+// answer is No. "I currently work here" on a past role is a different control.
 export function workdayIsFormerEmployeeQuestion(fieldText: string): boolean {
   const compact = fieldText.toLowerCase().replace(/[^a-z]/g, '')
   if (!compact) return false
   if (
-    compact.includes('formeremployee') ||
-    compact.includes('previouslyemployed') ||
-    compact.includes('previousemployee') ||
-    compact.includes('ciscoemployee')
+    compact.includes('currentlyworkhere') &&
+    !compact.includes('former') &&
+    !compact.includes('previous') &&
+    !compact.includes('haveyouworked')
   ) {
+    return false
+  }
+  const phrases = [
+    'formeremployee',
+    'previouslyemployed',
+    'previousemployee',
+    'previousworker',
+    'prioremployee',
+    'exemployee',
+    'ciscoemployee',
+    'haveyouworkedhere',
+    'haveyoueverworked',
+    'haveyouworkedfor',
+    'haveyoupreviouslyworked',
+    'haveyoueverbeenemployed',
+    'everbeenanemployee',
+    'everbeenemployed',
+    'currentorformer',
+    'currentemployee',
+    'workedherebefore',
+    'workedforthiscompany',
+    'employedbythis',
+    'employedbyus',
+    'employedhere',
+  ]
+  if (phrases.some((phrase) => compact.includes(phrase))) return true
+  return compact.includes('employee') && compact.includes('emailid')
+}
+
+function probeFrom(el: Element): WorkdayFieldProbe {
+  return {
+    id: el.id,
+    name: el.getAttribute('name'),
+    getAttribute: (name) => el.getAttribute(name),
+  }
+}
+
+export function workdayElementIsSource(input: Element, fieldText = ''): boolean {
+  if (workdayIsSourceQuestion(fieldText) || workdayIsCustomSourceField(probeFrom(input))) return true
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  if (field && field !== input && workdayIsCustomSourceField(probeFrom(field))) return true
+  return workdayIsSourceQuestion(workdayChoiceQuestionText(input))
+}
+
+export function workdayElementIsFormerEmployee(input: Element, fieldText = ''): boolean {
+  if (workdayElementIsSource(input, fieldText)) return false
+  if (workdayIsFormerEmployeeQuestion(fieldText)) return true
+  return workdayIsFormerEmployeeQuestion(workdayChoiceQuestionText(input))
+}
+
+function optionKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function cleanOptionLabel(value: string): string {
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+const PLACEHOLDER_OPTION_KEYS = new Set([
+  '',
+  'select',
+  'select one',
+  'please select',
+  'choose',
+  'choose one',
+  'choose an option',
+])
+
+function isPlaceholderKey(key: string): boolean {
+  return PLACEHOLDER_OPTION_KEYS.has(key)
+}
+
+function isYesKey(key: string): boolean {
+  return key === 'yes' || key.startsWith('yes ')
+}
+
+function isDeclineKey(key: string): boolean {
+  return (
+    key.includes('do not want') ||
+    key.includes('do not wish') ||
+    key.includes('dont want') ||
+    key.includes('dont wish') ||
+    key.includes('decline') ||
+    key.includes('prefer not')
+  )
+}
+
+// Exact "No", or a sentence that starts with No. Not Yes, and not a decline.
+function isSafeNoKey(key: string): boolean {
+  if (!key || isDeclineKey(key) || isYesKey(key)) return false
+  if (key === 'no') return true
+  return key.startsWith('no ')
+}
+
+function isReferralKey(key: string): boolean {
+  return key.includes('referral') || key.includes('referred') || key.includes('recruiter')
+}
+
+function hasOptionWord(key: string, word: string): boolean {
+  return key === word || key.startsWith(`${word} `) || key.endsWith(` ${word}`) || key.includes(` ${word} `)
+}
+
+function isJobBoardKey(key: string): boolean {
+  if (key.includes('job board') || key.includes('jobboard')) return true
+  if (key.includes('career fair') || key.includes('job fair')) return true
+  if (key.includes('careerbuilder') || key.includes('career builder')) return true
+  return ['linkedin', 'indeed', 'glassdoor', 'monster', 'ziprecruiter', 'simplyhired', 'dice'].some((word) =>
+    hasOptionWord(key, word),
+  )
+}
+
+function isCompanyWebsite(key: string): boolean {
+  const website = key.includes('website') || key.includes('web site')
+  const owner =
+    key.includes('company') || key.includes('employer') || key.includes('corporate') || key.includes('our ')
+  if (website && owner) return true
+  return key === 'company site' || key === 'corporate site' || key === 'our site' || key === 'our website'
+}
+
+function isCareerSite(key: string): boolean {
+  return (
+    key.includes('career site') ||
+    key.includes('careers site') ||
+    key.includes('career website') ||
+    key.includes('careers website') ||
+    key.includes('career page') ||
+    key.includes('careers page') ||
+    key.includes('career portal') ||
+    key.includes('careers portal')
+  )
+}
+
+// "Cisco Careers" / "Zillow Group Careers" — the tenant's own careers page.
+function isOwnCareersPage(key: string): boolean {
+  if (isJobBoardKey(key) || key.includes('fair')) return false
+  if (/(^| )careers$/.test(key)) return true
+  return key.includes('careers') && (key.includes('page') || key.includes('site') || key.includes('website'))
+}
+
+// Higher is a better source answer. Preferred labels outrank a leftover option.
+// Yes and employee referral stay at 0: referral opens a name we do not have.
+function sourcePreferenceRank(key: string): number {
+  if (!key || isPlaceholderKey(key) || isYesKey(key) || isReferralKey(key)) return 0
+  if (key === 'other' || key === 'other source') return 100
+  if (key.startsWith('other') && !isJobBoardKey(key)) return 96
+  if (isCompanyWebsite(key)) return 90
+  if (isCareerSite(key)) return 80
+  if (isOwnCareersPage(key)) return 70
+  if (key === 'none' || key === 'none of the above' || key === 'na' || key === 'n a' || key === 'not applicable') {
+    return 65
+  }
+  if (isSafeNoKey(key)) return 60
+  // A leftover label still fills a required dropdown. Specific job boards are last.
+  if (isJobBoardKey(key)) return key.includes('job board') || key.includes('jobboard') ? 12 : 8
+  return 20
+}
+
+export function workdaySafeNoOption(optionTexts: string[]): string | null {
+  const options = optionTexts.map(cleanOptionLabel).filter(Boolean)
+  let exact: string | null = null
+  let prefixed: string | null = null
+  for (const text of options) {
+    const key = optionKey(text)
+    if (!isSafeNoKey(key)) continue
+    if (key === 'no') exact = text
+    else if (!prefixed || text.length < prefixed.length) prefixed = text
+  }
+  return exact || prefixed
+}
+
+// Preferred source labels only (Other, company website, career site, own careers
+// page, or a real No). Job boards are not a match, so a partial prompt cannot
+// settle on LinkedIn before Other has loaded.
+export function workdayPreferredSourceOption(optionTexts: string[]): string | null {
+  return rankedSourceOption(optionTexts, 60)
+}
+
+// Best listed source option. When the preferred labels are absent, another
+// listed option is used so a required question is not left blank.
+export function workdaySourceOption(optionTexts: string[]): string | null {
+  return rankedSourceOption(optionTexts, 1)
+}
+
+function rankedSourceOption(optionTexts: string[], minRank: number): string | null {
+  const ranked = optionTexts
+    .map((text, index) => ({ raw: cleanOptionLabel(text), index }))
+    .filter((option) => option.raw)
+    .map((option) => ({ ...option, rank: sourcePreferenceRank(optionKey(option.raw)) }))
+    .filter((option) => option.rank >= minRank)
+  if (ranked.length === 0) return null
+  ranked.sort((a, b) => b.rank - a.rank || a.index - b.index)
+  return ranked[0].raw
+}
+
+function choiceQuestionParts(control: Element): string[] {
+  const parts: string[] = []
+  const push = (value: string | null | undefined) => {
+    const text = cleanOptionLabel(value || '')
+    if (text) parts.push(text)
+  }
+  push(control.getAttribute('aria-label'))
+  push(control.getAttribute('name'))
+  push(control.id)
+  push(control.getAttribute('data-automation-id'))
+  const doc = control.ownerDocument
+  const labelledBy = control.getAttribute('aria-labelledby') || ''
+  if (doc && labelledBy) {
+    for (const id of labelledBy.split(/\s+/)) {
+      if (id) push(doc.getElementById(id)?.textContent)
+    }
+  }
+  const field =
+    control.closest('[data-automation-id^="formField-"]') ||
+    control.closest('[data-fkit-id]') ||
+    control.closest('fieldset')
+  if (field) {
+    push(field.getAttribute('data-automation-id'))
+    push(field.getAttribute('data-fkit-id'))
+    const label = Array.from(field.children).find(
+      (child) => (child.tagName === 'LABEL' || child.tagName === 'LEGEND') && !child.contains(control),
+    )
+    push((label || field.querySelector('label, legend'))?.textContent)
+  }
+  return parts
+}
+
+function workdayChoiceQuestionText(control: Element): string {
+  return choiceQuestionParts(control).join(' ')
+}
+
+function elementLooksLikeSource(button: HTMLButtonElement): boolean {
+  if (workdayIsCustomSourceField(probeFrom(button)) || workdayIsSourceQuestion(workdayChoiceQuestionText(button))) {
     return true
   }
-  return compact.includes('employee') && compact.includes('emailid')
+  const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  return !!field && field !== button && workdayIsCustomSourceField(probeFrom(field))
+}
+
+function isAddressOrPhoneChoice(button: HTMLButtonElement): boolean {
+  const field = button.closest('[data-automation-id], [data-fkit-id]')
+  const blob = [
+    button.getAttribute('name') || '',
+    button.id || '',
+    button.getAttribute('data-automation-id') || '',
+    field?.getAttribute('data-automation-id') || '',
+    field?.getAttribute('data-fkit-id') || '',
+  ]
+    .join(' ')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '')
+  if (blob.includes('phonedevicetype') || blob.includes('phonetype') || blob.includes('countryphonecode')) return true
+  if (blob.includes('countryregion') || blob.includes('country')) return true
+  return false
+}
+
+function findMyInfoChoiceButton(
+  root: ParentNode,
+  pred: (button: HTMLButtonElement) => boolean,
+): HTMLButtonElement | null {
+  const nodes = root.querySelectorAll('button[aria-haspopup="listbox"]')
+  for (const node of Array.from(nodes)) {
+    if (node.tagName !== 'BUTTON') continue
+    const button = node as HTMLButtonElement
+    if (pred(button)) return button
+  }
+  return null
+}
+
+export function workdaySourceListboxButton(root: ParentNode): HTMLButtonElement | null {
+  const named = workdayListboxButton(root, 'source')
+  if (named && elementLooksLikeSource(named) && !isAddressOrPhoneChoice(named)) return named
+  return findMyInfoChoiceButton(root, (button) => !isAddressOrPhoneChoice(button) && elementLooksLikeSource(button))
+}
+
+export function workdayFormerEmployeeListboxButton(root: ParentNode): HTMLButtonElement | null {
+  return findMyInfoChoiceButton(root, (button) => {
+    if (isAddressOrPhoneChoice(button) || elementLooksLikeSource(button)) return false
+    return workdayIsFormerEmployeeQuestion(workdayChoiceQuestionText(button))
+  })
+}
+
+export function workdayListboxIsEmpty(button: HTMLElement): boolean {
+  const key = optionKey(workdayListboxValue(button))
+  if (isPlaceholderKey(key)) return true
+  const question = optionKey(workdayChoiceQuestionText(button))
+  return !!question && key === question
 }
 
 export function workdayDisabilityOptionIndex(labels: string[], status: string): number {
