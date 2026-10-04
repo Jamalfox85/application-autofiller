@@ -931,23 +931,63 @@ function activeSourcePrompt(button: HTMLElement): ParentNode | null {
   return prompt
 }
 
+function normalizedSourceLabel(value: string): string {
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function sourceChildKeepsChoice(parent: string, child: string): boolean {
+  const key = (value: string) => normalizedSourceLabel(value).replace(/[^a-z0-9]+/g, ' ').trim()
+  const parentKey = key(parent)
+  const childKey = key(child)
+  if (parentKey === 'other' || parentKey.startsWith('other ')) {
+    return childKey === 'other' || childKey.startsWith('other ')
+  }
+  return true
+}
+
+// The closed face "0 items selected" and the open list name "Options Expanded"
+// are not a chosen value. A real pill changes the instruction to include the label.
+function sourceInstructionShows(text: string, label: string): boolean {
+  const shown = normalizedSourceLabel(text)
+  const want = normalizedSourceLabel(label)
+  if (!shown || !want) return false
+  const key = shown.replace(/[^a-z0-9]+/g, ' ').trim()
+  if (/^(?:0|no|none) items? selected(?: press enter.*)?$/.test(key)) return false
+  if (key === 'options expanded' || key === 'search results') return false
+  return shown === want || shown.includes(want)
+}
+
+function sourceFieldRoot(button: HTMLElement): ParentNode | null {
+  return button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
+}
+
+// A selected pill's visible text node is promptOption inside selectedItem. The
+// delete charm sits beside it, so the container's full text is not just the label.
 function sourceControlShows(button: HTMLElement, label: string): boolean {
   if (listboxShowsLabel(button, label)) return true
-  const want = label.replace(/\s+/g, ' ').trim().toLowerCase()
+  const want = normalizedSourceLabel(label)
   if (!want) return false
   if (button.tagName === 'INPUT' || button.tagName === 'TEXTAREA') {
-    const value = (button as HTMLInputElement).value.replace(/\s+/g, ' ').trim().toLowerCase()
+    const value = normalizedSourceLabel((button as HTMLInputElement).value)
     if (value === want) return true
   }
-  const field = button.closest('[data-automation-id^="formField-"], [data-fkit-id]') || button.parentElement
+  const field = sourceFieldRoot(button)
   if (!field) return false
   const pills = field.querySelectorAll(
     '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]',
   )
   for (const pill of Array.from(pills)) {
-    const text = (pill.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()
-    if (text === want) return true
+    const own = normalizedSourceLabel(pill.getAttribute('data-automation-label') || pill.textContent || '')
+    if (own === want) return true
+    const option = pill.querySelector('[data-automation-id="promptOption"]')
+    if (!option) continue
+    const optionLabel = normalizedSourceLabel(
+      option.getAttribute('data-automation-label') || option.textContent || '',
+    )
+    if (optionLabel === want) return true
   }
+  const instruction = field.querySelector('[data-automation-id="promptAriaInstruction"]')
+  if (instruction && sourceInstructionShows(instruction.textContent || '', label)) return true
   return false
 }
 
@@ -993,18 +1033,35 @@ function closeCommittedSourcePrompt(button: HTMLElement, label: string): boolean
   return sourceControlShows(button, label)
 }
 
+// A selectable list paints a radio or checkbox and the click stores a pill.
+// This catalog does neither, so the same click is onSelectFolder and the list
+// swaps to that row's children. A highlighted row is not a pill. Follow a list
+// change, and only keep a child that is still the choice we opened.
 async function commitSourceChoice(
   button: HTMLElement,
   prompt: ParentNode,
   label: string,
+  depth = 0,
 ): Promise<string | null> {
+  if (depth > 2) return null
   const option = workdayOptionElement(prompt, label)
   if (!option) return null
+  const before = sourceLabelKey(substantivePromptLabels(workdayOptionLabels(prompt)))
   activateWorkdayOption(promptRowTarget(option))
   const started = Date.now()
-  while (Date.now() - started < 500) {
+  while (Date.now() - started < 1200) {
     if (sourceControlShows(button, label)) {
       return closeCommittedSourcePrompt(button, label) ? label : null
+    }
+    const current = activeSourcePrompt(button)
+    const labels = current ? substantivePromptLabels(workdayOptionLabels(current)) : []
+    const key = sourceLabelKey(labels)
+    if (current && labels.length > 0 && key !== before) {
+      const child = workdayCompanyOwnedSourceOption(sourceLeafLabels(current), sourceCompanyToken(button))
+      // Other on the root is the value we want. Its folder may also list
+      // Career Websites or Blue Origin Website; those are not the pill.
+      if (!child || !sourceChildKeepsChoice(label, child)) return null
+      return commitSourceChoice(button, current, child, depth + 1)
     }
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
