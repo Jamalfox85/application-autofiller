@@ -45,7 +45,9 @@ import {
   workdayListedSearchText,
   workdayListedValueMatches,
   workdayOptionElement,
+  workdayOptionElements,
   workdayOptionLabels,
+  workdayPromptRowIsFolder,
   workdayPhoneDeviceTypeButton,
   workdayPhoneTypeOption,
   workdayCompanyOwnedSourceOption,
@@ -1106,6 +1108,15 @@ async function openSourceCatalog(button: HTMLElement): Promise<string[] | null> 
   return waitForSourceLabels(button, (rows) => rows.length > 0)
 }
 
+// Folders are parents. A company-owned leaf on the same list, such as Other, is
+// the selection. Opening Career Websites while Other is still on the root leaves
+// a highlighted child and no pill.
+function sourceLeafLabels(prompt: ParentNode): string[] {
+  return workdayOptionElements(prompt)
+    .filter((choice) => !workdayPromptRowIsFolder(choice.element))
+    .map((choice) => choice.label)
+}
+
 // Other, then a career site (including "Career Websites"), then the employer's
 // own site. A nested top row is a folder. A list with none of those stays empty.
 async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> {
@@ -1122,15 +1133,15 @@ async function chooseWorkdaySource(button: HTMLElement): Promise<string | null> 
     collapseOpenListbox()
     return null
   }
-  if (workdayFolderOptions(prompt).length > 0) return selectNestedWorkdaySource(button, company)
-  const choice = workdayCompanyOwnedSourceOption(labels, company)
-  if (!choice) {
-    collapseOpenListbox()
-    return null
+  const leafChoice = workdayCompanyOwnedSourceOption(sourceLeafLabels(prompt), company)
+  if (leafChoice) {
+    const committed = await commitSourceChoice(button, prompt, leafChoice)
+    if (!committed) collapseOpenListbox()
+    return committed
   }
-  const committed = await commitSourceChoice(button, prompt, choice)
-  if (!committed) collapseOpenListbox()
-  return committed
+  if (workdayFolderOptions(prompt).length > 0) return selectNestedWorkdaySource(button, company)
+  collapseOpenListbox()
+  return null
 }
 
 export async function selectWorkdaySource(button: HTMLElement): Promise<string | null> {
