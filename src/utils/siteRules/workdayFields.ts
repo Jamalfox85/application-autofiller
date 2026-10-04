@@ -1206,6 +1206,64 @@ function probeFrom(el: Element): WorkdayFieldProbe {
   }
 }
 
+// Education "School or University" is a prompt. The closed input can show a
+// typed name while Workday still says the field has no value. LinkedIn, degree,
+// and former-employee questions are different controls.
+export function workdayElementIsSchool(input: Element, fieldText = ''): boolean {
+  if (workdayElementIsPhoneDeviceType(input)) return false
+  if (workdayElementIsSource(input, fieldText)) return false
+  if (workdayElementIsFormerEmployee(input, fieldText)) return false
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  const idBlob = compactIdBlob([
+    input.id,
+    input.getAttribute('name'),
+    input.getAttribute('data-automation-id'),
+    field?.getAttribute('data-automation-id'),
+    field?.getAttribute('data-fkit-id'),
+  ])
+  if (
+    idBlob.includes('linkedin') ||
+    idBlob.includes('degree') ||
+    idBlob.includes('fieldofstudy') ||
+    idBlob.includes('major')
+  ) {
+    return false
+  }
+  if (idBlob.includes('school') || idBlob.includes('university') || idBlob.includes('college')) return true
+  const label = `${fieldText} ${workdayChoiceQuestionText(input)}`.toLowerCase().replace(/[^a-z]/g, '')
+  if (!label || label.includes('linkedin') || label.includes('degree') || label.includes('fieldofstudy')) return false
+  return label.includes('school') || label.includes('university') || label.includes('college')
+}
+
+// A prompt with no selected school is still empty when the input shows the
+// profile name. Autofill has to open it again. A committed pill stays as it is.
+export function workdaySchoolPromptNeedsFill(input: Element): boolean {
+  if (!workdayElementIsSchool(input)) return false
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  if (!field) return false
+  const backed = field.querySelector(
+    '[data-automation-id="multiSelectContainer"], [data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"], [data-automation-id="selectedItemList"]',
+  )
+  if (!backed) return false
+  const pills = field.querySelectorAll(
+    '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]',
+  )
+  for (const pill of Array.from(pills)) {
+    const option = pill.querySelector('[data-automation-id="promptOption"]')
+    const text = (
+      option?.getAttribute('data-automation-label') ||
+      option?.textContent ||
+      pill.getAttribute('data-automation-label') ||
+      pill.textContent ||
+      ''
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text && text.toLowerCase() !== 'delete') return false
+  }
+  return true
+}
+
 export function workdayElementIsSource(input: Element, fieldText = ''): boolean {
   if (workdayElementIsPhoneDeviceType(input)) return false
   if (workdayIsSourceQuestion(fieldText) || workdayIsCustomSourceField(probeFrom(input))) return true
