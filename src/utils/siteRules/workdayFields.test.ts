@@ -2600,6 +2600,88 @@ test('Blue Origin source typeahead highlight is not an Other pill', async () => 
   assert.equal(workdayPromptFaceIsEmpty(input), false)
 })
 
+test('Blue Origin root Other is committed without opening the Career Websites folder', async () => {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-source" data-fkit-id="source--source">
+        <label id="source-label">How Did You Hear About Us?</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="source--source" type="text" placeholder="Search" value="" aria-required="true" />
+          <div data-automation-id="promptAriaInstruction" aria-hidden="true">0 items selected</div>
+          <span data-automation-id="promptIcon" id="source-icon" aria-hidden="true"></span>
+        </div>
+      </div>
+    </body>`,
+    { url: 'https://blueorigin.wd5.myworkdayjobs.com/en-US/BlueOrigin/apply' },
+  )
+  const doc = dom.window.document
+  const input = doc.getElementById('source--source') as HTMLInputElement
+  const icon = doc.getElementById('source-icon') as HTMLElement
+  const instruction = doc.querySelector('[data-automation-id="promptAriaInstruction"]') as HTMLElement
+  const committed: string[] = []
+  const folderClicks: string[] = []
+  const childClicks: string[] = []
+  let pointerDown = false
+  icon.addEventListener('mousedown', (event) => {
+    pointerDown = event.button === 0
+  })
+  icon.addEventListener('mouseup', (event) => {
+    if (event.button !== 0) pointerDown = false
+  })
+  icon.addEventListener('click', () => {
+    if (!pointerDown) return
+    pointerDown = false
+    if (doc.getElementById('source-popup')) return
+    const popup = doc.createElement('div')
+    popup.id = 'source-popup'
+    popup.setAttribute('data-automation-id', 'responsiveMonikerPrompt')
+    const career = sourceFolder(doc, 'Career Websites')
+    career.addEventListener('click', () => {
+      folderClicks.push('Career Websites')
+      popup.replaceChildren()
+      const back = doc.createElement('button')
+      back.type = 'button'
+      back.setAttribute('data-automation-id', 'backButton')
+      back.textContent = 'Career Websites'
+      popup.appendChild(back)
+      const child = sourceLeaf(doc, 'Blue Origin Website', (chosen) => {
+        childClicks.push(chosen)
+        child.setAttribute('aria-selected', 'true')
+      })
+      const radio = doc.createElement('div')
+      radio.setAttribute('data-automation-id', 'radioBtn')
+      child.appendChild(radio)
+      child.setAttribute('aria-selected', 'true')
+      popup.appendChild(child)
+    })
+    popup.appendChild(career)
+    for (const label of ['College/University', 'Event', 'Job Sites', 'Military/Veteran', 'News', 'Other']) {
+      popup.appendChild(
+        sourceLeaf(doc, label, (chosen) => {
+          committed.push(chosen)
+          const pill = doc.createElement('div')
+          pill.setAttribute('data-automation-id', 'selectedItem')
+          pill.textContent = chosen
+          icon.parentElement?.appendChild(pill)
+          instruction.textContent = '1 item selected'
+          popup.remove()
+        }),
+      )
+    }
+    doc.body.appendChild(popup)
+  })
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  assert.equal(await rule.apply(input, 'howdidyouhearaboutus', {} as PersonalInfo), true)
+  assert.deepEqual(folderClicks, [])
+  assert.deepEqual(childClicks, [])
+  assert.deepEqual(committed, ['Other'])
+  assert.equal(doc.querySelector('[data-automation-id="selectedItem"]')?.textContent, 'Other')
+  assert.equal(doc.getElementById('source-popup'), null)
+  assert.notEqual(instruction.textContent, '0 items selected')
+  assert.equal(workdayPromptFaceIsEmpty(input), false)
+})
+
 test('previously been employed or worked as a contractor selects No', async () => {
   const question = 'Have you previously been employed or worked as a contractor at Blue Origin?'
   assert.equal(workdayIsFormerEmployeeQuestion(question), true)
