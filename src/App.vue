@@ -27,7 +27,7 @@ import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDia
 import PaywallDialog from './components/PaywallDialog.vue'
 import ResumeAiDialog from './components/ResumeAiDialog.vue'
 import ProfileRosterDialog from './components/ProfileRosterDialog.vue'
-import { fetchBillingState, type BillingState } from '@/services/billing/client'
+import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
 import { rememberActiveProfile } from '@/services/billing/profileRoster'
 import {
   WORKDAY_ACCOUNT_NOTICE_KEY,
@@ -68,6 +68,34 @@ const profilesOpen = ref(false)
 
 const refreshBilling = async () => {
   billing.value = await fetchBillingState()
+}
+
+// Pro already has unlimited fills. The home-screen Upgrade button is only for
+// free accounts, matching the Pro rows that open features instead of checkout.
+const showUpgrade = computed(() => billing.value != null && !billing.value.isPro)
+const upgradeBusy = ref(false)
+
+const startUpgrade = async () => {
+  if (upgradeBusy.value || !showUpgrade.value) return
+  upgradeBusy.value = true
+  try {
+    const opened = await openProCheckout({
+      plan: 'monthly',
+      source: 'popup',
+      fillCount: billing.value?.fillCount ?? null,
+      atsSite: null,
+    })
+    if (!opened.ok) {
+      showNotification(
+        opened.error === 'extensionpay_not_configured'
+          ? 'Checkout needs VITE_EXTENSIONPAY_EXTENSION_ID in this build.'
+          : 'Couldn’t open checkout. Try again.',
+        'error',
+      )
+    }
+  } finally {
+    upgradeBusy.value = false
+  }
 }
 
 const openPaywall = (
@@ -467,16 +495,21 @@ watch(authStatus, (next, previous) => {
       </div>
 
       <div class="fill-actions">
-        <button
-          class="autofill-btn"
-          :disabled="!detection.detected || autofillState !== 'idle'"
-          @click="autofillCurrentPage"
-        >
-          <span v-if="autofillState === 'idle'">Auto-fill application</span>
-          <span v-else-if="autofillState === 'filling'">Filling fields…</span>
-          <span v-else>Filled {{ lastFillCount?.filled }} of {{ lastFillCount?.total }} fields</span>
-          <span v-if="autofillState === 'idle' && detection.detected" class="shortcut-badge">⌘⇧F</span>
-        </button>
+        <div class="fill-actions-row">
+          <button
+            class="autofill-btn"
+            :disabled="!detection.detected || autofillState !== 'idle'"
+            @click="autofillCurrentPage"
+          >
+            <span v-if="autofillState === 'idle'">Auto-fill application</span>
+            <span v-else-if="autofillState === 'filling'">Filling fields…</span>
+            <span v-else>Filled {{ lastFillCount?.filled }} of {{ lastFillCount?.total }} fields</span>
+            <span v-if="autofillState === 'idle' && detection.detected" class="shortcut-badge">⌘⇧F</span>
+          </button>
+          <button v-if="showUpgrade" class="upgrade-btn" type="button" @click="startUpgrade">
+            Upgrade
+          </button>
+        </div>
         <button v-if="!detection.detected" class="scan-btn" @click="scanCurrentPageManually">
           Scan this page manually
         </button>
@@ -802,8 +835,16 @@ watch(authStatus, (next, previous) => {
   gap: 8px;
 }
 
+.fill-actions-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .autofill-btn {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border: none;
   border-radius: 9px;
   background: #7c3aed;
@@ -830,6 +871,28 @@ watch(authStatus, (next, previous) => {
     border: 1px solid #26262c;
     color: #5c5c66;
     cursor: not-allowed;
+  }
+}
+
+.upgrade-btn {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 9px;
+  background: #7c3aed;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 12px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+  &:hover {
+    background: #8b5cf6;
+  }
+  &:active {
+    background: #6d28d9;
   }
 }
 
