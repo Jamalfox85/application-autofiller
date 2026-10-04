@@ -1501,3 +1501,65 @@ test('Cisco degree list commits Bachelor of Science while another listbox is ope
   assert.equal(chosen.includes('Associate of Science'), false)
   assert.equal(chosen.includes('Bachelor of Arts'), false)
 })
+
+// Cisco renders degree as a Canvas Select. The closed label stays "Select One"
+// until the hidden input receives the option id. Clicking the row or typing the
+// degree name does not change that label. Associate of Science is a different id.
+test('Cisco degree select commits Bachelor of Science through the option id', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="selectedItemList" role="listbox">
+      <div data-automation-id="selectedItem">Kennesaw State University</div>
+    </div>
+    <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+      <button id="degree" type="button" aria-haspopup="listbox" aria-expanded="false">Select One</button>
+      <input id="degree-value" type="text" value="" />
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const input = doc.getElementById('degree-value') as HTMLInputElement
+  const options = [
+    { label: 'Select One', value: '' },
+    { label: 'Doctor of Medicine (MD)', value: 'md' },
+    { label: 'Associate of Science', value: 'as' },
+    { label: 'Bachelor of Science', value: 'bs' },
+    { label: 'Doctor of Medicine', value: 'md2' },
+    { label: 'Juris Doctorate', value: 'jd' },
+  ]
+  const applyValue = () => {
+    const match = options.find((option) => option.value && option.value === input.value)
+    if (match) button.textContent = match.label
+  }
+  input.addEventListener('input', applyValue)
+  input.addEventListener('change', applyValue)
+  button.addEventListener('click', () => {
+    if (doc.getElementById('degree-menu')) return
+    button.setAttribute('aria-expanded', 'true')
+    button.setAttribute('aria-controls', 'degree-menu')
+    const menu = doc.createElement('ul')
+    menu.id = 'degree-menu'
+    menu.setAttribute('role', 'listbox')
+    for (const option of options) {
+      const row = doc.createElement('li')
+      row.setAttribute('role', 'option')
+      row.setAttribute('data-value', option.value)
+      const text = doc.createElement('div')
+      text.textContent = option.label
+      text.addEventListener('mousedown', (event) => event.stopPropagation())
+      text.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      })
+      row.appendChild(text)
+      menu.appendChild(row)
+    }
+    doc.body.appendChild(menu)
+  })
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.equal(button.textContent, 'Bachelor of Science')
+  assert.equal(input.value, 'bs')
+  assert.notEqual(input.value, 'as')
+  assert.notEqual(button.textContent, 'Associate of Science')
+  assert.notEqual(button.textContent, 'Select One')
+})
