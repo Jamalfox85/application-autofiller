@@ -140,6 +140,9 @@ export type SiteRule = {
   // fillTelemetry is read after the pass and must not decide success or failure.
   prepareFill?: () => void
   fillTelemetry?: () => Record<string, number | boolean | string> | null
+  // A prefilled control the rule still needs to visit. Other fields with a
+  // value stay skipped.
+  includeFilled?: (input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) => boolean
 }
 
 export type FieldMatch = (

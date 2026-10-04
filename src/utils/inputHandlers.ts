@@ -509,9 +509,13 @@ export async function setDateValue(input: HTMLInputElement, matchedValue: string
 
   return true
 }
+// When set, chooses one visible menu label. The default path (state) is unchanged.
+export type BambooMenuPicker = (optionTexts: string[]) => string | null
+
 export const fillBambooHRSelect = (
   selectButton: HTMLButtonElement,
   value: string | string[],
+  pick?: BambooMenuPicker,
 ): Promise<void> => {
   return new Promise((resolve) => {
     const values = Array.isArray(value) ? value : [value]
@@ -600,8 +604,8 @@ export const fillBambooHRSelect = (
           await new Promise((r) => setTimeout(r, 50))
         }
 
-        // Step 5: Wait for options to appear and click the first one
-        const found = await waitForBambooHROption(currentValue)
+        // Step 5: Wait for options to appear and click the match.
+        const found = await waitForBambooHROption(currentValue, 20, 0, pick)
 
         if (found) {
           await new Promise((r) => setTimeout(r, 300))
@@ -626,6 +630,7 @@ const waitForBambooHROption = (
   searchValue: string,
   maxRetries = 20,
   retryCount = 0,
+  pick?: BambooMenuPicker,
 ): Promise<boolean> => {
   return new Promise((resolve) => {
     const options = document.querySelectorAll('[role="menuitem"]')
@@ -634,21 +639,46 @@ const waitForBambooHROption = (
       `[waitForBambooHROption] Retry ${retryCount}/${maxRetries} - Found ${options.length} options`,
     )
 
-    if (options.length === 0) {
+    const retryLater = () => {
       if (retryCount < maxRetries) {
         setTimeout(() => {
-          resolve(waitForBambooHROption(searchValue, maxRetries, retryCount + 1))
+          resolve(waitForBambooHROption(searchValue, maxRetries, retryCount + 1, pick))
         }, 100)
-      } else {
-        console.log(`[waitForBambooHROption] FAILED - No options found`)
-        resolve(false)
+        return
       }
+      resolve(false)
+    }
+
+    if (options.length === 0) {
+      if (retryCount >= maxRetries) console.log(`[waitForBambooHROption] FAILED - No options found`)
+      retryLater()
+      return
+    }
+
+    const optionTexts = Array.from(options).map((el) => el.textContent?.trim() || '')
+    console.log(`[waitForBambooHROption] Available options:`, optionTexts)
+
+    if (pick) {
+      const chosen = pick(optionTexts)
+      const wanted = chosen?.trim().toLowerCase() || ''
+      const picked = wanted
+        ? (Array.from(options).find((el) => (el.textContent?.trim().toLowerCase() || '') === wanted) as
+            | HTMLElement
+            | undefined)
+        : undefined
+      if (picked) {
+        console.log(`[waitForBambooHROption] SUCCESS - Picked: "${picked.textContent?.trim()}"`)
+        picked.click()
+        resolve(true)
+        return
+      }
+      // A country picker must not fall through to the first row (often United States
+      // or Afghanistan) when the profile country is not in the menu yet.
+      retryLater()
       return
     }
 
     const normalizedSearch = searchValue.toLowerCase().trim()
-    const optionTexts = Array.from(options).map((el) => el.textContent?.trim())
-    console.log(`[waitForBambooHROption] Available options:`, optionTexts)
     console.log(`[waitForBambooHROption] Looking for: "${normalizedSearch}"`)
 
     const match = Array.from(options).find((el) => {
@@ -671,13 +701,7 @@ const waitForBambooHROption = (
         firstOption.click()
         resolve(true)
       } else {
-        if (retryCount < maxRetries) {
-          setTimeout(() => {
-            resolve(waitForBambooHROption(searchValue, maxRetries, retryCount + 1))
-          }, 100)
-        } else {
-          resolve(false)
-        }
+        retryLater()
       }
     }
   })
