@@ -18,6 +18,7 @@ import {
 import {
   getIcimsAccount,
   hasIcimsAccountCredentials,
+  icimsAccountPassword,
   isIcimsLoginSurface,
   type IcimsPageSignals,
 } from './icimsAccount.ts'
@@ -490,7 +491,11 @@ export function planIcimsFill(
     if (!icimsWritesGatePassword(personalInfo)) {
       return { field, action: 'leave', reason: 'password-missing' }
     }
-    return { field, action: 'text', value: getIcimsAccount(personalInfo).password }
+    return {
+      field,
+      action: 'text',
+      value: icimsAccountPassword(getIcimsAccount(personalInfo).password),
+    }
   }
 
   if (field === 'gateEmail') return textOrEmpty(field, emailForGate(personalInfo))

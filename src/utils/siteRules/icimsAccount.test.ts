@@ -6,11 +6,13 @@ import type { ApplicationAccount } from '../../types/index.ts'
 import {
   getIcimsAccount,
   hasIcimsAccountCredentials,
+  icimsAccountPassword,
   isIcimsAccountCreationEmailStep,
   isIcimsCandidateHost,
   isIcimsLoginPath,
   isIcimsLoginSurface,
   pageHasEmailGate,
+  passwordForApplicationAccount,
 } from './icimsAccount.ts'
 import {
   ICIMS_ACCOUNT_MISSING_MESSAGE,
@@ -202,6 +204,32 @@ test('icims fill stub still writes email autocomplete and skips AddressStreet2',
     await rule.apply(street2 as unknown as HTMLInputElement, 'FirstName', {} as never),
     false,
   )
+})
+
+test('iCIMS account password must include an uppercase letter', () => {
+  const failing = 'correct horse'
+  const rewritten = icimsAccountPassword(failing)
+  assert.notEqual(rewritten, failing)
+  assert.match(rewritten, /[A-Z]/)
+  assert.equal(rewritten, 'Correct horse')
+  assert.equal(icimsAccountPassword(rewritten), rewritten)
+
+  const passing = 'Correct horse'
+  assert.equal(icimsAccountPassword(passing), passing)
+  assert.equal(icimsAccountPassword('aB'), 'aB')
+  assert.equal(icimsAccountPassword('A'), 'A')
+  assert.equal(icimsAccountPassword(''), '')
+
+  const digits = '1234'
+  const digitsRewritten = icimsAccountPassword(digits)
+  assert.match(digitsRewritten, /[A-Z]/)
+  assert.equal(digitsRewritten, '1234A')
+
+  for (const portal of ['Workday', 'Greenhouse', 'Ashby', 'Lever', 'Jobvite', 'Workable', 'BambooHR']) {
+    assert.equal(passwordForApplicationAccount(portal, failing), failing)
+  }
+  assert.equal(passwordForApplicationAccount('iCIMS', passing), passing)
+  assert.equal(passwordForApplicationAccount(' ICIMS ', failing), 'Correct horse')
 })
 
 test('getIcimsAccount prefers an iCIMS application account and skips other portals', () => {
