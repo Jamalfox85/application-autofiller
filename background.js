@@ -308,6 +308,25 @@ function base64ToBytes(b64) {
   return bytes
 }
 
+function bytesToBase64(bytes) {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+// chrome.runtime.sendMessage JSON-serializes. A Uint8Array arrives as
+// {"0":37,"1":80}, so the same reply also carries base64. Callers that still
+// read `bytes` in memory are unchanged.
+function savedResumeReply(result) {
+  if (!result || result.ok !== true || !(result.bytes instanceof Uint8Array) || result.bytes.byteLength === 0) {
+    return result
+  }
+  return { ...result, bytesBase64: bytesToBase64(result.bytes) }
+}
+
 async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBase64 }) {
   await writeResumeJob({ phase: 'uploading', fileName })
 
@@ -453,7 +472,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // This does not click Apply, Next, Submit, or an autofill-from-resume control.
   if (request.action === 'loadSavedResume') {
     loadSavedResumeForWorker()
-      .then((result) => sendResponse(result))
+      .then((result) => sendResponse(savedResumeReply(result)))
       .catch(() => sendResponse({ ok: false }))
     return true
   }

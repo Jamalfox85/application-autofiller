@@ -6,6 +6,7 @@ import { getSiteLabel } from '../jobSitePatterns.ts'
 import {
   classifyWorkableQuestion,
   compareWorkableFill,
+  isWorkablePlainResumeFile,
   workableAddressValue,
   workableMaySubmit,
   workableMonthYear,
@@ -17,6 +18,12 @@ import {
   type WorkableField,
   type WorkableProfile,
 } from './workableFields.ts'
+import {
+  bytesToBase64,
+  profileSavedResume,
+  savedResumeFromMessage,
+  savedResumeFromStored,
+} from './workableResume.ts'
 import workableConfig, {
   describeWorkableField,
   isWorkableApplyPage,
@@ -112,6 +119,120 @@ test('resume is recognized and not written from the filename', () => {
   assert.deepEqual(
     workablePlan(field({ dataUi: 'resume', type: 'file' }), profile),
     { action: 'skip' },
+  )
+  assert.equal(profileSavedResume({ resumeFileName: 'ada.pdf' }), null)
+  assert.equal(savedResumeFromStored({ fileName: 'ada.pdf' }), null)
+  assert.equal(
+    savedResumeFromMessage({ ok: true, name: 'ada.pdf' }),
+    null,
+  )
+  // Chrome's default messaging JSON-encodes a Uint8Array into {"0":37,"1":80}.
+  const jsonUint8 = JSON.parse(
+    JSON.stringify({
+      ok: true,
+      fileName: 'ada-lovelace.pdf',
+      mimeType: 'application/pdf',
+      bytes: Uint8Array.from([0x25, 0x50, 0x44, 0x46]),
+    }),
+  ) as { bytes: unknown }
+  assert.equal(jsonUint8.bytes instanceof Uint8Array, false)
+  assert.equal(Array.isArray(jsonUint8.bytes), false)
+  assert.equal(savedResumeFromMessage(jsonUint8), null)
+  assert.equal(
+    savedResumeFromMessage({
+      ok: true,
+      name: 'ada-lovelace.pdf',
+      type: 'application/pdf',
+      bytes: { 0: 0x25, 1: 0x50, 2: 0x44, 3: 0x46 },
+    }),
+    null,
+  )
+})
+
+const SAVED_BYTES = [0x25, 0x50, 0x44, 0x46, 0x2d]
+
+test('a saved resume attaches only to a plain file input', () => {
+  const saved: WorkableProfile = {
+    ...profile,
+    resumeFile: {
+      name: 'ada-lovelace.pdf',
+      type: 'application/pdf',
+      bytes: SAVED_BYTES,
+    },
+  }
+  assert.equal(profileSavedResume(saved)?.name, 'ada-lovelace.pdf')
+  assert.deepEqual(Array.from(profileSavedResume(saved)?.bytes ?? []), SAVED_BYTES)
+  assert.deepEqual(workablePlan(field({ dataUi: 'resume', type: 'file' }), saved), { action: 'file' })
+  assert.equal(isWorkablePlainResumeFile(field({ name: 'upload', type: 'file', label: 'Choose file' })), true)
+  assert.deepEqual(
+    workablePlan(field({ name: 'upload', type: 'file', label: 'Choose file' }), saved),
+    { action: 'file' },
+  )
+  assert.deepEqual(workablePlan(field({ type: 'file', label: 'Upload' }), saved), { action: 'file' })
+  assert.deepEqual(
+    workablePlan(field({ type: 'file', sectionUi: 'resume' }), saved),
+    { action: 'file' },
+  )
+  assert.deepEqual(workablePlan(field({ dataUi: 'resume', type: 'file' }), profile), { action: 'skip' })
+  assert.deepEqual(
+    workablePlan(field({ dataUi: 'cover_letter', type: 'file', label: 'Cover letter' }), saved),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ dataUi: 'avatar', type: 'file', label: 'Photo' }), saved),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ name: 'QA_88001', type: 'file', label: 'Choose file' }), saved),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ dataUi: 'autofill-button', type: 'button', label: 'Autofill with resume' }), saved),
+    { action: 'skip' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ type: 'button', label: 'Import resume from' }), saved),
+    { action: 'skip' },
+  )
+  assert.equal(workableMaySubmit(), false)
+
+  const stored = savedResumeFromStored({
+    filePath: '00000000-0000-0000-0000-000000000000/object-id.pdf',
+    fileName: 'ada-lovelace.pdf',
+    bytes: Uint8Array.from(SAVED_BYTES),
+    mimeType: 'application/pdf',
+  })
+  assert.equal(stored?.name, 'ada-lovelace.pdf')
+  assert.deepEqual(Array.from(stored?.bytes ?? []), SAVED_BYTES)
+  assert.equal(
+    savedResumeFromStored({
+      filePath: '00000000-0000-0000-0000-000000000000/object-id.pdf',
+      fileName: 'ada-lovelace.pdf',
+      bytes: new Uint8Array(),
+    }),
+    null,
+  )
+  assert.equal(
+    savedResumeFromStored({
+      fileName: 'ada.pdf',
+      bytes: Uint8Array.from(SAVED_BYTES),
+    }),
+    null,
+  )
+  const namedFromPath = savedResumeFromStored({
+    filePath: '00000000-0000-0000-0000-000000000000/object-id.pdf',
+    fileName: ' ',
+    bytes: Uint8Array.from(SAVED_BYTES),
+    mimeType: '',
+  })
+  assert.equal(namedFromPath?.name, 'object-id.pdf')
+  assert.equal(namedFromPath?.type, 'application/pdf')
+  assert.equal(
+    savedResumeFromStored({
+      filePath: '00000000-0000-0000-0000-000000000000/blob',
+      bytes: Uint8Array.from(SAVED_BYTES),
+    }),
+    null,
   )
 })
 
@@ -884,4 +1005,175 @@ test('month/year datepicker text sticks and requiring work authorization selects
   assert.equal(clicks.includes('custom-yes'), false)
   assert.equal(clicks.includes('custom-no'), false)
   assert.equal(workableMaySubmit(), false)
+})
+
+const RESUME_FORM = `<!doctype html><body>
+  <form data-ui="application-form">
+    <div data-ui="resume">
+      <label for="resume-file">Resume</label>
+      <input id="resume-file" name="resume" type="file" />
+      <button type="button" id="choose-file-button">Choose file</button>
+      <button type="button" data-ui="autofill-button" id="autofill-button">Autofill with resume</button>
+      <button type="button" id="import-resume">Import resume from</button>
+    </div>
+    <label for="upload-file">Choose file</label>
+    <input id="upload-file" name="upload" type="file" />
+    <label for="cover-file">Cover letter</label>
+    <input id="cover-file" data-ui="cover_letter" name="cover_letter" type="file" />
+    <label for="photo-file">Photo</label>
+    <input id="photo-file" data-ui="avatar" name="avatar" type="file" />
+    <label for="custom-file">Choose file</label>
+    <input id="custom-file" name="QA_88001" type="file" />
+    <button type="submit" data-ui="apply-button" id="apply-button">Submit application</button>
+    <button type="button" data-ui="submit-eeoc" id="submit-eeoc">Submit</button>
+    <button type="button" data-ui="skip-eeoc" id="skip-eeoc">Skip</button>
+  </form>
+</body>`
+
+test('attaches the saved resume to a plain file input and does not drive autofill', async () => {
+  resetWorkableFormWatch()
+  const dom = new JSDOM(RESUME_FORM)
+  const doc = dom.window.document
+  const read = (id: string) => doc.getElementById(id) as HTMLInputElement
+  const clicks: string[] = []
+  const focused: string[] = []
+  for (const id of [
+    'resume-file',
+    'upload-file',
+    'cover-file',
+    'photo-file',
+    'custom-file',
+    'choose-file-button',
+    'autofill-button',
+    'import-resume',
+    'apply-button',
+    'submit-eeoc',
+    'skip-eeoc',
+  ]) {
+    const el = doc.getElementById(id)
+    el?.addEventListener('click', () => clicks.push(id))
+    el?.addEventListener('focus', () => focused.push(id))
+  }
+
+  const rule = workableConfig()
+  const resume = read('resume-file')
+  assert.equal(await rule.apply(resume, '', profile as PersonalInfo), 'skip')
+  assert.equal(resume.files?.length ?? 0, 0)
+  assert.equal(read('upload-file').files?.length ?? 0, 0)
+
+  resetWorkableFormWatch()
+  const saved = {
+    ...profile,
+    resumeFileName: 'ada.pdf',
+    resumeFile: {
+      name: 'ada-lovelace.pdf',
+      type: 'application/pdf',
+      bytes: SAVED_BYTES,
+    },
+  }
+  assert.equal(await rule.apply(resume, '', saved as PersonalInfo), true)
+  const attached = resume.files?.[0]
+  assert.ok(attached)
+  assert.equal(attached?.name, 'ada-lovelace.pdf')
+  assert.equal(attached?.type, 'application/pdf')
+  assert.deepEqual(Array.from(new Uint8Array(await attached!.arrayBuffer())), SAVED_BYTES)
+
+  const uploaded = read('upload-file').files?.[0]
+  assert.equal(uploaded?.name, 'ada-lovelace.pdf')
+  assert.deepEqual(Array.from(new Uint8Array(await uploaded!.arrayBuffer())), SAVED_BYTES)
+
+  assert.equal(read('cover-file').files?.length ?? 0, 0)
+  assert.equal(read('photo-file').files?.length ?? 0, 0)
+  assert.equal(read('custom-file').files?.length ?? 0, 0)
+  assert.equal(clicks.length, 0)
+  assert.equal(focused.length, 0)
+  assert.equal(workableMaySubmit(), false)
+  for (const id of [
+    'choose-file-button',
+    'autofill-button',
+    'import-resume',
+    'apply-button',
+    'submit-eeoc',
+    'skip-eeoc',
+    'resume-file',
+    'cover-file',
+    'photo-file',
+  ]) {
+    assert.equal(clicks.includes(id), false, id)
+    assert.equal(focused.includes(id), false, id)
+  }
+})
+
+test('the stored resume download is attached, and a missing file stays empty', async () => {
+  const sent: unknown[] = []
+  const bytes = Uint8Array.from(SAVED_BYTES)
+  // The shared worker returns both. Messaging keeps the base64 and turns the
+  // Uint8Array into a plain object, which must not become the attached file.
+  const wire = {
+    ok: true as const,
+    fileName: 'ada-lovelace.pdf',
+    mimeType: 'application/pdf',
+    bytes,
+    bytesBase64: bytesToBase64(bytes),
+  }
+  // The same trip chrome.runtime.sendMessage makes: stringify, then parse.
+  let response: unknown = JSON.parse(JSON.stringify(wire))
+  const previous = (globalThis as { chrome?: unknown }).chrome
+  ;(globalThis as { chrome?: unknown }).chrome = {
+    runtime: {
+      async sendMessage(message: unknown) {
+        sent.push(message)
+        return response
+      },
+    },
+  }
+  try {
+    resetWorkableFormWatch()
+    const dom = new JSDOM(RESUME_FORM)
+    const doc = dom.window.document
+    const read = (id: string) => doc.getElementById(id) as HTMLInputElement
+    const clicks: string[] = []
+    const focused: string[] = []
+    for (const id of ['autofill-button', 'import-resume', 'apply-button', 'choose-file-button', 'resume-file']) {
+      doc.getElementById(id)?.addEventListener('click', () => clicks.push(id))
+      doc.getElementById(id)?.addEventListener('focus', () => focused.push(id))
+    }
+    const delivered = response as { bytesBase64?: unknown; bytes?: unknown }
+    assert.equal(typeof delivered.bytesBase64, 'string')
+    assert.equal(delivered.bytes instanceof Uint8Array, false)
+    assert.equal(Array.isArray(delivered.bytes), false)
+    assert.equal(savedResumeFromMessage({ ...delivered, bytesBase64: undefined }), null)
+    assert.deepEqual(Array.from(savedResumeFromMessage(response)?.bytes ?? []), SAVED_BYTES)
+    const rule = workableConfig()
+    assert.equal(await rule.apply(read('resume-file'), '', profile as PersonalInfo), true)
+    const attached = read('resume-file').files?.[0]
+    assert.equal(attached?.name, 'ada-lovelace.pdf')
+    assert.deepEqual(Array.from(new Uint8Array(await attached!.arrayBuffer())), SAVED_BYTES)
+    assert.equal(read('cover-file').files?.length ?? 0, 0)
+    assert.equal(read('photo-file').files?.length ?? 0, 0)
+    assert.deepEqual(sent, [{ action: 'loadSavedResume' }])
+    assert.equal(clicks.length, 0)
+    assert.equal(focused.length, 0)
+
+    response = { ok: false }
+    sent.length = 0
+    resetWorkableFormWatch()
+    const emptyDom = new JSDOM(RESUME_FORM)
+    const emptyDoc = emptyDom.window.document
+    const emptyClicks: string[] = []
+    emptyDoc.getElementById('autofill-button')?.addEventListener('click', () => emptyClicks.push('autofill-button'))
+    emptyDoc.getElementById('apply-button')?.addEventListener('click', () => emptyClicks.push('apply-button'))
+    const emptyRule = workableConfig()
+    const emptyResume = emptyDoc.getElementById('resume-file') as HTMLInputElement
+    assert.equal(await emptyRule.apply(emptyResume, '', profile as PersonalInfo), 'skip')
+    assert.equal(emptyResume.files?.length ?? 0, 0)
+    assert.equal((emptyDoc.getElementById('cover-file') as HTMLInputElement).files?.length ?? 0, 0)
+    assert.deepEqual(sent, [{ action: 'loadSavedResume' }])
+    assert.equal(emptyClicks.length, 0)
+    assert.equal(workableMaySubmit(), false)
+  } finally {
+    if (previous === undefined) delete (globalThis as { chrome?: unknown }).chrome
+    else (globalThis as { chrome?: unknown }).chrome = previous
+    resetWorkableFormWatch()
+  }
 })
