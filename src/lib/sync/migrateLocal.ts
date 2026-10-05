@@ -22,22 +22,23 @@ const MIGRATION_FLAG = 'localToSupabaseMigrated_v1'
 // both fire for a restored session). Coalesce those into one attempt per popup load.
 let inFlight: Promise<void> | null = null
 
-export function migrateLocalDataToSupabase(userId: string): Promise<void> {
+// Pushes into the account's active profile (`profileId`). Fill history stays per account.
+export function migrateLocalDataToSupabase(userId: string, profileId: string): Promise<void> {
   if (!inFlight) {
-    inFlight = runMigration(userId).finally(() => {
+    inFlight = runMigration(userId, profileId).finally(() => {
       inFlight = null
     })
   }
   return inFlight
 }
 
-async function runMigration(userId: string): Promise<void> {
+async function runMigration(userId: string, profileId: string): Promise<void> {
   const flag = await chrome.storage.local.get(MIGRATION_FLAG)
   if (flag[MIGRATION_FLAG]) return
 
   try {
-    await migrateProfile(userId)
-    await migrateCustomResponses(userId)
+    await migrateProfile(profileId)
+    await migrateCustomResponses(profileId)
     await migrateFillHistory(userId)
     await chrome.storage.local.set({ [MIGRATION_FLAG]: true })
   } catch (error) {
@@ -47,25 +48,25 @@ async function runMigration(userId: string): Promise<void> {
   }
 }
 
-async function migrateProfile(userId: string): Promise<void> {
+async function migrateProfile(profileId: string): Promise<void> {
   const local = await readMirror<PersonalInfo>('personalInfo')
   if (!profileHasSubstance(local)) return
 
-  const remote = await fetchProfileFromDb(userId)
+  const remote = await fetchProfileFromDb(profileId)
   // Don't clobber a profile the user has already built up on another device.
   if (profileHasSubstance(remote, { ignoreEmail: true })) return
 
-  await saveProfileToDb(local as PersonalInfo, userId)
+  await saveProfileToDb(local as PersonalInfo, profileId)
 }
 
-async function migrateCustomResponses(userId: string): Promise<void> {
+async function migrateCustomResponses(profileId: string): Promise<void> {
   const local = await readMirror<CustomResponse[]>('customResponses')
   if (!local?.length) return
 
-  const remote = await fetchCustomResponsesFromDb(userId)
+  const remote = await fetchCustomResponsesFromDb(profileId)
   if (remote.length) return
 
-  await saveCustomResponsesToDb(userId, local)
+  await saveCustomResponsesToDb(profileId, local)
 }
 
 async function migrateFillHistory(userId: string): Promise<void> {

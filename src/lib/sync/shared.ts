@@ -28,29 +28,6 @@ export async function readMirror<T>(key: string): Promise<T | undefined> {
   return data[key] as T | undefined
 }
 
-// Replaces every row this user owns in `table` with `rows` (delete-all then insert). Used for
-// the child tables (work_experience, education, skills, ...) where entries have no stable id
-// that survives a round-trip — the whole collection is rewritten on each save. Not atomic; a
-// failure after the delete throws and leaves the table empty for this user, but the local
-// mirror still holds the data and the next save retries.
-export async function replaceUserRows(
-  table: string,
-  userId: string,
-  rows: Record<string, unknown>[],
-): Promise<void> {
-  const del = await supabase.from(table).delete().eq('user_id', userId)
-  if (del.error) throw del.error
-
-  if (rows.length > 0) {
-    const ins = await supabase.from(table).insert(rows)
-    if (ins.error) throw ins.error
-  }
-}
-
-// Child-entry ids in the app are `number`s used only as Vue :keys and for in-session
-// add/edit/remove tracking — they don't need to be stable across reloads. This hands back a
-// fresh monotonic id per row read from the DB.
-export function makeClientIds(): () => number {
-  let next = Date.now()
-  return () => next++
-}
+// Re-exported for existing import sites. Profile tables are written only through the
+// save_profile RPC (see ./profile.ts); there is no delete-by-user_id helper any more.
+export { makeClientIds } from './profileRows'

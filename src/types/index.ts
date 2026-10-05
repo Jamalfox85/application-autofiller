@@ -16,7 +16,8 @@ export interface PersonalInfo {
   github: string
   // Original filename shown in the UI. The popup upload stores this on the profile.
   resumeFileName?: string
-  // Object path in the private `resumes` bucket (`{userId}/resume.pdf`).
+  // Object path in the private `resumes` bucket (`{userId}/{profileId}/resume.pdf`; backfilled
+  // Primary profiles may still point at the legacy `{userId}/resume.pdf`).
   // The popup upload writes it. Later fills read it back to download the file.
   resumeFilePath?: string
   education: Education[]
@@ -104,6 +105,10 @@ export interface FillHistoryEntry {
   timestamp: number
   filledCount: number
   totalCount: number
+  // Profile active when the fill ran (stamped by background.js from the activeProfile
+  // mirror). Name is a snapshot so history still reads right after a rename or delete.
+  profileId?: string | null
+  profileName?: string | null
 }
 
 // Shape returned by POST /resume/parse (see src/lib/api.ts for the request contract).
