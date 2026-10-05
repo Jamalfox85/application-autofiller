@@ -138,7 +138,7 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this week')
   assert.equal(
     PAYWALL_COPY.soft.body,
-    'Go Pro for unlimited autofills \u2014 plus resume AI tailor, ATS score, and multi-profile.',
+    'Go Pro for unlimited autofills, plus Application Match Score.',
   )
   assert.equal(PAYWALL_COPY.soft.primary, 'Upgrade to Pro \u2014 $5.99/mo')
   assert.equal(PAYWALL_COPY.soft.secondary, 'Continue free (15 fills left)')
@@ -146,10 +146,10 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.hard.title, 'You\u2019ve hit your free fill limit')
   assert.equal(
     PAYWALL_COPY.hard.body,
-    'Unlock unlimited fills, resume AI tailor + ATS score, and multi-profile with Pro.',
+    'Unlock unlimited fills and Application Match Score with Pro.',
   )
   assert.equal(PAYWALL_COPY.hard.primary, 'Get Pro \u2014 $5.99/mo or $49/yr')
-  assert.equal(PAYWALL_COPY.resumeAi.title, 'Resume Matching Analysis is a Pro feature.')
+  assert.equal(PAYWALL_COPY.resumeAi.title, 'Application Match Score is a Pro feature.')
   assert.equal(PAYWALL_COPY.resumeAi.cta, 'Upgrade to Pro')
   assert.equal(PAYWALL_COPY.multiProfile.title, 'Multiple profiles are a Pro feature.')
   assert.equal(JSON.stringify(PAYWALL_COPY).toLowerCase().includes('workday'), false)

@@ -47,7 +47,7 @@ const onMatchingClick = async () => {
       @click="onMatchingClick"
     >
       <span class="section-num">AI</span>
-      <span class="section-label">Resume Matching Analysis</span>
+      <span class="section-label">Application Match Score</span>
       <span class="section-meta">{{ isPro ? '' : 'Pro feature' }}</span>
       <span
         class="toggle-track"
