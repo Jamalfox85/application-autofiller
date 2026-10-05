@@ -1,9 +1,8 @@
-// Popup resume upload persists the file on the signed-in account.
+// Popup resume upload persists the file on the active profile of the signed-in account.
 //
-// The parse API may store an object under the user's folder and still leave
-// `profiles` empty. Autofill reads the resume back from `resume_file_name` +
-// `resume_file_path` and the private `resumes` bucket, so the extension has to
-// write both itself. This runs in the service worker: the popup is destroyed
+// Autofill reads the resume back from the profile's `resume_file_name` +
+// `resume_file_path` (candidate_profiles) and the private `resumes` bucket, so the
+// extension writes both itself before asking the API to parse. This runs in the service worker: the popup is destroyed
 // when it loses focus and must not be the thing that commits the save.
 
 const PDF = 'resume.pdf'
@@ -12,6 +11,7 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 
 export interface SavedResume {
   userId: string
+  profileId: string
   fileName: string
   storagePath: string
 }
@@ -37,21 +37,23 @@ export function userIdFromAccessToken(token: string): string | null {
   }
 }
 
-export function resumeStoragePath(userId: string, objectName: string): string {
-  return `${userId}/${objectName}`
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function isProfileId(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value)
 }
 
-// Columns the upload is allowed to write. `plan` is intentionally absent.
-export function savedResumeProfileRow(
-  saved: SavedResume,
-  updatedAt: string,
-): Record<string, unknown> {
+// <user_id>/<profile_id>/resume.<ext>. The bucket policy only checks the first folder.
+export function resumeStoragePath(userId: string, profileId: string, objectName: string): string {
+  return `${userId}/${profileId}/${objectName}`
+}
+
+// Columns the upload is allowed to write on candidate_profiles (PATCH by id; clients
+// cannot insert profiles). `plan` lives on the account row and is never written here.
+export function savedResumeProfileRow(saved: SavedResume): Record<string, unknown> {
   return {
-    id: saved.userId,
     resume_file_name: saved.fileName,
     resume_file_path: saved.storagePath,
-    synced_from_extension: true,
-    updated_at: updatedAt,
   }
 }
 
@@ -59,11 +61,11 @@ export async function saveResumeToAccount(options: {
   supabaseUrl: string
   anonKey: string
   accessToken: string
+  profileId: string
   fileName: string
   fileType: string
   bytes: Uint8Array
   fetchImpl?: typeof fetch
-  now?: () => Date
 }): Promise<SavedResume> {
   const fetchImpl = options.fetchImpl ?? fetch
   const userId = userIdFromAccessToken(options.accessToken)
@@ -71,12 +73,17 @@ export async function saveResumeToAccount(options: {
     throw new Error('Please sign in again before uploading your resume.')
   }
 
+  if (!isProfileId(options.profileId)) {
+    throw new Error('Please close and reopen GoFillr, then upload your resume again.')
+  }
+  const profileId = options.profileId
+
   const objectName = canonicalResumeObjectName(options.fileName, options.fileType)
   if (!objectName) {
     throw new Error('Please upload a PDF or DOCX file.')
   }
 
-  const storagePath = resumeStoragePath(userId, objectName)
+  const storagePath = resumeStoragePath(userId, profileId, objectName)
   const mime = objectName === PDF ? 'application/pdf' : DOCX_MIME
   const base = options.supabaseUrl.replace(/\/$/, '')
   const headers = {
@@ -102,18 +109,19 @@ export async function saveResumeToAccount(options: {
 
   const saved: SavedResume = {
     userId,
+    profileId,
     fileName: options.fileName,
     storagePath,
   }
-  const row = savedResumeProfileRow(saved, (options.now ?? (() => new Date()))().toISOString())
-  const profile = await fetchImpl(`${base}/rest/v1/profiles?on_conflict=id`, {
-    method: 'POST',
+  // A locked profile matches 0 rows (RLS); the read-back below then fails the save.
+  const profile = await fetchImpl(`${base}/rest/v1/candidate_profiles?id=eq.${profileId}`, {
+    method: 'PATCH',
     headers: {
       ...headers,
       'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates,return=representation',
+      Prefer: 'return=minimal',
     },
-    body: JSON.stringify(row),
+    body: JSON.stringify(savedResumeProfileRow(saved)),
   })
   if (!profile.ok) {
     const detail = await profile.text().catch(() => '')
@@ -124,7 +132,7 @@ export async function saveResumeToAccount(options: {
     throw new Error("Couldn't save your resume to your account. Please try again.")
   }
 
-  const writtenPath = await readSavedResumePath(fetchImpl, base, headers, userId)
+  const writtenPath = await readSavedResumePath(fetchImpl, base, headers, profileId)
   if (writtenPath !== storagePath) {
     throw new Error("Couldn't save your resume to your account. Please try again.")
   }
@@ -137,10 +145,10 @@ async function readSavedResumePath(
   fetchImpl: typeof fetch,
   base: string,
   headers: { Authorization: string; apikey: string },
-  userId: string,
+  profileId: string,
 ): Promise<string | null> {
   const read = await fetchImpl(
-    `${base}/rest/v1/profiles?id=eq.${userId}&select=resume_file_path,resume_file_name`,
+    `${base}/rest/v1/candidate_profiles?id=eq.${profileId}&select=resume_file_path,resume_file_name`,
     { headers },
   )
   if (!read.ok) return null

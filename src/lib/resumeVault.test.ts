@@ -10,18 +10,19 @@ import {
 } from './resumeVault.ts'
 
 const USER = '11c61a90-9bf2-47ed-b353-e5fdcacbcdb5'
+const PROFILE = '7b0c1f4e-2d3a-4c5b-9e8f-0a1b2c3d4e5f'
 
 function jwt(payload: Record<string, unknown>): string {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
   return `header.${body}.sig`
 }
 
-test('the storage object is the user folder plus a canonical resume name', () => {
+test('the storage object is the user and profile folder plus a canonical resume name', () => {
   assert.equal(canonicalResumeObjectName('Ada Lovelace.pdf', ''), 'resume.pdf')
   assert.equal(canonicalResumeObjectName('notes.DOCX', ''), 'resume.docx')
   assert.equal(canonicalResumeObjectName('blob', 'application/pdf'), 'resume.pdf')
   assert.equal(canonicalResumeObjectName('notes.txt', 'text/plain'), null)
-  assert.equal(resumeStoragePath(USER, 'resume.pdf'), `${USER}/resume.pdf`)
+  assert.equal(resumeStoragePath(USER, PROFILE, 'resume.pdf'), `${USER}/${PROFILE}/resume.pdf`)
 })
 
 test('the signed-in user id comes from the access token subject', () => {
@@ -30,21 +31,22 @@ test('the signed-in user id comes from the access token subject', () => {
   assert.equal(userIdFromAccessToken('nope'), null)
 })
 
-test('saving a resume uploads the bytes and upserts the profile without touching plan', async () => {
+test('saving a resume uploads to the profile folder and patches that candidate profile only', async () => {
   const calls: { url: string; init: RequestInit }[] = []
   const saved = await saveResumeToAccount({
     supabaseUrl: 'https://example.supabase.co/',
     anonKey: 'anon-key',
     accessToken: jwt({ sub: USER }),
+    profileId: PROFILE,
     fileName: 'Ada.pdf',
     fileType: 'application/pdf',
     bytes: new Uint8Array([1, 2, 3]),
-    now: () => new Date('2026-10-04T13:00:00.000Z'),
     fetchImpl: async (url, init) => {
       calls.push({ url: String(url), init: init ?? {} })
       if (String(url).includes('/storage/')) return new Response('{}', { status: 200 })
-      return new Response(JSON.stringify([{ resume_file_path: `${USER}/resume.pdf` }]), {
-        status: 201,
+      if (init?.method === 'PATCH') return new Response(null, { status: 204 })
+      return new Response(JSON.stringify([{ resume_file_path: `${USER}/${PROFILE}/resume.pdf` }]), {
+        status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
     },
@@ -52,15 +54,16 @@ test('saving a resume uploads the bytes and upserts the profile without touching
 
   assert.deepEqual(saved, {
     userId: USER,
+    profileId: PROFILE,
     fileName: 'Ada.pdf',
-    storagePath: `${USER}/resume.pdf`,
+    storagePath: `${USER}/${PROFILE}/resume.pdf`,
   })
   assert.equal(calls.length, 3)
 
   const upload = calls[0]
   assert.equal(
     upload.url,
-    `https://example.supabase.co/storage/v1/object/resumes/${USER}/resume.pdf`,
+    `https://example.supabase.co/storage/v1/object/resumes/${USER}/${PROFILE}/resume.pdf`,
   )
   const uploadHeaders = upload.init.headers as Record<string, string>
   assert.equal(uploadHeaders.Authorization, `Bearer ${jwt({ sub: USER })}`)
@@ -69,24 +72,20 @@ test('saving a resume uploads the bytes and upserts the profile without touching
   assert.equal(upload.init.method, 'POST')
 
   const profile = calls[1]
-  assert.equal(profile.url, 'https://example.supabase.co/rest/v1/profiles?on_conflict=id')
-  assert.equal(profile.init.method, 'POST')
-  const profileHeaders = profile.init.headers as Record<string, string>
-  assert.match(profileHeaders.Prefer, /resolution=merge-duplicates/)
+  assert.equal(profile.url, `https://example.supabase.co/rest/v1/candidate_profiles?id=eq.${PROFILE}`)
+  assert.equal(profile.init.method, 'PATCH')
   const row = JSON.parse(String(profile.init.body))
   assert.deepEqual(row, {
-    id: USER,
     resume_file_name: 'Ada.pdf',
-    resume_file_path: `${USER}/resume.pdf`,
-    synced_from_extension: true,
-    updated_at: '2026-10-04T13:00:00.000Z',
+    resume_file_path: `${USER}/${PROFILE}/resume.pdf`,
   })
   assert.equal('plan' in row, false)
+  assert.ok(calls.every((call) => !call.url.includes('/rest/v1/profiles')))
 
   const read = calls[2]
   assert.equal(
     read.url,
-    `https://example.supabase.co/rest/v1/profiles?id=eq.${USER}&select=resume_file_path,resume_file_name`,
+    `https://example.supabase.co/rest/v1/candidate_profiles?id=eq.${PROFILE}&select=resume_file_path,resume_file_name`,
   )
   assert.equal(
     (read.init.headers as Record<string, string>).Authorization,
@@ -94,45 +93,71 @@ test('saving a resume uploads the bytes and upserts the profile without touching
   )
 })
 
-test('a profile write that does not echo the path is not treated as saved', async () => {
+test('a profile write that does not echo the path (e.g. a locked profile) is not treated as saved', async () => {
   await assert.rejects(
     () =>
       saveResumeToAccount({
         supabaseUrl: 'https://example.supabase.co',
         anonKey: 'anon-key',
         accessToken: jwt({ sub: USER }),
+        profileId: PROFILE,
         fileName: 'Ada.pdf',
         fileType: 'application/pdf',
         bytes: new Uint8Array([1]),
         fetchImpl: async (url) => {
           if (String(url).includes('/storage/')) return new Response('{}', { status: 200 })
-          return new Response(JSON.stringify([]), { status: 201 })
+          if (String(url).includes('select=')) return new Response(JSON.stringify([]), { status: 200 })
+          return new Response(null, { status: 204 })
         },
       }),
     /Couldn't save your resume to your account/,
   )
 })
 
+test('an upload without a profile id is refused before anything is stored', async () => {
+  let called = false
+  await assert.rejects(
+    () =>
+      saveResumeToAccount({
+        supabaseUrl: 'https://example.supabase.co',
+        anonKey: 'anon-key',
+        accessToken: jwt({ sub: USER }),
+        profileId: '',
+        fileName: 'Ada.pdf',
+        fileType: 'application/pdf',
+        bytes: new Uint8Array([1]),
+        fetchImpl: async () => {
+          called = true
+          return new Response('{}', { status: 200 })
+        },
+      }),
+    /reopen GoFillr/,
+  )
+  assert.equal(called, false)
+})
+
 test('profile sync reads the saved path back and does not null it when unset', () => {
-  const profile = readFileSync('src/lib/sync/profile.ts', 'utf8')
+  const profile = readFileSync('src/lib/sync/profileRows.ts', 'utf8')
   const write = profile.slice(
     profile.indexOf('export function profileToDbRows'),
     profile.indexOf('export function dbRowsToProfile'),
   )
   const read = profile.slice(
     profile.indexOf('export function dbRowsToProfile'),
-    profile.indexOf('export async function fetchProfileFromDb'),
+    profile.indexOf('export function dbRowsToCustomResponses'),
   )
   assert.match(write, /info\.resumeFileName \? \{ resume_file_name: info\.resumeFileName \}/)
   assert.match(write, /info\.resumeFilePath \? \{ resume_file_path: info\.resumeFilePath \}/)
   assert.doesNotMatch(write, /resume_file_name: nullIfEmpty/)
   assert.match(read, /resumeFilePath: str\(p\.resume_file_path\)/)
   assert.equal(
-    savedResumeProfileRow(
-      { userId: USER, fileName: 'Ada.pdf', storagePath: `${USER}/resume.pdf` },
-      '2026-10-04T13:00:00.000Z',
-    ).resume_file_path,
-    `${USER}/resume.pdf`,
+    savedResumeProfileRow({
+      userId: USER,
+      profileId: PROFILE,
+      fileName: 'Ada.pdf',
+      storagePath: `${USER}/${PROFILE}/resume.pdf`,
+    }).resume_file_path,
+    `${USER}/${PROFILE}/resume.pdf`,
   )
 })
 
@@ -145,5 +170,7 @@ test('the service worker saves the resume before it asks the parse API', () => {
   assert.match(uploadFn, /persistUploadedResume/)
   assert.ok(uploadFn.indexOf('persistUploadedResume') < uploadFn.indexOf('await fetch(url'))
   assert.match(uploadFn, /Authorization: `Bearer \$\{token\}`/)
+  assert.match(uploadFn, /form\.append\('profile_id', profileId\)/)
+  assert.match(uploadFn, /persistUploadedResume\(\{ token, profileId,/)
   assert.doesNotMatch(uploadFn, /\/resumes\/generate/)
 })

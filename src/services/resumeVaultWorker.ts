@@ -4,9 +4,11 @@
 import { cloneDefaultPersonalInfo } from '../lib/personalInfoDefaults'
 import { saveResumeToAccount, type SavedResume } from '../lib/resumeVault'
 import { supabasePublicConfigError } from '../lib/supabaseConfig'
+import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../lib/sync/activeProfile'
 
 export async function persistUploadedResume(input: {
   token: string
+  profileId: string
   fileName: string
   fileType: string
   bytes: Uint8Array
@@ -22,13 +24,14 @@ export async function persistUploadedResume(input: {
     supabaseUrl: url,
     anonKey,
     accessToken: input.token,
+    profileId: input.profileId,
     fileName: input.fileName,
     fileType: input.fileType,
     bytes: input.bytes,
   })
 
   try {
-    await rememberSavedResume(saved.fileName, saved.storagePath)
+    await rememberSavedResume(saved.profileId, saved.fileName, saved.storagePath)
   } catch (error) {
     // The account row is the source of truth. The popup reloads it on the next open.
     console.error(
@@ -40,8 +43,12 @@ export async function persistUploadedResume(input: {
   return saved
 }
 
-async function rememberSavedResume(fileName: string, storagePath: string): Promise<void> {
-  const stored = await chrome.storage.local.get('personalInfo')
+// Only refresh the fill mirror when it still belongs to the profile that got the file; a
+// swap during the upload must not put this resume on another profile's mirror.
+async function rememberSavedResume(profileId: string, fileName: string, storagePath: string): Promise<void> {
+  const stored = await chrome.storage.local.get(['personalInfo', ACTIVE_PROFILE_KEY])
+  const active = parseActiveProfile(stored[ACTIVE_PROFILE_KEY])
+  if (active && active.id !== profileId) return
   const current = stored.personalInfo
   const base = current && typeof current === 'object' ? current : cloneDefaultPersonalInfo()
   await chrome.storage.local.set({

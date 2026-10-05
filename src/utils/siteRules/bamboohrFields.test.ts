@@ -280,6 +280,7 @@ test('a blank Province text input next to the country menu is filled with the pr
 const SUPABASE_URL = 'https://example.supabase.co'
 const ANON_KEY = 'test-anon-key'
 const USER_ID = '11111111-1111-1111-1111-111111111111'
+const PROFILE_ID = '7b0c1f4e-2d3a-4c5b-9e8f-0a1b2c3d4e5f'
 
 function storedSession(expiresAt = 9_999_999_999) {
   return JSON.stringify({
@@ -357,9 +358,10 @@ test('a saved resume is assigned to the BambooHR resume file input only', async 
     anonKey: ANON_KEY,
     nowMs: 1_700_000_000_000,
     readStorage: async () => storedSession(),
+    readActiveProfileId: async () => PROFILE_ID,
     fetchImpl: async (url) => {
       calls.push(url)
-      if (url.includes('/rest/v1/profiles')) {
+      if (url.includes('/rest/v1/candidate_profiles')) {
         return new Response(
           JSON.stringify([
             { resume_file_path: `${USER_ID}/resume.pdf`, resume_file_name: 'ada-lovelace.pdf' },
@@ -389,7 +391,7 @@ test('a saved resume is assigned to the BambooHR resume file input only', async 
   assert.equal(new TextDecoder().decode(await delivered.arrayBuffer()), '%PDF saved resume bytes')
   assert.equal(fileFromSavedResumeMessage({ ok: false }), null)
   assert.deepEqual(calls, [
-    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(USER_ID)}&select=resume_file_path,resume_file_name`,
+    `${SUPABASE_URL}/rest/v1/candidate_profiles?id=eq.${PROFILE_ID}&select=resume_file_path,resume_file_name`,
     `${SUPABASE_URL}/storage/v1/object/authenticated/resumes/${USER_ID}/resume.pdf`,
   ])
 
@@ -496,6 +498,38 @@ test('the service worker downloads the saved resume for the content script', () 
   )
 })
 
+test('the saved resume follows the active profile folder, and falls back to the account active id', async () => {
+  const calls: string[] = []
+  const saved = await loadSavedResumeFile({
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    nowMs: 1_700_000_000_000,
+    readStorage: async () => storedSession(),
+    fetchImpl: async (url) => {
+      calls.push(url)
+      if (url.includes('select=active_profile_id')) {
+        return new Response(JSON.stringify([{ active_profile_id: PROFILE_ID }]), { status: 200 })
+      }
+      if (url.includes('/rest/v1/candidate_profiles')) {
+        return new Response(
+          JSON.stringify([
+            { resume_file_path: `${USER_ID}/${PROFILE_ID}/resume.pdf`, resume_file_name: 'backend.docx' },
+          ]),
+          { status: 200 },
+        )
+      }
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+    },
+  })
+  assert.ok(saved)
+  assert.deepEqual(calls, [
+    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(USER_ID)}&select=active_profile_id`,
+    `${SUPABASE_URL}/rest/v1/candidate_profiles?id=eq.${PROFILE_ID}&select=resume_file_path,resume_file_name`,
+    // Name says docx, path says pdf: the canonical object in the same profile folder.
+    `${SUPABASE_URL}/storage/v1/object/authenticated/resumes/${USER_ID}/${PROFILE_ID}/resume.docx`,
+  ])
+})
+
 test('no saved resume leaves the BambooHR resume file input empty', async () => {
   const calls: string[] = []
   const missing = await loadSavedResumeFile({
@@ -503,6 +537,7 @@ test('no saved resume leaves the BambooHR resume file input empty', async () => 
     anonKey: ANON_KEY,
     nowMs: 1_700_000_000_000,
     readStorage: async () => storedSession(),
+    readActiveProfileId: async () => PROFILE_ID,
     fetchImpl: async (url) => {
       calls.push(url)
       return new Response(JSON.stringify([{ resume_file_path: null, resume_file_name: null }]), {
@@ -530,6 +565,7 @@ test('no saved resume leaves the BambooHR resume file input empty', async () => 
     anonKey: ANON_KEY,
     nowMs: 1_700_000_000_000,
     readStorage: async () => storedSession(),
+    readActiveProfileId: async () => PROFILE_ID,
     fetchImpl: async (url) => {
       if (url.includes('/storage/')) throw new Error('should not download another user resume')
       return new Response(
@@ -616,9 +652,10 @@ test('the Fabric resume choose-file receives admin-resume.docx and not the lefto
     anonKey: ANON_KEY,
     nowMs: 1_700_000_000_000,
     readStorage: async () => storedSession(),
+    readActiveProfileId: async () => PROFILE_ID,
     fetchImpl: async (url) => {
       calls.push(url)
-      if (url.includes('/rest/v1/profiles')) {
+      if (url.includes('/rest/v1/candidate_profiles')) {
         return new Response(
           JSON.stringify([
             {

@@ -1,13 +1,16 @@
 // The profile mirror stores a resume filename. The bytes live in two places:
 //   1. chrome.storage.local["savedResumeFile"] — written by the service worker when
 //      an upload succeeds (background.js handleResumeUpload).
-//   2. The private Supabase Storage bucket `resumes`, at profiles.resume_file_path
-//      (`{userId}/{object}`). That path is what a signed-in user who already uploaded
-//      still has after this browser has no local copy.
+//   2. The private Supabase Storage bucket `resumes`, at the active profile's
+//      candidate_profiles.resume_file_path (`{userId}/{profileId}/{object}`). That path is
+//      what a signed-in user who already uploaded still has after this browser has no
+//      local copy.
 // Jobvite reads this module. Other ATS adapters do not.
 
 import { isSupabaseAuthStorageKey } from '../lib/googleAuth.ts'
 import type { PersonalInfo } from '../types/index.ts'
+import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../lib/sync/activeProfile.ts'
+import { fetchActiveProfileResumeRow } from './activeProfileResume.ts'
 
 export const SAVED_RESUME_STORAGE_KEY = 'savedResumeFile'
 const RESUME_BUCKET = 'resumes'
@@ -50,6 +53,8 @@ type FetchJsonResult = {
 }
 
 export type ResumeByteSource = {
+  // Profile whose mirror the fill uses. Missing → the account's active_profile_id.
+  readActiveProfileId?(): Promise<string | null>
   readCache(): Promise<SavedResumeCache | null>
   writeCache(record: SavedResumeCache): Promise<void>
   readSession(storageKey: string | null): Promise<StoredAuthSession | null>
@@ -272,14 +277,20 @@ async function fetchResumePath(
   session: StoredAuthSession,
   config: ResumeStorageConfig,
 ): Promise<string> {
-  const url = `${config.supabaseUrl.replace(/\/$/, '')}/rest/v1/profiles?id=eq.${encodeURIComponent(session.userId)}&select=resume_file_path`
-  const result = await source.fetchJson(url, {
-    ...authHeaders(session, config.anonKey),
-    Accept: 'application/json',
-  })
-  if (!result.ok || !Array.isArray(result.json) || !result.json[0]) return ''
-  const path = (result.json[0] as { resume_file_path?: unknown }).resume_file_path
-  return typeof path === 'string' ? path.trim() : ''
+  const profileId = source.readActiveProfileId ? await source.readActiveProfileId().catch(() => null) : null
+  const row = await fetchActiveProfileResumeRow(
+    async (url) => {
+      const result = await source.fetchJson(url, {
+        ...authHeaders(session, config.anonKey),
+        Accept: 'application/json',
+      })
+      return result.ok ? result.json : null
+    },
+    config.supabaseUrl,
+    session.userId,
+    profileId,
+  )
+  return (row?.resume_file_path ?? '').trim()
 }
 
 async function downloadObject(
@@ -368,6 +379,10 @@ function resumeStorageConfig(): ResumeStorageConfig {
 
 function chromeResumeByteSource(): ResumeByteSource {
   return {
+    async readActiveProfileId() {
+      const data = await chrome.storage.local.get(ACTIVE_PROFILE_KEY)
+      return parseActiveProfile(data[ACTIVE_PROFILE_KEY])?.id ?? null
+    },
     async readCache() {
       const data = await chrome.storage.local.get(SAVED_RESUME_STORAGE_KEY)
       return normalizeSavedResumeCache(data[SAVED_RESUME_STORAGE_KEY])

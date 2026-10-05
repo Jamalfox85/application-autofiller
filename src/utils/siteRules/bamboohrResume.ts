@@ -1,8 +1,11 @@
 // The uploaded resume is not kept in the profile mirror. chrome.storage
 // personalInfo only has resumeFileName. The bytes live in the private Supabase
-// storage bucket "resumes", and profiles.resume_file_path is "{userId}/resume.pdf"
-// (or .docx). profiles.resume_file_name is the original filename.
+// storage bucket "resumes", and the active profile's candidate_profiles.resume_file_path
+// is "{userId}/{profileId}/resume.pdf" (or .docx; backfilled Primary profiles may still
+// have the legacy "{userId}/resume.pdf"). resume_file_name is the original filename.
 import { supabasePublicConfigError } from '../../lib/supabaseConfig.ts'
+import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../../lib/sync/activeProfile.ts'
+import { fetchActiveProfileResumeRow } from '../activeProfileResume.ts'
 
 const RESUME_BUCKET = 'resumes'
 
@@ -10,6 +13,8 @@ export type SavedResumeDeps = {
   supabaseUrl: string
   anonKey: string
   readStorage: (key: string) => Promise<string | null>
+  // Profile whose mirror the fill uses. Missing → the account's active_profile_id.
+  readActiveProfileId?: () => Promise<string | null>
   fetchImpl: (input: string, init?: RequestInit) => Promise<Response>
   nowMs?: number
 }
@@ -75,11 +80,11 @@ function fileExtension(value: string): string {
   return base.slice(dot + 1).toLowerCase()
 }
 
-// profiles.resume_file_name is the original filename (admin-resume.docx).
-// profiles.resume_file_path is the object ({userId}/resume.docx, or an older
+// resume_file_name is the original filename (admin-resume.docx).
+// resume_file_path is the object ({userId}/{profileId}/resume.docx, or an older
 // {userId}/resume.pdf). When those extensions disagree, the path is a leftover
 // object — do not download it. The saved file is the canonical object for the
-// filename's extension. This runs in the shared loadSavedResume worker, so a
+// filename's extension, in the same folder. This runs in the shared loadSavedResume worker, so a
 // docx profile no longer returns the leftover pdf on any board that uses it.
 export function resumeObjectForProfile(
   path: string | null | undefined,
@@ -92,7 +97,8 @@ export function resumeObjectForProfile(
   const storedExt = fileExtension(stored)
   if (!nameExt || nameExt === storedExt) return stored
   if (nameExt !== 'pdf' && nameExt !== 'docx' && nameExt !== 'doc') return stored
-  return resumeObjectPath(`${userId}/resume.${nameExt}`, userId)
+  const folder = stored.split('/').slice(0, -1).join('/')
+  return resumeObjectPath(`${folder}/resume.${nameExt}`, userId)
 }
 
 export function resumeDisplayName(profileName: string | null | undefined, path: string): string {
@@ -130,16 +136,17 @@ export async function loadSavedResumeFile(deps: SavedResumeDeps): Promise<File |
   const session = sessionFromStoredAuth(await deps.readStorage(storageKey), deps.nowMs ?? Date.now())
   if (!session) return null
 
-  const profileUrl =
-    `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(session.userId)}` +
-    '&select=resume_file_path,resume_file_name'
-  const profileRes = await deps.fetchImpl(profileUrl, { headers: authHeaders(deps.anonKey, session.accessToken) })
-  if (!profileRes.ok) return null
-
-  const body = (await profileRes.json()) as
-    | { resume_file_path?: string | null; resume_file_name?: string | null }
-    | Array<{ resume_file_path?: string | null; resume_file_name?: string | null }>
-  const profile = Array.isArray(body) ? body[0] : body
+  const activeId = deps.readActiveProfileId ? await deps.readActiveProfileId().catch(() => null) : null
+  const profile = await fetchActiveProfileResumeRow(
+    async (url) => {
+      const res = await deps.fetchImpl(url, { headers: authHeaders(deps.anonKey, session.accessToken) })
+      if (!res.ok) return null
+      return res.json().catch(() => null)
+    },
+    supabaseUrl,
+    session.userId,
+    activeId,
+  )
   if (!profile) return null
 
   const objectPath = resumeObjectForProfile(
@@ -283,6 +290,16 @@ export async function loadSavedResumeFromAccount(): Promise<File | null> {
       supabaseUrl,
       anonKey,
       readStorage: (key) => readChromeLocal(storage, key),
+      readActiveProfileId: () =>
+        new Promise((resolve) => {
+          try {
+            storage.get(ACTIVE_PROFILE_KEY, (items: Record<string, unknown>) => {
+              resolve(parseActiveProfile(items?.[ACTIVE_PROFILE_KEY])?.id ?? null)
+            })
+          } catch {
+            resolve(null)
+          }
+        }),
       fetchImpl: globalThis.fetch.bind(globalThis),
     })
   } catch {

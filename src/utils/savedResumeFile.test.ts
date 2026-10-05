@@ -93,12 +93,13 @@ test('no filename means there is nothing to attach', async () => {
   assert.equal(result, null)
 })
 
-test('a signed-in user with no local bytes downloads profiles.resume_file_path', async () => {
+test('a signed-in user with no local bytes downloads the active profile resume_file_path', async () => {
   const writes: SavedResumeCache[] = []
   const urls: string[] = []
   const result = await resolveSavedResume(
     { resumeFileName: 'ada-lovelace-resume.pdf', resumeFilePath: '' },
     source({
+      readActiveProfileId: async () => 'profile-1',
       fetchJson: async (url) => {
         urls.push(url)
         return { ok: true, status: 200, json: [{ resume_file_path: 'user-1/obj.pdf' }] }
@@ -118,7 +119,8 @@ test('a signed-in user with no local bytes downloads profiles.resume_file_path',
   assert.equal(writes.length, 1)
   assert.equal(writes[0].storagePath, 'user-1/obj.pdf')
   assert.equal(writes[0].userId, 'user-1')
-  assert.ok(urls.some((url) => url.includes('/rest/v1/profiles')))
+  assert.ok(urls.some((url) => url.includes('/rest/v1/candidate_profiles?id=eq.profile-1')))
+  assert.ok(urls.every((url) => !url.includes('/rest/v1/profiles?')))
   assert.ok(urls.some((url) => url.endsWith('/storage/v1/object/resumes/user-1/obj.pdf')))
 })
 

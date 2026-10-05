@@ -23,6 +23,10 @@ import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWo
 
 startExtensionPay()
 
+// The pre-release local profile roster stored full profiles, including portal passwords.
+// Profiles now live in Supabase; drop the key on every worker start.
+chrome.storage.local.remove('profileRoster').catch(() => {})
+
 // Mixpanel tracking for the service-worker context. This can't use the mixpanel-browser
 // SDK (it needs `document`/`window`, which service workers don't have) so it posts to the
 // HTTP Track API directly — see src/services/mixpanelHttp.ts for the same approach used by
@@ -305,7 +309,7 @@ function savedResumeReply(result) {
   return { ...result, bytesBase64: bytesToBase64(result.bytes) }
 }
 
-async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBase64 }) {
+async function handleResumeUpload({ url, token, profileId, fileName, fileType, fileBytesBase64 }) {
   await writeResumeJob({ phase: 'uploading', fileName })
 
   if (!token) {
@@ -334,7 +338,7 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
   // form; a file in storage with no profiles row is not a saved resume.
   let saved
   try {
-    saved = await persistUploadedResume({ token, fileName, fileType, bytes })
+    saved = await persistUploadedResume({ token, profileId, fileName, fileType, bytes })
     await cacheUploadedResume({
       token,
       fileName,
@@ -357,6 +361,8 @@ async function handleResumeUpload({ url, token, fileName, fileType, fileBytesBas
   try {
     const form = new FormData()
     form.append('file', new Blob([bytes], { type: fileType || 'application/octet-stream' }), fileName)
+    // The upload targets one candidate profile (resume-api multi-profiles contract).
+    form.append('profile_id', profileId)
 
     const res = await fetch(url, {
       method: 'POST',
@@ -569,13 +575,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       chrome.storage.local.set({ stats })
     })
 
-    // Append a fill-history entry, pruning anything older than 90 days
+    // Append a fill-history entry, pruning anything older than 90 days. The entry is stamped
+    // with the profile whose mirror the fill used (the popup syncs profile_id + profile_name).
     const entry = request.entry
     if (entry) {
-      chrome.storage.local.get('fillHistory', (data) => {
+      chrome.storage.local.get(['fillHistory', 'activeProfile'], (data) => {
         const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000
         const fillHistory = (data.fillHistory || []).filter((e) => e.timestamp >= ninetyDaysAgo)
-        fillHistory.unshift({ id: Date.now(), ...entry })
+        const active = data.activeProfile && typeof data.activeProfile.id === 'string' ? data.activeProfile : null
+        fillHistory.unshift({
+          id: Date.now(),
+          profileId: active ? active.id : null,
+          profileName: active ? active.name || null : null,
+          ...entry,
+        })
         chrome.storage.local.set({ fillHistory })
       })
     }

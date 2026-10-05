@@ -11,6 +11,7 @@
 // plus a hard timeout so "uploading" can never hang forever.
 import { ref } from 'vue'
 import { getValidAccessToken, normalizeParsedResume } from '../lib/api'
+import { readActiveProfileId } from '../lib/sync/activeProfile'
 import type { ParsedResumeData } from '../types'
 
 const STORAGE_KEY = 'resumeUploadJob'
@@ -176,6 +177,18 @@ export function useResumeUpload() {
       return
     }
 
+    // Every upload targets the active profile: the file is stored at
+    // <user_id>/<profile_id>/resume.<ext> and the parse writes that profile only.
+    const profileId = await readActiveProfileId(chrome.storage.local)
+    if (!profileId) {
+      await writeJob({
+        phase: 'error',
+        code: 'no_profile',
+        message: 'Please close and reopen GoFillr, then upload your resume again.',
+      })
+      return
+    }
+
     let fileBytesBase64: string
     try {
       fileBytesBase64 = await fileToBase64(file)
@@ -193,6 +206,7 @@ export function useResumeUpload() {
         action: 'uploadResume',
         url: RESUME_UPLOAD_URL,
         token,
+        profileId,
         fileName: file.name,
         fileType: file.type || guessMime(file.name),
         fileBytesBase64,
