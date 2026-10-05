@@ -49,6 +49,8 @@ export interface MatchScoreRequest {
   jd_text: string
   jd_source: JdSource
   profile: MatchProfile
+  // The candidate profile whose data is in `profile` (declines are per profile).
+  profile_id?: string
 }
 
 export type MatchBand = 'very_strong' | 'good' | 'okay' | 'weak'

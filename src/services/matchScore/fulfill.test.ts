@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { fulfillMatchScore, willRequestMatchScore } from './fulfill.ts'
+import { postMatchScoreDecline } from './contract.ts'
 import { matchScoreIntent } from './intent.ts'
 import { buildMatchProfile } from './profile.ts'
 
@@ -163,4 +164,32 @@ test('401 and plan_required hide and are not scores', async () => {
   assert.equal(unauthorized.cacheValue, null)
   assert.equal(plan.cacheValue, null)
   assert.equal(calls, 2)
+})
+
+test('Match Score and declines name the active profile in the body', async () => {
+  const bodies: Record<string, unknown>[] = []
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)))
+    return new Response('{}', { status: 500 })
+  }
+  await fulfillMatchScore(input({ profileId: 'profile-2', fetchImpl }))
+  assert.equal(bodies[0].profile_id, 'profile-2')
+  await fulfillMatchScore(input({ fetchImpl }))
+  assert.equal('profile_id' in bodies[1], false)
+
+  const declines: Record<string, unknown>[] = []
+  const declineFetch: typeof fetch = async (_url, init) => {
+    declines.push(JSON.parse(String(init?.body)))
+    return new Response(null, { status: 204 })
+  }
+  const ok = await postMatchScoreDecline({
+    skill: ' Kubernetes ',
+    profileId: 'profile-2',
+    method: 'POST',
+    token: 't',
+    baseUrl: 'http://127.0.0.1:9/api/v1',
+    fetchImpl: declineFetch,
+  })
+  assert.equal(ok.ok, true)
+  assert.deepEqual(declines[0], { skill: 'Kubernetes', profile_id: 'profile-2' })
 })

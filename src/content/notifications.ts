@@ -1,5 +1,6 @@
 import { autofillPage, undoLastFill } from './autofill.ts'
 import { brandIcon, mountInToastStack } from './toastStack.ts'
+import { ACTIVE_PROFILE_KEY, fillToastSubtitle, parseActiveProfile } from '../lib/sync/activeProfile.ts'
 
 // Shared "on-page toast" chrome: a dark card with a colored accent bar on the left, sized to
 // stay legible when injected into an arbitrary page's own styles/zoom level. Uses the system
@@ -89,7 +90,7 @@ export function showAutofillNotification(_summary?: { fieldsCount?: number; tota
       ${brandIcon(20)}
       <div style="flex: 1; min-width: 0;">
         <div style="font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em;">GoFillr</div>
-        <div style="font-size: 11px; color: #8f8f99; margin-top: 2px;">Autofill completed</div>
+        <div data-role="subtitle" style="font-size: 11px; color: #8f8f99; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Autofill completed</div>
       </div>
       <button type="button" data-action="close" style="border: none; background: none; color: #6f6f7a; cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 3px; flex-shrink: 0;">×</button>
     </div>
@@ -103,6 +104,18 @@ export function showAutofillNotification(_summary?: { fieldsCount?: number; tota
   `
 
   mountInToastStack(card)
+
+  // "Filled with {name}" for accounts with 2+ profiles. Read from the activeProfile mirror the
+  // popup keeps next to personalInfo, so it names the profile this fill actually used.
+  void (async () => {
+    try {
+      const data = await chrome.storage.local.get(ACTIVE_PROFILE_KEY)
+      const subtitle = card.querySelector('[data-role="subtitle"]')
+      if (subtitle) subtitle.textContent = fillToastSubtitle(parseActiveProfile(data[ACTIVE_PROFILE_KEY]))
+    } catch {
+      // Keep the generic subtitle.
+    }
+  })()
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {

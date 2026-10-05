@@ -5,6 +5,7 @@ import { cloneDefaultPersonalInfo } from '../lib/personalInfoDefaults.ts'
 import { getUserIdOrNull } from '../lib/sync/shared.ts'
 import { saveProfileToDb } from '../lib/sync/profile.ts'
 import type { PersonalInfo } from '../types/index.ts'
+import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../lib/sync/activeProfile.ts'
 import { matchScoreCacheKey, matchScoreDismissedKey, matchScoreRateLimitKey } from './matchScore/cache.ts'
 import { postMatchScoreDecline } from './matchScore/contract.ts'
 import { fetchAllowedPosting } from './matchScore/fetchPosting.ts'
@@ -29,7 +30,8 @@ export interface MatchScoreDeps {
   token: () => Promise<string | null>
   isPro: () => Promise<boolean>
   userId: () => Promise<string | null>
-  saveProfile: (info: PersonalInfo, userId: string) => Promise<void>
+  // Saves to one candidate profile (save_profile). Called with the active mirror's id.
+  saveProfile: (info: PersonalInfo, profileId: string) => Promise<void>
   sendToTopFrame: (tabId: number, message: unknown) => Promise<unknown>
   baseUrl: () => string
   apiKey: () => string | null
@@ -60,7 +62,7 @@ function liveDeps(): MatchScoreDeps {
       return entitlement.isPro
     },
     userId: () => getUserIdOrNull(),
-    saveProfile: (info, userId) => saveProfileToDb(info, userId),
+    saveProfile: (info, profileId) => saveProfileToDb(info, profileId),
     sendToTopFrame: (tabId, message) => chrome.tabs.sendMessage(tabId, message, { frameId: 0 }),
     baseUrl: () => resumeApiBaseUrl(import.meta.env.VITE_RESUME_API_URL as string | undefined),
     apiKey: () => (import.meta.env.VITE_RESUME_API_KEY as string | undefined) ?? null,
@@ -77,6 +79,17 @@ async function readProfile(storage: StorageLike): Promise<PersonalInfo> {
   const stored = data.personalInfo
   if (!stored || typeof stored !== 'object') return cloneDefaultPersonalInfo()
   return { ...cloneDefaultPersonalInfo(), ...(stored as PersonalInfo) }
+}
+
+// The profile whose data is in the personalInfo mirror. Scores, declines and quick-answer
+// skill writes all go to this one profile.
+async function readActiveProfileId(storage: StorageLike): Promise<string | null> {
+  try {
+    const data = await storage.get(ACTIVE_PROFILE_KEY)
+    return parseActiveProfile(data[ACTIVE_PROFILE_KEY])?.id ?? null
+  } catch {
+    return null
+  }
 }
 
 async function relay(deps: MatchScoreDeps, sender: MatchSender, message: Record<string, unknown>) {
@@ -143,7 +156,8 @@ async function scoreWithProfile(
   const info = await readProfile(deps.storage)
   const profile = buildMatchProfile(info)
   const hash = await profileHash(profile)
-  await runScore({}, sender, deps, { ...input, hash, profile })
+  const profileId = await readActiveProfileId(deps.storage)
+  await runScore({}, sender, deps, { ...input, hash, profile, profileId })
 }
 
 async function runScore(
@@ -158,6 +172,7 @@ async function runScore(
     rescore: boolean
     hash: string
     profile: ReturnType<typeof buildMatchProfile>
+    profileId: string | null
   },
 ) {
   const cacheKey = matchScoreCacheKey(input.jobUrl, input.hash)
@@ -195,6 +210,7 @@ async function runScore(
     ats: input.ats,
     jdSource: input.jdSource,
     profile: input.profile,
+    profileId: input.profileId,
     baseUrl: deps.baseUrl(),
     apiKey: deps.apiKey(),
     fetchImpl: deps.fetchImpl,
@@ -224,8 +240,9 @@ async function changeSkill(
   const info = await readProfile(deps.storage)
   return persistSkillChange(info, skill, mode, {
     write: (next) => deps.storage.set({ personalInfo: next }),
-    userId: () => deps.userId(),
-    save: (next, userId) => deps.saveProfile(next, userId),
+    // Signed in and a known active profile; the save goes to that profile only.
+    userId: async () => ((await deps.userId()) ? await readActiveProfileId(deps.storage) : null),
+    save: (next, profileId) => deps.saveProfile(next, profileId),
   })
 }
 
@@ -239,6 +256,7 @@ async function decline(
   if (!token) return { ok: false }
   const result = await postMatchScoreDecline({
     skill,
+    profileId: await readActiveProfileId(deps.storage),
     method,
     token,
     baseUrl: deps.baseUrl(),

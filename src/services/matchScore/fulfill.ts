@@ -21,6 +21,8 @@ export interface FulfillInput {
   jdText: string
   jdSource: JdSource
   profile: MatchProfile
+  // Active candidate profile id; sent so the API scores/declines for that profile.
+  profileId?: string | null
   baseUrl: string
   apiKey?: string | null
   fetchImpl?: typeof fetch
@@ -122,6 +124,7 @@ export async function fulfillMatchScore(input: FulfillInput): Promise<FulfillOut
       jd_text: input.jdText,
       jd_source: input.jdSource,
       profile: input.profile,
+      ...(input.profileId ? { profile_id: input.profileId } : {}),
     },
     token: input.token,
     baseUrl: input.baseUrl,

@@ -10,6 +10,7 @@ import {
   type AutofillFailureReason,
 } from '../utils/fillContract'
 import type { AtsPageContext } from '../utils/ats'
+import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../lib/sync/activeProfile'
 
 const FIRST_FILL_KEY = 'firstAutofillSucceededAt'
 const INSTALL_FALLBACK_KEY = 'extensionInstalledAt'
@@ -80,11 +81,24 @@ export async function fillContractProps(
   return built.props
 }
 
+// Number of profiles on the account, from the activeProfile mirror (1 when unknown).
+async function profileCountProp(): Promise<{ profile_count?: number }> {
+  try {
+    const data = await chrome.storage.local.get(ACTIVE_PROFILE_KEY)
+    const active = parseActiveProfile(data[ACTIVE_PROFILE_KEY])
+    return active ? { profile_count: active.profileCount } : {}
+  } catch {
+    return {}
+  }
+}
+
 export async function trackFillContract(
   event: AutofillContractEvent,
   hostnameOrContext: string | TrackFillContractContext,
 ) {
-  const properties = await fillContractProps(hostnameOrContext, event)
+  const contract = await fillContractProps(hostnameOrContext, event)
+  const properties =
+    event === 'autofill_succeeded' ? { ...contract, ...(await profileCountProp()) } : contract
   void trackEvent(event, properties)
   void captureEvent(event, properties)
 }

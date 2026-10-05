@@ -248,6 +248,8 @@ export async function postMatchScore(input: {
 
 export async function postMatchScoreDecline(input: {
   skill: string
+  // Declines are stored per candidate profile. Missing = the account's active profile.
+  profileId?: string | null
   method: 'POST' | 'DELETE'
   token: string
   baseUrl: string
@@ -264,7 +266,7 @@ export async function postMatchScoreDecline(input: {
     const response = await fetchImpl(`${resumeApiBaseUrl(input.baseUrl)}${MATCH_SCORE_PATHS.decline}`, {
       method: input.method,
       headers: proResumeHeaders(input.token, input.apiKey),
-      body: JSON.stringify({ skill }),
+      body: JSON.stringify(input.profileId ? { skill, profile_id: input.profileId } : { skill }),
       signal: controller.signal,
     })
     return { ok: response.status === 204 }
