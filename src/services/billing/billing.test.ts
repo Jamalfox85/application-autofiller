@@ -43,8 +43,6 @@ import {
   proUnlockAction,
   resolveIsPro,
 } from './proUnlock.ts'
-import { addRosterProfile, initialRoster } from './profileRoster.ts'
-import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
 
 const duringWeek = new Date('2026-09-15T12:00:00')
 const sameWeek = new Date('2026-09-20T12:00:00')
@@ -145,7 +143,7 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this week')
   assert.equal(
     PAYWALL_COPY.soft.body,
-    'Go Pro for unlimited autofills, plus Application Match Score.',
+    'Go Pro for unlimited autofills, plus Application Match Score and up to 5 profiles.',
   )
   assert.equal(PAYWALL_COPY.soft.primary, 'Upgrade to Pro \u2014 $5.99/mo')
   assert.equal(PAYWALL_COPY.soft.secondary, 'Continue free (15 fills left)')
@@ -153,12 +151,13 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.hard.title, 'You\u2019ve hit your free fill limit')
   assert.equal(
     PAYWALL_COPY.hard.body,
-    'Unlock unlimited fills and Application Match Score with Pro.',
+    'Unlock unlimited fills, Application Match Score, and up to 5 profiles with Pro.',
   )
   assert.equal(PAYWALL_COPY.hard.primary, 'Get Pro \u2014 $5.99/mo or $49/yr')
   assert.equal(PAYWALL_COPY.resumeAi.title, 'Application Match Score is a Pro feature.')
   assert.equal(PAYWALL_COPY.resumeAi.cta, 'Upgrade to Pro')
-  assert.equal(PAYWALL_COPY.multiProfile.title, 'Multiple profiles are a Pro feature.')
+  assert.equal(PAYWALL_COPY.multiProfile.title, 'Up to 5 profiles, each with its own resume, are a Pro feature.')
+  assert.equal(PAYWALL_COPY.lockedProfile.title, 'Resubscribe to use this profile again.')
   assert.equal(JSON.stringify(PAYWALL_COPY).toLowerCase().includes('workday'), false)
 
   assert.equal(PAID_EVENT.softShown, 'soft_paywall_shown')
@@ -287,7 +286,12 @@ test('generate and ats analyze send the supabase bearer token', async () => {
   assert.equal((calls[2].init.headers as Record<string, string>).Authorization, 'Bearer jwt-2')
 
   const app = readFileSync('src/App.vue', 'utf8')
-  assert.match(app, /<ProFeatures [^>]*@upgrade="openPaywall\('resume_ai'\)"/)
+  // The Pro row emits its own source (resume_ai or multi_profile) instead of App.vue
+  // hardwiring resume_ai.
+  assert.match(app, /<ProFeatures\s[^>]*@upgrade="onProUpgrade"/)
+  const proFeatures = readFileSync('src/components/ProFeatures.vue', 'utf8')
+  assert.match(proFeatures, /emit\('upgrade', 'resume_ai'\)/)
+  assert.match(proFeatures, /emit\('upgrade', 'multi_profile'\)/)
   const proApi = readFileSync('src/services/billing/proApi.ts', 'utf8')
   assert.match(proApi, /getValidAccessToken/)
 })
@@ -451,16 +455,6 @@ test('extension pay skus and profile plan stay out of ordinary profile saves', (
   assert.match(autofill, /evaluateFillAccess/)
   assert.match(autofill, /commitSuccessfulFill/)
   assert.doesNotMatch(autofill, /resumes\/generate/)
-})
-
-test('a second profile is a roster addition and does not drop the primary', () => {
-  const info = cloneDefaultPersonalInfo()
-  info.firstName = 'Ada'
-  const roster = addRosterProfile(initialRoster(info), 'Contract', info)
-  assert.equal(roster.profiles.length, 2)
-  assert.equal(roster.profiles[0].name, 'Primary')
-  assert.equal(roster.profiles[1].name, 'Contract')
-  assert.equal(roster.activeId, roster.profiles[1].id)
 })
 
 test('ExtPay paidAt grants Pro unless the subscription has lapsed', () => {

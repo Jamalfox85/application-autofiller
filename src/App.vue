@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePersonalInfo } from './composables/usePersonalInfo'
+import { useProfiles } from './composables/useProfiles'
+import {
+  ACTIVE_PROFILE_KEY,
+  autofillButtonLabel,
+  clearLegacyProfileRoster,
+  parseActiveProfile,
+} from './lib/sync/activeProfile'
+import { COPY_RESUME_FAILED_COPY } from './lib/sync/profileResume'
 import { getUserIdOrNull } from './lib/sync/shared'
 import { migrateLocalDataToSupabase } from './lib/sync/migrateLocal'
 import { useNotification } from './composables/useNotification'
@@ -26,10 +34,10 @@ import CustomResponsesDialog from './components/dialogs/CustomResponsesDialog.vu
 import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDialog.vue'
 import PaywallDialog from './components/PaywallDialog.vue'
 import ProFeatures from './components/ProFeatures.vue'
+import ProfilesModal from './components/ProfilesModal.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
 import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
 import { applyEntitlementToBilling, entitlementFromStorage, fillQuotaNote } from '@/services/billing/proUnlock'
-import { rememberActiveProfile } from '@/services/billing/profileRoster'
 import {
   WORKDAY_ACCOUNT_NOTICE_KEY,
   parseWorkdayAccountNotice,
@@ -48,7 +56,8 @@ const NOTIFICATION_ICONS: Record<string, string> = {
 }
 
 // Composables
-const { loadPersonalInfo, savePersonalInfo } = usePersonalInfo()
+const { loadPersonalInfo, savePersonalInfo, loadedProfileId } = usePersonalInfo()
+const profilesStore = useProfiles()
 const { notification, showNotification } = useNotification()
 const { fillHistory, loadFillHistory } = useFillHistory()
 const { status: authStatus, isSigningIn, signInError, initAuth, signIn, signOut } = useAuth()
@@ -59,11 +68,13 @@ const activeView = ref<'main' | 'welcome' | 'history'>('welcome')
 const autofillState = ref<'idle' | 'filling' | 'done'>('idle')
 const lastFillCount = ref<{ filled: number; total: number } | null>(null)
 const billing = ref<BillingState | null>(null)
+type PaywallMode = 'soft' | 'hard' | 'resume_ai' | 'multi_profile' | 'locked_profile'
 const paywall = ref<{
-  mode: 'soft' | 'hard' | 'resume_ai' | 'multi_profile'
+  mode: PaywallMode
   fillCount?: number
   fillsRemaining?: number
   ats?: string
+  profileCount?: number
 } | null>(null)
 
 const refreshBilling = async () => {
@@ -99,10 +110,72 @@ const startUpgrade = async () => {
 }
 
 const openPaywall = (
-  mode: 'soft' | 'hard' | 'resume_ai' | 'multi_profile',
-  extra?: { fillCount?: number; fillsRemaining?: number; ats?: string },
+  mode: PaywallMode,
+  extra?: { fillCount?: number; fillsRemaining?: number; ats?: string; profileCount?: number },
 ) => {
   paywall.value = { mode, ...extra }
+}
+
+// --- Profiles -------------------------------------------------------------
+const showProfiles = ref(false)
+// Set when "New profile → Start from a resume" hands the chosen file to the onboarding flow.
+const welcomeFile = ref<File | null>(null)
+const activeProfileMirror = computed(() => profilesStore.activeMirror.value)
+const autofillLabel = computed(() => autofillButtonLabel(activeProfileMirror.value))
+
+// Loads the active profile into the popup and rewrites the fill mirrors. Coalesced: a swap
+// triggers both the explicit reload and the activeProfile storage listener.
+let reloadInFlight: Promise<void> | null = null
+const reloadActiveProfile = () => {
+  if (!reloadInFlight) {
+    reloadInFlight = (async () => {
+      personalInfo.value = await loadPersonalInfo(profilesStore.activeMirror.value)
+    })().finally(() => {
+      reloadInFlight = null
+    })
+  }
+  return reloadInFlight
+}
+
+const onActiveProfileChanged = async (payload: {
+  name: string
+  reason: 'switched' | 'created' | 'deleted'
+  resumeWarning?: string | null
+}) => {
+  await reloadActiveProfile()
+  if (payload.resumeWarning) {
+    showNotification(payload.resumeWarning || COPY_RESUME_FAILED_COPY, 'warning')
+  } else if (payload.reason === 'created') {
+    showNotification(`Created ${payload.name}. Now using it.`, 'success')
+  } else if (payload.name) {
+    showNotification(`Now using: ${payload.name}`, 'success')
+  }
+}
+
+const onStartFromResume = async (payload: { file: File; name: string }) => {
+  await reloadActiveProfile()
+  welcomeFile.value = payload.file
+  activeView.value = 'welcome'
+}
+
+const onProfilesUpgrade = (mode: 'multi_profile' | 'locked_profile') => {
+  openPaywall(mode, { profileCount: profilesStore.profileCount.value })
+}
+
+const onProUpgrade = (source: 'resume_ai' | 'multi_profile') => {
+  openPaywall(source, { profileCount: profilesStore.profileCount.value })
+}
+
+// Another context (or device, via the next popup open) changed the active profile. Reload so
+// an open popup can't save stale data over a different profile.
+const onActiveProfileStored = (
+  changes: { [key: string]: chrome.storage.StorageChange },
+  areaName: string,
+) => {
+  if (areaName !== 'local' || !changes[ACTIVE_PROFILE_KEY]) return
+  const next = parseActiveProfile(changes[ACTIVE_PROFILE_KEY].newValue)
+  if (!next || authStatus.value !== 'signed-in' || !loadedProfileId.value) return
+  if (next.id !== loadedProfileId.value) void reloadActiveProfile()
 }
 
 const detection = ref<{ detected: boolean; siteLabel: string | null; fieldCount: number }>({
@@ -241,6 +314,7 @@ const autofillCurrentPage = async () => {
 }
 
 const handleOnboardingFinish = async (profile?: any) => {
+  welcomeFile.value = null
   if (profile) {
     personalInfo.value = profile
     try {
@@ -253,7 +327,7 @@ const handleOnboardingFinish = async (profile?: any) => {
   } else {
     // No reviewed profile handed back (user skipped, or the parse-wait timed out and the API
     // wrote the profile server-side) — pull whatever Supabase has now.
-    personalInfo.value = await loadPersonalInfo()
+    personalInfo.value = await loadPersonalInfo(profilesStore.activeMirror.value)
   }
   activeView.value = 'main'
   await detectApplication()
@@ -261,7 +335,6 @@ const handleOnboardingFinish = async (profile?: any) => {
 
 const saveProfile = async (profile: any) => {
   personalInfo.value = profile
-  void rememberActiveProfile(profile)
   try {
     await savePersonalInfo(profile)
     showNotification('Profile saved successfully', 'success')
@@ -392,6 +465,8 @@ const onIcimsNoticeStored = (
 
 const handleSignOut = async () => {
   await signOut()
+  profilesStore.reset()
+  showProfiles.value = false
   activeView.value = 'welcome'
 }
 
@@ -401,17 +476,31 @@ const loadAppState = async () => {
   // One-time lift of any pre-Supabase local data into the user's account. No-op after it has
   // run once (or if there was nothing local to move).
   const userId = await getUserIdOrNull()
-  if (userId) {
-    await migrateLocalDataToSupabase(userId)
+
+  // Server's active_profile_id wins on every open (a swap on another device shows up here).
+  await profilesStore.loadMirror()
+  try {
+    await profilesStore.refresh()
+  } catch (error) {
+    console.error('Failed to list profiles — using the last-known active profile', error)
+  }
+  const active = profilesStore.activeMirror.value
+
+  if (userId && active) {
+    await migrateLocalDataToSupabase(userId, active.id)
   }
 
-  personalInfo.value = await loadPersonalInfo()
+  personalInfo.value = await loadPersonalInfo(active)
   if (personalInfo.value.firstName && personalInfo.value.lastName) {
     activeView.value = 'main'
   }
 
   await loadFillHistory()
   await refreshBilling()
+  // Re-verify Pro in the background so lock state is current without delaying the popup.
+  void profilesStore.refreshServerPlan().then((changed) => {
+    if (changed) void profilesStore.refresh().catch(() => {})
+  })
   if (activeView.value === 'main') {
     await detectApplication()
   }
@@ -452,6 +541,9 @@ const onPopupFocus = () => {
 }
 
 onMounted(async () => {
+  // Prototype local roster held portal passwords. Profiles live in Supabase now.
+  void clearLegacyProfileRoster(chrome.storage.local)
+  chrome.storage.onChanged.addListener(onActiveProfileStored)
   chrome.storage.onChanged.addListener(onWorkdayNoticeStored)
   chrome.storage.onChanged.addListener(onIcimsNoticeStored)
   chrome.storage.onChanged.addListener(onPersonalInfoStored)
@@ -505,6 +597,7 @@ watch(authStatus, (next, previous) => {
     <Welcome
       v-else-if="activeView === 'welcome'"
       :personalInfo="personalInfo"
+      :initialFile="welcomeFile"
       @save="saveProfile"
       @finish="handleOnboardingFinish"
     />
@@ -537,7 +630,7 @@ watch(authStatus, (next, previous) => {
             :disabled="!detection.detected || autofillState !== 'idle'"
             @click="autofillCurrentPage"
           >
-            <span v-if="autofillState === 'idle'">Auto-fill application</span>
+            <span v-if="autofillState === 'idle'" class="autofill-label">{{ autofillLabel }}</span>
             <span v-else-if="autofillState === 'filling'">Filling fields…</span>
             <span v-else>Filled {{ lastFillCount?.filled }} of {{ lastFillCount?.total }} fields</span>
           </button>
@@ -561,7 +654,13 @@ watch(authStatus, (next, previous) => {
       <div class="section-header-row">
         <span class="section-header-label">Pro</span>
       </div>
-      <ProFeatures :isPro="billing?.isPro === true" @upgrade="openPaywall('resume_ai')" />
+      <ProFeatures
+        :isPro="billing?.isPro === true"
+        :activeProfileName="activeProfileMirror?.name"
+        :profileCount="profilesStore.profileCount.value"
+        @upgrade="onProUpgrade"
+        @openProfiles="showProfiles = true"
+      />
 
       <div class="section-header-row">
         <span class="section-header-label">Your information</span>
@@ -644,9 +743,20 @@ watch(authStatus, (next, previous) => {
       @save="saveProfile"
     />
 
+    <ProfilesModal
+      v-if="authStatus === 'signed-in'"
+      :show="showProfiles"
+      :isPro="billing?.isPro === true"
+      @close="showProfiles = false"
+      @activeChanged="onActiveProfileChanged"
+      @startFromResume="onStartFromResume"
+      @upgrade="onProfilesUpgrade"
+    />
+
     <PaywallDialog
       v-if="paywall"
       :mode="paywall.mode"
+      :profile-count="paywall.profileCount"
       :fill-count="paywall.fillCount"
       :fills-remaining="paywall.fillsRemaining"
       :ats="paywall.ats"
@@ -884,6 +994,13 @@ watch(authStatus, (next, previous) => {
     color: #5c5c66;
     cursor: not-allowed;
   }
+}
+
+.autofill-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .upgrade-btn {

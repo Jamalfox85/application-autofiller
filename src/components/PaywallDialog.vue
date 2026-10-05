@@ -16,10 +16,14 @@ import {
   type ProSurface,
 } from '@/services/billing/paidEvents'
 import { paidEventContext, trackPaid } from '@/services/billing/trackPaid'
+import { PROFILE_EVENT } from '@/services/profileEvents'
+import { trackProfileEvent } from '@/services/trackProfileEvent'
 
 const props = defineProps<{
-  mode: 'soft' | 'hard' | 'resume_ai' | 'multi_profile'
+  // locked_profile: a free account tapped a profile locked when Pro lapsed.
+  mode: 'soft' | 'hard' | 'resume_ai' | 'multi_profile' | 'locked_profile'
   fillCount?: number
+  profileCount?: number
   fillsRemaining?: number
   ats?: string
 }>()
@@ -33,7 +37,7 @@ const error = ref('')
 const sourceFor = (): CheckoutSource => {
   if (props.mode === 'hard') return 'hard_cap'
   if (props.mode === 'resume_ai') return 'resume_ai'
-  if (props.mode === 'multi_profile') return 'multi_profile'
+  if (props.mode === 'multi_profile' || props.mode === 'locked_profile') return 'multi_profile'
   return 'soft_gate'
 }
 
@@ -55,6 +59,12 @@ onMounted(async () => {
   } else {
     const surface: ProSurface = props.mode === 'resume_ai' ? 'resume_ai' : 'multi_profile'
     await trackPaid(PAID_EVENT.surfaceShown, surfaceShownProps({ ...ctx, surface, atsSite: props.ats }))
+    if (surface === 'multi_profile') {
+      await trackProfileEvent(PROFILE_EVENT.paywallViewed, {
+        reason: props.mode === 'locked_profile' ? 'locked_profile' : 'create',
+        profile_count: props.profileCount ?? 1,
+      })
+    }
   }
 })
 
@@ -146,6 +156,13 @@ async function restore() {
         </button>
       </template>
 
+      <template v-else-if="mode === 'locked_profile'">
+        <h2>{{ PAYWALL_COPY.lockedProfile.title }}</h2>
+        <button class="paywall-primary" type="button" @click="checkout('monthly', 'upgrade')">
+          {{ PAYWALL_COPY.lockedProfile.cta }}
+        </button>
+      </template>
+
       <template v-else>
         <h2>{{ PAYWALL_COPY.multiProfile.title }}</h2>
         <button class="paywall-primary" type="button" @click="checkout('monthly', 'upgrade')">
@@ -163,7 +180,8 @@ async function restore() {
 .paywall-overlay {
   position: absolute;
   inset: 0;
-  z-index: 40;
+  /* Above the full-screen Profiles sheet (z 1000), which can open the multi-profile paywall. */
+  z-index: 1100;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: center;

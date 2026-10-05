@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import { mergeParsedResume } from '@/utils/resumeParsing'
 import type { ParsedResumeData, PersonalInfo } from '../types'
 import PickPath from './onboarding/PickPath.vue'
@@ -14,6 +14,9 @@ import { completeProfileSetupSession, getProfileSetupSession } from '@/services/
 
 const props = defineProps<{
   personalInfo: PersonalInfo
+  // "New profile → Start from a resume": the new profile is already active; upload this
+  // file straight away and skip the permissions step (onboarding already did it).
+  initialFile?: File | null
 }>()
 
 const emit = defineEmits<{
@@ -80,7 +83,8 @@ watch(
         step.value = 'confirm'
       } else {
         // Repeat upload (parsed === null) — nothing new to review; carry on.
-        step.value = 'permissions'
+        if (props.initialFile) void handleFinish()
+        else step.value = 'permissions'
       }
       resumeUpload.clear()
     } else if (phase === 'error') {
@@ -96,7 +100,15 @@ watch(
 
 onBeforeUnmount(clearParsingFallback)
 
+onMounted(() => {
+  if (props.initialFile) handleUpload(props.initialFile)
+})
+
 const handleConfirmContinue = () => {
+  if (props.initialFile) {
+    void handleFinish()
+    return
+  }
   step.value = 'permissions'
 }
 

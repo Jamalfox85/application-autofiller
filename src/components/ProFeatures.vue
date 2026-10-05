@@ -1,17 +1,37 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   RESUME_MATCHING_DEFAULT,
   RESUME_MATCHING_KEY,
   resumeMatchingEnabled,
 } from '../services/matchScore/setting.ts'
+import { truncateProfileName } from '../lib/sync/activeProfile.ts'
+import { ICON_SWAP } from '../utils/icons.ts'
+
+type ProUpgradeSource = 'resume_ai' | 'multi_profile'
 
 const props = defineProps<{
   isPro: boolean
+  activeProfileName?: string | null
+  profileCount?: number
 }>()
 const emit = defineEmits<{
-  upgrade: []
+  upgrade: [source: ProUpgradeSource]
+  openProfiles: []
 }>()
+
+const profileLabel = computed(() => truncateProfileName(props.activeProfileName || 'Primary', 18))
+
+// Pro opens the Profiles modal. Free with a single profile gets the multi-profile paywall.
+// Free with 2+ profiles (Pro lapsed) still opens the modal: it shows the locked rows and
+// lets the user delete them.
+const onProfilesClick = () => {
+  if (props.isPro || (props.profileCount ?? 1) > 1) {
+    emit('openProfiles')
+    return
+  }
+  emit('upgrade', 'multi_profile')
+}
 
 const matchingEnabled = ref(RESUME_MATCHING_DEFAULT)
 
@@ -23,7 +43,7 @@ onMounted(async () => {
 // Free accounts see the switch locked; clicking the row opens the paywall instead.
 const onMatchingClick = async () => {
   if (!props.isPro) {
-    emit('upgrade')
+    emit('upgrade', 'resume_ai')
     return
   }
   matchingEnabled.value = !matchingEnabled.value
@@ -57,10 +77,35 @@ const onMatchingClick = async () => {
         <span class="toggle-knob"></span>
       </span>
     </button>
+    <button class="section-row pro-row profiles-row" type="button" @click="onProfilesClick">
+      <span class="section-num">PR</span>
+      <span class="section-label">Profiles</span>
+      <span class="section-meta" :title="activeProfileName || undefined">
+        {{ isPro || (profileCount ?? 1) > 1 ? profileLabel : 'Pro feature' }}
+      </span>
+      <span class="swap-icon" aria-hidden="true" v-html="ICON_SWAP"></span>
+    </button>
   </div>
 </template>
 
 <style scoped>
+.swap-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  color: #8f8f99;
+  flex-shrink: 0;
+}
+
+.swap-icon :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.profiles-row:hover .swap-icon {
+  color: #c4b5fd;
+}
+
 .pro-row.static {
   cursor: default;
 }

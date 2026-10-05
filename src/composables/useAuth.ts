@@ -95,6 +95,7 @@ export function useAuth() {
       'resumeUploadJob',
       'savedResumeFile',
       'localToSupabaseMigrated_v1',
+      'activeProfile',
       USER_ID_KEY,
     ])
     applySession(null)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, reactive, watch } from 'vue'
 import type { CustomResponse } from '../../types'
 import { useCustomResponses } from '../../composables/useCustomResponses'
 import { useNotification } from '../../composables/useNotification'
@@ -7,7 +7,7 @@ import ResponseFormDialog from './ResponseFormDialog.vue'
 import ConfirmDeleteDialog from './ConfirmDeleteDialog.vue'
 import SectionSheet from './SectionSheet.vue'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
 }>()
 
@@ -79,9 +79,15 @@ const handleClose = () => {
   emit('close')
 }
 
-onMounted(async () => {
-  await loadCustomResponses()
-})
+// Reload on every open: responses belong to the active profile, which can change while the
+// popup stays mounted.
+watch(
+  () => props.show,
+  async (show) => {
+    if (show) await loadCustomResponses()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>

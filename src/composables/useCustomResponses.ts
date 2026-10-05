@@ -5,33 +5,38 @@ import {
   fetchCustomResponsesFromDb,
   saveCustomResponsesToDb,
 } from '../lib/sync/customResponses'
+import { CUSTOM_RESPONSES_KEY, readActiveProfileId } from '../lib/sync/activeProfile'
 
-const MIRROR_KEY = 'customResponses'
-
+// Custom responses belong to the active profile. The id is captured at load so a save made
+// after a swap elsewhere can't write this list into another profile.
 export function useCustomResponses() {
   const customResponses = ref<CustomResponse[]>([])
+  let profileId: string | null = null
 
   const persist = async () => {
     const snapshot = JSON.parse(JSON.stringify(customResponses.value)) as CustomResponse[]
-    await writeMirror(MIRROR_KEY, snapshot)
+    const target = profileId ?? (await readActiveProfileId(chrome.storage.local))
+    const mirrored = await readActiveProfileId(chrome.storage.local)
+    if (!mirrored || mirrored === target) await writeMirror(CUSTOM_RESPONSES_KEY, snapshot)
     const userId = await getUserIdOrNull()
-    if (!userId) return
-    await saveCustomResponsesToDb(userId, snapshot)
+    if (!userId || !target) return
+    await saveCustomResponsesToDb(target, snapshot)
   }
 
   const loadCustomResponses = async () => {
+    profileId = await readActiveProfileId(chrome.storage.local)
     const userId = await getUserIdOrNull()
-    if (userId) {
+    if (userId && profileId) {
       try {
-        const remote = await fetchCustomResponsesFromDb(userId)
+        const remote = await fetchCustomResponsesFromDb(profileId)
         customResponses.value = remote
-        await writeMirror(MIRROR_KEY, remote)
+        await writeMirror(CUSTOM_RESPONSES_KEY, remote)
         return
       } catch (error) {
         console.error('Failed to load custom responses from Supabase — using local cache', error)
       }
     }
-    customResponses.value = (await readMirror<CustomResponse[]>(MIRROR_KEY)) ?? []
+    customResponses.value = (await readMirror<CustomResponse[]>(CUSTOM_RESPONSES_KEY)) ?? []
   }
 
   const addCustomResponse = async (response: CustomResponse) => {

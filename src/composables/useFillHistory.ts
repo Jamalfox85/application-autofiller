@@ -3,7 +3,10 @@ import type { FillHistoryEntry } from '../types'
 import { getUserIdOrNull, readMirror, writeMirror } from '../lib/sync/shared'
 import { clearFillHistoryInDb, reconcileFillHistory } from '../lib/sync/fillHistory'
 
+import { useProfiles } from './useProfiles'
+
 const MIRROR_KEY = 'fillHistory'
+const profilesState = useProfiles()
 
 export function useFillHistory() {
   const fillHistory = ref<FillHistoryEntry[]>([])
@@ -20,7 +23,10 @@ export function useFillHistory() {
     try {
       // Pushes any entries background.js appended locally that aren't in Supabase yet, and
       // returns the merged, newest-first list.
-      const merged = await reconcileFillHistory(userId, local)
+      // Rows stamped with a since-deleted profile go up with profile_id null (FK), keeping
+      // the name snapshot. Before list_profiles has answered, no ids are filtered.
+      const known = profilesState.loaded.value ? profilesState.profileIds.value : null
+      const merged = await reconcileFillHistory(userId, local, known)
       fillHistory.value = merged
       await writeMirror(MIRROR_KEY, merged)
     } catch (error) {
