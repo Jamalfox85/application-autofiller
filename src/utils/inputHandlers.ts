@@ -67,6 +67,15 @@ export async function fillWorkdayInput(
   }
 }
 
+// My Information text fields are uncontrolled. Workday copies the DOM value
+// into form state on blur. React 17+ listens for focusout, not blur, so the
+// text can be visible while validation still says the field is empty.
+export function commitWorkdayTextValue(input: HTMLInputElement | HTMLTextAreaElement) {
+  const view = input.ownerDocument?.defaultView
+  const FocusEventCtor = view?.FocusEvent ?? FocusEvent
+  input.dispatchEvent(new FocusEventCtor('focusout', { bubbles: true, composed: true }))
+}
+
 // Chooses one visible option label to click, or null to keep waiting / try the next query.
 // Greenhouse uses this so a dialing-code or location list isn't accepted on the first
 // substring hit (for example "San Francisco, Cebu, Philippines").

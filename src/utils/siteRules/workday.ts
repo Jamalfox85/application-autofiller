@@ -1,5 +1,5 @@
 import type { SiteRule, FieldMatch, FieldHandler, PersonalInfo } from '../../types/index.ts'
-import { fillWorkdayInput, setReactInputValue } from '../inputHandlers.ts'
+import { commitWorkdayTextValue, fillWorkdayInput, setReactInputValue } from '../inputHandlers.ts'
 import { getWorkdayAccount, hasWorkdayAccountCredentials, isWorkdayApplyHost } from './workdayAccount.ts'
 import {
   publishMissingWorkdayAccountNotice,
@@ -25,6 +25,7 @@ import {
   workdayActivePrompt,
   workdayApplicationQuestionKind,
   workdayContactKeyFromElement,
+  workdayContactTextNeedsCommit,
   workdayDatePartInput,
   workdayDegreeOption,
   workdayDisabilityOptionIndex,
@@ -106,7 +107,8 @@ export default function workdayConfig(): SiteRule {
     // input. Revisit that control only while the closed face is still a placeholder.
     includeFilled: (input) =>
       (workdayElementIsSource(input) && workdayPromptFaceIsEmpty(input)) ||
-      workdaySchoolPromptNeedsFill(input),
+      workdaySchoolPromptNeedsFill(input) ||
+      workdayContactTextNeedsCommit(input),
     // In your onMount:
     onMount: (personalInfo) => {
       console.log('PING - Plugin initialized')
@@ -583,7 +585,7 @@ const fieldHandlers: Array<{
   {
     match: (input) => workdayContactKeyFromElement(input) === 'firstName',
     handle: async (input, _, personalInfo) => {
-      await fillWorkdayInput(input as HTMLInputElement, personalInfo.firstName || '')
+      await fillCommittedWorkdayText(input as HTMLInputElement, personalInfo.firstName || '')
       return true
     },
   },
@@ -594,7 +596,7 @@ const fieldHandlers: Array<{
   {
     match: (input) => workdayContactKeyFromElement(input) === 'lastName',
     handle: async (input, _, personalInfo) => {
-      await fillWorkdayInput(input as HTMLInputElement, personalInfo.lastName || '')
+      await fillCommittedWorkdayText(input as HTMLInputElement, personalInfo.lastName || '')
       return true
     },
   },
@@ -637,11 +639,16 @@ const fieldHandlers: Array<{
   {
     match: (input) => workdayContactKeyFromElement(input) === 'email',
     handle: async (input, _, personalInfo) => {
-      await fillWorkdayInput(input as HTMLInputElement, personalInfo.email || '')
+      await fillCommittedWorkdayText(input as HTMLInputElement, personalInfo.email || '')
       return true
     },
   },
 ]
+
+async function fillCommittedWorkdayText(input: HTMLInputElement, value: string) {
+  await fillWorkdayInput(input, value)
+  commitWorkdayTextValue(input)
+}
 
 // helpers
 

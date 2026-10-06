@@ -95,6 +95,13 @@ export function workdayContactKey(input: WorkdayFieldProbe): WorkdayContactKey |
 
 // The input id is the form-kit path (`name--legalName--firstName`). Older
 // widgets put that path on the wrapper's data-fkit-id instead.
+// First Name, Last Name, and Email keep a visible value without a form value
+// until focusout. Autofill has to revisit them when the text is already there.
+export function workdayContactTextNeedsCommit(input: Element): boolean {
+  const key = workdayContactKeyFromElement(input)
+  return key === 'firstName' || key === 'lastName' || key === 'email'
+}
+
 export function workdayContactKeyFromElement(input: Element): WorkdayContactKey | null {
   const own = workdayContactKey({
     id: input.id,

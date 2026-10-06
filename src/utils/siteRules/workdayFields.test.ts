@@ -24,6 +24,7 @@ import {
   workdayActivePrompt,
   workdayApplicationQuestionKind,
   workdayContactKey,
+  workdayContactTextNeedsCommit,
   workdayDatePartInput,
   workdayDegreeOption,
   workdayDisabilityOptionIndex,
@@ -91,6 +92,81 @@ test('contact keys follow Workday form-kit paths and ignore the account email co
   assert.equal(workdayContactKey(probe({ id: 'name--preferredName--firstName' })), null)
   assert.equal(workdayContactKey(probe({ 'data-automation-id': 'email' })), null)
   assert.equal(workdayContactKey(probe({ 'data-automation-id': 'firstName' })), null)
+})
+
+// Workday's text field is uncontrolled. It copies the DOM value into form state
+// on focusout. A blur event leaves the text visible and the required value empty.
+test('My Information name and email commit on focusout and a visible value is not left empty', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-source">
+      <div data-automation-id="selectedItem">Indeed</div>
+      <input id="source" value="Indeed" />
+    </div>
+    <div data-automation-id="formField-legalName--firstName">
+      <input id="name--legalName--firstName" value="" />
+    </div>
+    <div data-automation-id="formField-legalName--lastName">
+      <input id="name--legalName--lastName" value="" />
+    </div>
+    <div data-automation-id="formField-emailAddress">
+      <input id="emailAddress--emailAddress" name="emailAddress" value="" />
+    </div>
+    <input id="dateSectionYear-input" value="" />
+    <input id="linkedin" value="" />
+  </body>`)
+  const doc = dom.window.document
+  const form: Record<string, string> = {}
+  const bind = (id: string, visible = '') => {
+    const input = doc.getElementById(id) as HTMLInputElement
+    input.value = visible
+    form[id] = ''
+    input.addEventListener('focusout', () => {
+      form[id] = input.value
+    })
+    input.addEventListener('input', () => {
+      if (doc.activeElement !== input) form[id] = input.value
+    })
+    input.addEventListener('blur', () => {
+      input.dataset.blur = 'true'
+    })
+    return input
+  }
+  const first = bind('name--legalName--firstName', 'Jamal')
+  const last = bind('name--legalName--lastName', 'Fox')
+  const email = bind('emailAddress--emailAddress', 'person@example.com')
+  const year = doc.getElementById('dateSectionYear-input') as HTMLInputElement
+  const source = doc.getElementById('source') as HTMLInputElement
+  const indeed = doc.querySelector('[data-automation-id="selectedItem"]')!
+  first.dispatchEvent(new dom.window.Event('blur', { bubbles: true }))
+  assert.equal(first.value, 'Jamal')
+  assert.equal(form[first.id], '')
+  assert.equal(workdayContactTextNeedsCommit(first), true)
+  assert.equal(workdayContactTextNeedsCommit(last), true)
+  assert.equal(workdayContactTextNeedsCommit(email), true)
+  assert.equal(workdayContactTextNeedsCommit(year), false)
+  assert.equal(workdayContactTextNeedsCommit(source), false)
+  assert.equal(workdayContactTextNeedsCommit(doc.getElementById('linkedin')!), false)
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  assert.equal(rule.includeFilled?.(first), true)
+  assert.equal(rule.includeFilled?.(year), false)
+  const info = {
+    firstName: 'Jamal',
+    lastName: 'Fox',
+    email: 'person@example.com',
+  } as PersonalInfo
+  assert.equal(await rule.apply(first, 'first name', info), true)
+  assert.equal(await rule.apply(last, 'last name', info), true)
+  assert.equal(await rule.apply(email, 'email', info), true)
+  assert.equal(first.value, 'Jamal')
+  assert.equal(last.value, 'Fox')
+  assert.equal(email.value, 'person@example.com')
+  assert.equal(form[first.id], 'Jamal')
+  assert.equal(form[last.id], 'Fox')
+  assert.equal(form[email.id], 'person@example.com')
+  assert.equal(indeed.textContent, 'Indeed')
+  assert.equal(source.value, 'Indeed')
+  assert.equal(year.value, '')
 })
 
 test('custom source fields are recognized from the control id', () => {
