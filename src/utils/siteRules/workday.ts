@@ -1,6 +1,11 @@
 import type { SiteRule, FieldMatch, FieldHandler, PersonalInfo } from '../../types/index.ts'
 import { commitWorkdayTextValue, fillWorkdayInput, setReactInputValue } from '../inputHandlers.ts'
-import { getWorkdayAccount, hasWorkdayAccountCredentials, isWorkdayApplyHost } from './workdayAccount.ts'
+import {
+  getWorkdayAccount,
+  hasSavedWorkdayApplicationAccount,
+  hasWorkdayAccountCredentials,
+  isWorkdayApplyHost,
+} from './workdayAccount.ts'
 import {
   publishMissingWorkdayAccountNotice,
   readPersonalInfoForWorkday,
@@ -69,6 +74,7 @@ import {
   isWorkdayCoverLetterFileInput,
   isWorkdayResumeFileInput,
   requestWorkdaySavedResume,
+  workdayResumeAlreadyPresent,
 } from './workdayResume.ts'
 
 var lastFormSignature = ''
@@ -210,9 +216,11 @@ export default function workdayConfig(): SiteRule {
             (isWorkdayAccountCreationForm(document) || isWorkdaySignInForm(document))
           ) {
             const latest = await readPersonalInfoForWorkday(personalInfo)
+            if (!hasSavedWorkdayApplicationAccount(latest)) {
+              await publishMissingWorkdayAccountNotice()
+            }
             if (!hasWorkdayAccountCredentials(latest)) {
               accountCredentialsMissing = true
-              await publishMissingWorkdayAccountNotice()
             } else {
               accountInputHandled = true
               console.log('✓ Account form loaded, filling account details')
@@ -474,6 +482,9 @@ export default function workdayConfig(): SiteRule {
     apply: async (input, fieldText, personalInfo) => {
       if (isWorkdayResumeFileInput(input as HTMLInputElement)) {
         const fileInput = input as HTMLInputElement
+        // Workday clears the file input after a successful upload. A new input
+        // in a dropzone that already shows the resume is not another attach.
+        if (workdayResumeAlreadyPresent(fileInput)) return 'skip'
         if ((fileInput.files?.length ?? 0) > 0) return 'skip'
         const saved = await loadWorkdaySavedResume()
         if (!saved) return 'skip'
@@ -496,16 +507,26 @@ export default function workdayConfig(): SiteRule {
         const selected = await selectWorkdayPromptQuery(input, school, undefined, { pillPrompt: true })
         return selected ? true : 'skip'
       }
-      // A degree that already shows the mapped label must not be typed again.
-      // "Bachelor of Science" is not a prefix of "Bachelors", so a later pass
-      // clears that face back to Select One.
+      // A degree that already shows the chosen label must not be typed again.
+      // On Adobe that label is Bachelors. On Cisco it is Bachelor of Science
+      // when that row is listed. Typing the other string clears the face.
       if (workdayElementIsDegree(input, fieldText)) {
         const degree = profileDegreeType(input, personalInfo)
         if (!degree) return 'skip'
+        // Cisco My Experience can render Degree as a native select. Mapping
+        // still has to run: Bachelor of Science stays that option, and an
+        // Adobe-only list still becomes Bachelors.
+        if (input.tagName === 'SELECT') {
+          return commitWorkdayDegreeSelect(input as HTMLSelectElement, degree) ? true : 'skip'
+        }
         const button = degreeButtonFor(input)
-        if (!button) return 'skip'
-        const label = await selectWorkdayListedDegree(button, degree)
-        return label ? true : 'skip'
+        if (button) {
+          const label = await selectWorkdayListedDegree(button, degree)
+          return label ? true : 'skip'
+        }
+        const select = degreeSelectFor(input)
+        if (select) return commitWorkdayDegreeSelect(select, degree) ? true : 'skip'
+        return 'skip'
       }
       const application = await workdayApplicationApply(input, fieldText, personalInfo)
       if (application !== false) return application
@@ -567,21 +588,16 @@ const fieldHandlers: Array<{
       const kind = workdayAccountCredentialKind(input)
       if (!kind || input.tagName !== 'INPUT') return false
       const latest = await readPersonalInfoForWorkday(personalInfo)
-      if (!hasWorkdayAccountCredentials(latest)) {
+      // Legacy accountEmail / accountPassword can still fill. The notice is
+      // specifically a missing Application Accounts row for this Workday login.
+      if (!hasSavedWorkdayApplicationAccount(latest)) {
         await publishMissingWorkdayAccountNotice()
-        return true
       }
+      if (!hasWorkdayAccountCredentials(latest)) return true
       const account = getWorkdayAccount(latest)
       const value = kind === 'email' ? account.email : account.password
       if (!value) return true
-      const field = input as HTMLInputElement
-      if (kind === 'email') {
-        await fillWorkdayInput(field, value)
-      } else {
-        setReactInputValue(field, value)
-        const EventCtor = field.ownerDocument?.defaultView?.Event ?? Event
-        field.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
-      }
+      await fillWorkdayAccountValue(input as HTMLInputElement, value)
       return true
     },
   },
@@ -653,6 +669,21 @@ async function fillCommittedWorkdayText(input: HTMLInputElement, value: string) 
   commitWorkdayTextValue(input)
 }
 
+// Account email and password are the same uncontrolled Workday text as My
+// Information. React 17 copies the value on focusout. This is not the contact
+// name/email path and does not change fillWorkdayInput.
+async function fillWorkdayAccountValue(input: HTMLInputElement, value: string) {
+  const type = (input.getAttribute('type') || '').toLowerCase()
+  if (type === 'password') {
+    setReactInputValue(input, value)
+    const EventCtor = input.ownerDocument?.defaultView?.Event ?? Event
+    input.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+  } else {
+    await fillWorkdayInput(input, value)
+  }
+  commitWorkdayTextValue(input)
+}
+
 // helpers
 
 // Top frame only. An embedded myworkday iframe would otherwise toast again; the frame that
@@ -667,7 +698,7 @@ const announceMissingWorkdayAccount = async (personalInfo: PersonalInfo | null |
   if (!topFrame) return
 
   const latest = await readPersonalInfoForWorkday(personalInfo)
-  if (!hasWorkdayAccountCredentials(latest)) {
+  if (!hasSavedWorkdayApplicationAccount(latest)) {
     await publishMissingWorkdayAccountNotice()
   }
 }
@@ -1832,28 +1863,54 @@ export async function selectWorkdayPromptQuery(
   return false
 }
 
+function visibleDegreeLabels(button: HTMLButtonElement): string[] {
+  const prompt = workdayActivePrompt(button)
+  if (!prompt) return []
+  return substantivePromptLabels(workdayOptionLabels(prompt))
+}
+
 export async function selectWorkdayListedDegree(
   button: HTMLButtonElement,
   degreeType: string,
 ): Promise<string | null> {
   const trimmed = degreeType.trim()
   if (!trimmed) return null
-  // A later autofill must not reopen a degree that already mapped. Typing
-  // "Bachelor of Science" is not a prefix of "Bachelors", and the Canvas
-  // select clears that face back to Select One.
+  // A later autofill must not reopen a degree that already shows the right
+  // label. A generic face ("Bachelors") is that label only when the catalog
+  // does not also list the exact profile degree. Cisco lists Bachelor of
+  // Science itself; typing the shorter word selects the wrong row.
   if (!listboxIsPlaceholder(button)) {
     const shown = workdayListboxValue(button)
+    const visible = visibleDegreeLabels(button)
+    if (visible.length > 0) {
+      const best = workdayDegreeOption(visible, trimmed)
+      if (best && listboxShowsLabel(button, best)) return best
+      if (best) {
+        const option = listedOptionElement(button, best)
+        if (option) {
+          const settled = await settleListedChoice(button, option, best, true)
+          if (settled) return settled
+        }
+        const typed = await commitCanvasDegreeTypeahead(button, best)
+        if (typed) return typed
+      }
+    }
     const mapped = workdayDegreeOption([shown], trimmed)
     if (mapped && listboxShowsLabel(button, mapped)) return mapped
     return null
   }
   // Read the catalog before typing. "Bachelor of Science" is not a prefix of
-  // the Workday option "Bachelors", so typing the profile string clears the
-  // closed face back to Select One. Commit the mapped label instead.
+  // the Workday option "Bachelors", so typing the profile string clears an
+  // Adobe face that only offers Bachelors. When the exact title is listed,
+  // that title is what gets typed.
+  // A catalog that stays on "No Items." until the search box has a query is
+  // the same shape as School. The profile title is that query. Adobe's short
+  // list is read on the first open, so this search does not replace a mapped
+  // Bachelors label with the raw profile string.
   const picked = await chooseFirstListedOption(
     button,
     (labels) => workdayDegreeOption(labels, trimmed),
-    [],
+    [trimmed],
     true,
   )
   if (picked) return picked
@@ -1988,10 +2045,10 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
   try {
     console.log('Starting account input fill...')
     const latest = await readPersonalInfoForWorkday(personalInfo)
-    if (!hasWorkdayAccountCredentials(latest)) {
+    if (!hasSavedWorkdayApplicationAccount(latest)) {
       await publishMissingWorkdayAccountNotice()
-      return
     }
+    if (!hasWorkdayAccountCredentials(latest)) return
     const workdayAccount = getWorkdayAccount(latest)
 
     // Wait longer for the form to fully render
@@ -2018,13 +2075,10 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
       return
     }
 
-    await fillWorkdayInput(emailInput, workdayAccount.email)
-    const EventCtor = passwordInput.ownerDocument?.defaultView?.Event ?? Event
-    setReactInputValue(passwordInput, workdayAccount.password)
-    passwordInput.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+    await fillWorkdayAccountValue(emailInput, workdayAccount.email)
+    await fillWorkdayAccountValue(passwordInput, workdayAccount.password)
     if (verifyPasswordInput) {
-      setReactInputValue(verifyPasswordInput, workdayAccount.password)
-      verifyPasswordInput.dispatchEvent(new EventCtor('change', { bubbles: true, composed: true }))
+      await fillWorkdayAccountValue(verifyPasswordInput, workdayAccount.password)
     }
     await new Promise((resolve) => setTimeout(resolve, 300))
 
@@ -2187,12 +2241,95 @@ function profileDegreeType(input: Element, info: PersonalInfo): string {
   return (educationRow(input, info)?.degreeType || '').trim()
 }
 
+function degreeFaceButton(buttons: HTMLButtonElement[]): HTMLButtonElement | null {
+  const popup = buttons.find((button) => button.getAttribute('aria-haspopup') === 'listbox')
+  if (popup) return popup
+  const named = buttons.find((button) => {
+    const blob = `${button.id} ${button.getAttribute('name') || ''} ${button.getAttribute('data-automation-id') || ''}`
+      .toLowerCase()
+      .replace(/[^a-z]/g, '')
+    return blob.includes('degree')
+  })
+  if (named) return named
+  return buttons[0] || null
+}
+
 function degreeButtonFor(input: Element): HTMLButtonElement | null {
   const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]') || input.parentElement
   if (!field) return null
-  const button = field.querySelector('button[aria-haspopup="listbox"]')
-  if (!button || button.tagName !== 'BUTTON') return null
-  return button as HTMLButtonElement
+  const buttons = Array.from(field.querySelectorAll('button')).filter(
+    (node): node is HTMLButtonElement => node.tagName === 'BUTTON',
+  )
+  return degreeFaceButton(buttons)
+}
+
+function degreeSelectFor(input: Element): HTMLSelectElement | null {
+  if (input.tagName === 'SELECT') return input as HTMLSelectElement
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]') || input.parentElement
+  const select = field?.querySelector('select')
+  if (!select || select.tagName !== 'SELECT') return null
+  return select as HTMLSelectElement
+}
+
+const DEGREE_FIELD_IDS = ['degree', 'degreeType']
+
+function educationDegreeButton(section: ParentNode): HTMLButtonElement | null {
+  const listed = firstListbox(section, DEGREE_FIELD_IDS)
+  if (listed) return listed
+  for (const id of DEGREE_FIELD_IDS) {
+    const scope = fieldScope(section, id)
+    if (!scope) continue
+    const buttons = Array.from(scope.querySelectorAll('button')).filter(
+      (node): node is HTMLButtonElement => node.tagName === 'BUTTON',
+    )
+    const button = degreeFaceButton(buttons)
+    if (button) return button
+  }
+  return null
+}
+
+function educationDegreeSelect(section: ParentNode): HTMLSelectElement | null {
+  for (const id of DEGREE_FIELD_IDS) {
+    const scope = fieldScope(section, id)
+    const select = scope?.querySelector('select')
+    if (select && select.tagName === 'SELECT') return select as HTMLSelectElement
+  }
+  return null
+}
+
+function degreeOptionLabel(option: HTMLOptionElement): string {
+  return (option.text || option.label || option.value || '').replace(/\s+/g, ' ').trim()
+}
+
+function degreeSelectIsPlaceholder(select: HTMLSelectElement): boolean {
+  const option = select.options[select.selectedIndex]
+  const key = (option ? degreeOptionLabel(option) : '').toLowerCase().replace(/[^a-z]/g, '')
+  return !key || key === 'selectone' || key === 'select' || key === 'pleaseselect' || key === 'chooseone'
+}
+
+// Native degree <select>. The option text is what workdayDegreeOption maps.
+// Cisco keeps Bachelor of Science when that option is listed. Adobe's list,
+// which has no exact title, becomes Bachelors. A listed label that is already
+// selected is left alone.
+function commitWorkdayDegreeSelect(select: HTMLSelectElement, degreeType: string): string | null {
+  const trimmed = degreeType.trim()
+  if (!trimmed) return null
+  const options = Array.from(select.options)
+  const picked = workdayDegreeOption(options.map(degreeOptionLabel), trimmed)
+  if (!picked) return null
+  const wanted = picked.replace(/\s+/g, ' ').trim().toLowerCase()
+  const match = options.find((option) => degreeOptionLabel(option).toLowerCase() === wanted)
+  if (!match) return null
+  const current = options[select.selectedIndex]
+  if (current && degreeOptionLabel(current).toLowerCase() === wanted) return picked
+  select.value = match.value
+  if (degreeOptionLabel(options[select.selectedIndex] || match).toLowerCase() !== wanted) {
+    match.selected = true
+  }
+  const EventCtor = select.ownerDocument?.defaultView?.Event ?? Event
+  select.dispatchEvent(new EventCtor('input', { bubbles: true }))
+  select.dispatchEvent(new EventCtor('change', { bubbles: true }))
+  return picked
 }
 
 function educationFieldPills(panel: Element, ids: string[]): string[] {
@@ -2216,8 +2353,10 @@ function educationPanelMatches(
 // school pill, is the empty Education 1 Workday inserts for a required section.
 function educationPanelIsBlank(panel: Element): boolean {
   if (educationFieldPills(panel, ['school', 'schoolName', 'schoolItem']).length > 0) return false
-  const degree = firstListbox(panel, ['degree', 'degreeType'])
+  const degree = educationDegreeButton(panel)
   if (degree && !listboxIsPlaceholder(degree)) return false
+  const degreeSelect = educationDegreeSelect(panel)
+  if (degreeSelect && !degreeSelectIsPlaceholder(degreeSelect)) return false
   const gpa = workdayFieldControl(panel, 'gradeAverage') as HTMLInputElement | null
   if (gpa?.value.trim()) return false
   if (educationFieldPills(panel, ['fieldOfStudy', 'major']).length > 0) return false
@@ -2303,21 +2442,23 @@ async function fillEducationSection(section: Element, education: PersonalInfo['e
   const degreeQuery = (education.degreeType || '').trim()
   if (degreeQuery) {
     console.log('Selecting degree:', degreeQuery)
-    const degreeBtn = firstListbox(section, ['degree', 'degreeType'])
-    if (degreeBtn) {
-      const label = await selectWorkdayListedDegree(degreeBtn, degreeQuery)
-      if (label) console.log('✓ Selected degree:', label)
-      else console.error('Degree not found for:', degreeQuery)
-    } else {
+    const degreeBtn = educationDegreeButton(section)
+    let degreeLabel = degreeBtn ? await selectWorkdayListedDegree(degreeBtn, degreeQuery) : null
+    if (!degreeLabel) {
+      const degreeSelect = educationDegreeSelect(section)
+      if (degreeSelect) degreeLabel = commitWorkdayDegreeSelect(degreeSelect, degreeQuery)
+    }
+    if (!degreeLabel) {
       const degreeInput = firstTextControl(section, ['degree', 'degreeType'])
       if (degreeInput) {
         const selected = await selectWorkdayPromptQuery(degreeInput, degreeQuery, (labels) =>
           workdayDegreeOption(labels, degreeQuery),
         )
-        if (selected) console.log('✓ Selected degree')
-        else console.error('Degree not found for:', degreeQuery)
+        if (selected) degreeLabel = degreeQuery
       }
     }
+    if (degreeLabel) console.log('✓ Selected degree:', degreeLabel)
+    else console.error('Degree not found for:', degreeQuery)
   }
 
   await new Promise((resolve) => setTimeout(resolve, 200))

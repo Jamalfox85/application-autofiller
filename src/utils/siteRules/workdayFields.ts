@@ -808,24 +808,38 @@ function exactDegreeLabel(labels: string[], query: string): string | null {
   return labels.find((label) => degreeKey(label) === want) || null
 }
 
-// Degree is a listed prompt option. Exact catalog text wins, then the same
-// degree under another label ("Bachelor of Science" → "Bachelors"). A different
-// degree in that family is not selected. Certificate and Bootcamp have no
-// Workday degree on the short Adobe list, so they stay empty.
+// Degree is a listed prompt option. An exact catalog label wins, including
+// when a generic label is also listed ("Bachelor of Science" stays that row
+// on Cisco; it becomes "Bachelors" only when that is the listed label and
+// the exact title is absent). A different degree in that family is not
+// selected. Certificate and Bootcamp have no Workday degree on the short
+// Adobe list, so they stay empty.
 export function workdayDegreeOption(optionTexts: string[], degreeType: string): string | null {
   const labels = optionTexts.map(cleanPromptLabel).filter(Boolean)
   const exact = exactDegreeLabel(labels, degreeType)
   if (exact) return exact
-  const contained = workdaySuggestionOption(labels, degreeType)
-  if (contained) {
-    const wanted = degreeSpecificity(degreeType)
-    const got = degreeSpecificity(contained)
-    if (!wanted || !got || wanted === got) return contained
-  }
+  // Same listed degree ("B.S." for Bachelor of Science) beats a generic
+  // "Bachelors" row. A starts-with hit on the generic label must not win
+  // while that specific row is present.
   const specificity = degreeSpecificity(degreeType)
   if (specificity) {
     const specific = labels.filter((label) => degreeSpecificity(label) === specificity)
     if (specific.length === 1) return specific[0]
+    if (specific.length > 1) {
+      const named = exactDegreeLabel(specific, degreeType)
+      if (named) return named
+    }
+  }
+  const contained = workdaySuggestionOption(labels, degreeType)
+  if (contained) {
+    const wanted = specificity
+    const got = degreeSpecificity(contained)
+    const containedFamily = degreeFamily(contained)
+    const genericContained =
+      !!containedFamily && isGenericDegreeLabel(contained, containedFamily)
+    // A specific profile degree does not collapse onto a generic label here.
+    // That fallback runs only after no specific row matched.
+    if (!(wanted && genericContained) && (!wanted || !got || wanted === got)) return contained
   }
   const family = degreeFamily(degreeType)
   if (family) {

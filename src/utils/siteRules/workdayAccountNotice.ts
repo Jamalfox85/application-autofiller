@@ -1,7 +1,7 @@
 export const WORKDAY_ACCOUNT_NOTICE_KEY = 'workdayAccountNotice'
 
 export const WORKDAY_ACCOUNT_MISSING_MESSAGE =
-  'Add a Workday login under Application Accounts so GoFillr can create your candidate account.'
+  'Add a Workday Application Account so GoFillr can autofill Workday. Successful autofills need that saved login.'
 
 export type WorkdayAccountNotice = {
   portal: 'Workday'
