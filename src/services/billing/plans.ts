@@ -53,13 +53,44 @@ export interface ExtPayUserStatus {
   subscriptionStatus?: string | null
 }
 
+const LAPSED_SUBSCRIPTION_STATUSES = new Set([
+  'past_due',
+  'canceled',
+  'cancelled',
+  'unpaid',
+  'incomplete_expired',
+])
+
+export function extPaySubscriptionStatus(user: ExtPayUserStatus | null | undefined): string {
+  return (user?.subscriptionStatus ?? '').trim().toLowerCase()
+}
+
+export function isExtPaySubscriptionLapsed(user: ExtPayUserStatus | null | undefined): boolean {
+  return LAPSED_SUBSCRIPTION_STATUSES.has(extPaySubscriptionStatus(user))
+}
+
+function paidFlag(user: ExtPayUserStatus): boolean {
+  const paid = user.paid as unknown
+  return paid === true || paid === 'true'
+}
+
+function hasPaidAt(paidAt: ExtPayUserStatus['paidAt']): boolean {
+  if (paidAt == null) return false
+  if (paidAt instanceof Date) return !Number.isNaN(paidAt.getTime())
+  if (typeof paidAt !== 'string') return false
+  const value = paidAt.trim()
+  return value.length > 0 && value.toLowerCase() !== 'null'
+}
+
 // ExtPay fires onPaid on paidAt, but user.paid is true only while a
 // subscription's status is exactly "active". Reading paid alone let a refresh
-// demote the purchase onPaid had just granted. Treat paidAt as Pro unless ExtPay
-// reports the subscription as lapsed.
+// demote the purchase onPaid had just granted. An active subscription is Pro
+// even when that flag and paidAt have not caught up yet. paidAt stays Pro
+// unless ExtPay reports the subscription as lapsed.
 export function isExtPayUserPaid(user: ExtPayUserStatus | null | undefined): boolean {
   if (!user) return false
-  if (user.paid === true) return true
-  if (!user.paidAt) return false
-  return user.subscriptionStatus !== 'past_due' && user.subscriptionStatus !== 'canceled'
+  if (paidFlag(user)) return true
+  if (extPaySubscriptionStatus(user) === 'active') return true
+  if (!hasPaidAt(user.paidAt)) return false
+  return !isExtPaySubscriptionLapsed(user)
 }

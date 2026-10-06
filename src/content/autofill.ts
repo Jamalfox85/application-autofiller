@@ -26,6 +26,7 @@ import { normalizeText } from '@/utils/helpers.ts'
 import { trackFillContract, type TrackFillContractContext } from '@/services/fillTelemetry'
 import type { AutofillFailureReason } from '@/utils/fillContract'
 import { commitSuccessfulFill, evaluateFillAccess } from '@/services/billing/fillAccess'
+import { rememberFillBlock } from '@/services/billing/proUnlock'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 
@@ -188,6 +189,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       console.error('[billing] quota check failed', error)
     }
     if (access?.decision === 'block') {
+      rememberFillBlock({ code: 'hard_cap', paywall: 'hard' })
       return {
         success: false,
         code: 'hard_cap',
