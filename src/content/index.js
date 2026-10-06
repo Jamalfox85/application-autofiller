@@ -16,6 +16,7 @@ import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
 import { showFillPaywall } from './fillPaywall'
+import { installProUnlock } from '../services/billing/proUnlock.ts'
 import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
@@ -90,9 +91,24 @@ function onRuntimeMessage(request, _sender, sendResponse) {
   }
 }
 
+async function resumeAutofillAfterPro() {
+  const result = await autofillPage('user_clicked_button')
+  if (result.code === 'hard_cap' || result.paywall === 'hard') {
+    void showFillPaywall('hard', result)
+    return
+  }
+  if (result.success) {
+    showAutofillNotification(result)
+    if (result.paywall === 'soft') void showFillPaywall('soft', result)
+    return
+  }
+  if (result.message) showErrorNotification(result.message)
+}
+
 if (!globalThis[CONTENT_SCRIPT_INSTALLED]) {
   globalThis[CONTENT_SCRIPT_INSTALLED] = true
   chrome.runtime.onMessage.addListener(onRuntimeMessage)
+  installProUnlock(resumeAutofillAfterPro)
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initialize)

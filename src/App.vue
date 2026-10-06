@@ -27,6 +27,8 @@ import ApplicationAccountDialog from './components/dialogs/ApplicationAccountDia
 import PaywallDialog from './components/PaywallDialog.vue'
 import ProFeatures from './components/ProFeatures.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
+import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
+import { applyEntitlementToBilling, entitlementFromStorage, fillQuotaNote } from '@/services/billing/proUnlock'
 import { rememberActiveProfile } from '@/services/billing/profileRoster'
 import {
   WORKDAY_ACCOUNT_NOTICE_KEY,
@@ -428,10 +430,33 @@ const onPersonalInfoStored = (
   personalInfo.value = { ...personalInfo.value, ...(next as object) }
 }
 
+// Checkout closes this popup. When ExtensionPay marks the install Pro, apply
+// that write immediately so the cap line and Auto-fill update without a reload.
+const onEntitlementStored = (
+  changes: { [key: string]: chrome.storage.StorageChange },
+  areaName: string,
+) => {
+  if (areaName !== 'local' || !changes[ENTITLEMENT_KEY]) return
+  const stored = changes[ENTITLEMENT_KEY].newValue
+  if (!billing.value) {
+    void refreshBilling()
+  } else {
+    const next = applyEntitlementToBilling(billing.value, stored)
+    if (next !== billing.value) billing.value = next
+  }
+  if (entitlementFromStorage(stored)?.isPro) paywall.value = null
+}
+
+const onPopupFocus = () => {
+  void refreshBilling()
+}
+
 onMounted(async () => {
   chrome.storage.onChanged.addListener(onWorkdayNoticeStored)
   chrome.storage.onChanged.addListener(onIcimsNoticeStored)
   chrome.storage.onChanged.addListener(onPersonalInfoStored)
+  chrome.storage.onChanged.addListener(onEntitlementStored)
+  window.addEventListener('focus', onPopupFocus)
   if (supabaseConfigError) return
   await initAuth()
   if (authStatus.value === 'signed-in') {
@@ -455,6 +480,7 @@ watch(authStatus, (next, previous) => {
       <div class="brand">
         <img class="logo-mark" src="/assets/logo/gofillr-icon-small.svg" alt="" width="20" height="20" />
         <span class="brand-name">GoFillr</span>
+        <span v-if="billing?.isPro" class="plan-badge">Pro</span>
       </div>
       <button v-if="authStatus === 'signed-in'" class="signout-btn" @click="handleSignOut">Sign out</button>
     </header>
@@ -528,8 +554,8 @@ watch(authStatus, (next, previous) => {
 
       <AutoDetectSwitch class="section" />
 
-      <p v-if="billing && !billing.isPro" class="quota-note">
-        {{ billing.fillCount }} of 25 free fills this week
+      <p v-if="billing" class="quota-note">
+        {{ fillQuotaNote(billing.isPro, billing.fillCount) }}
       </p>
 
       <div class="section-header-row">
@@ -670,6 +696,17 @@ watch(authStatus, (next, previous) => {
     font-size: 13px;
     font-weight: 600;
     letter-spacing: -0.01em;
+  }
+  .plan-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #fff;
+    background: #7c3aed;
+    border-radius: 999px;
+    padding: 2px 6px;
   }
 }
 .signout-btn {

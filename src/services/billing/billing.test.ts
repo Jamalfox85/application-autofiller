@@ -36,6 +36,13 @@ import {
   isExtensionPayConfigured,
   priceForPlan,
 } from './plans.ts'
+import {
+  PAID_SYNC_GRACE_MS,
+  applyEntitlementToBilling,
+  fillQuotaNote,
+  proUnlockAction,
+  resolveIsPro,
+} from './proUnlock.ts'
 import { addRosterProfile, initialRoster } from './profileRoster.ts'
 import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
 
@@ -466,6 +473,112 @@ test('ExtPay paidAt grants Pro unless the subscription has lapsed', () => {
   assert.equal(isExtPayUserPaid({ paid: false, paidAt: '2026-10-04T12:00:00Z', subscriptionStatus: 'active' }), true)
   assert.equal(isExtPayUserPaid({ paid: false, paidAt, subscriptionStatus: 'past_due' }), false)
   assert.equal(isExtPayUserPaid({ paid: false, paidAt, subscriptionStatus: 'canceled' }), false)
+  // user.paid lags behind an active subscription, and paidAt can still be empty.
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt: null, subscriptionStatus: 'active' }), true)
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt: null, subscriptionStatus: 'Active' }), true)
+  assert.equal(isExtPayUserPaid({ paid: 'true' as unknown as boolean, paidAt: null }), true)
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt, subscriptionStatus: 'cancelled' }), false)
+  assert.equal(isExtPayUserPaid({ paid: false, paidAt: '  ', subscriptionStatus: null }), false)
+})
+
+test('a paid ExtPay user is Pro at the 25-fill cap and the popup says so', () => {
+  const atCap = quota({ successfulFills: 25 })
+  assert.equal(decideFill({ quota: atCap, isPro: true, ats: 'greenhouse' }), 'allow')
+  assert.equal(decideFill({ quota: atCap, isPro: false, ats: 'greenhouse' }), 'block')
+  assert.equal(fillQuotaNote(true, 25), 'Pro · unlimited fills')
+  assert.equal(fillQuotaNote(false, 25), '25 of 25 free fills this week')
+
+  const free = { isPro: false, plan: null as 'monthly' | 'annual' | null, fillCount: 25 }
+  const upgraded = applyEntitlementToBilling(free, { isPro: true, plan: 'monthly', updatedAt: 1 })
+  assert.equal(upgraded.isPro, true)
+  assert.equal(upgraded.plan, 'monthly')
+  assert.equal(fillQuotaNote(upgraded.isPro, upgraded.fillCount), 'Pro · unlimited fills')
+  assert.equal(applyEntitlementToBilling(upgraded, { isPro: true, plan: 'monthly' }), upgraded)
+})
+
+test('a just-confirmed Pro user is not demoted by a lagging unpaid ExtPay read', () => {
+  const now = Date.parse('2026-10-06T15:00:00Z')
+  const previous = { isPro: true, updatedAt: now - 30_000 }
+  assert.equal(resolveIsPro(previous, { paid: false, paidAt: null }, now), true)
+  assert.equal(
+    resolveIsPro(previous, { paid: false, paidAt: null, subscriptionStatus: 'canceled' }, now),
+    false,
+  )
+  assert.equal(
+    resolveIsPro({ isPro: true, updatedAt: now - PAID_SYNC_GRACE_MS }, { paid: false, paidAt: null }, now),
+    false,
+  )
+  assert.equal(resolveIsPro({ isPro: false, updatedAt: 0 }, { paid: false, paidAt: null }, now), false)
+  assert.equal(resolveIsPro({ isPro: false, updatedAt: 0 }, { paid: false, paidAt: null }, now, true), true)
+})
+
+test('paying removes the in-page cap gate without refilling an ungated page', () => {
+  const blocked = {
+    previousIsPro: false,
+    nextIsPro: true,
+    hardPaywallOpen: true,
+    paywallOpen: true,
+    blockedByCap: true,
+  }
+  assert.equal(proUnlockAction(blocked), 'resume')
+  assert.equal(proUnlockAction({ ...blocked, hardPaywallOpen: false, paywallOpen: false }), 'resume')
+  assert.equal(
+    proUnlockAction({ ...blocked, hardPaywallOpen: false, blockedByCap: false }),
+    'dismiss',
+  )
+  assert.equal(
+    proUnlockAction({
+      previousIsPro: false,
+      nextIsPro: true,
+      hardPaywallOpen: false,
+      paywallOpen: false,
+      blockedByCap: false,
+    }),
+    'none',
+  )
+  assert.equal(proUnlockAction({ ...blocked, previousIsPro: true }), 'none')
+  assert.equal(proUnlockAction({ ...blocked, nextIsPro: false }), 'none')
+})
+
+test('upgrade and already-paid sign-in refresh Pro without a Chrome reload', () => {
+  const worker = readFileSync('src/services/extensionPayWorker.ts', 'utf8')
+  const openCheckout = worker.slice(worker.indexOf("billingAction === 'openCheckout'"))
+  const openLogin = openCheckout.slice(openCheckout.indexOf("billingAction === 'openLogin'"))
+  assert.match(openCheckout.slice(0, openCheckout.indexOf("billingAction === 'openLogin'")), /watchUntilPaid\(\)/)
+  assert.match(openLogin, /watchUntilPaid\(\)/)
+  assert.match(worker, /EXTPAY_USER_KEY/)
+  assert.match(worker, /onExtPayUserStored/)
+  assert.match(worker, /onPaid\.addListener/)
+  assert.match(worker, /resolveIsPro/)
+  assert.match(worker, /reopenPopupAfterPro/)
+
+  const app = readFileSync('src/App.vue', 'utf8')
+  assert.match(app, /onEntitlementStored/)
+  assert.match(app, /ENTITLEMENT_KEY/)
+  assert.match(app, /fillQuotaNote\(billing\.isPro, billing\.fillCount\)/)
+  assert.match(app, /class="plan-badge">Pro</)
+  assert.match(app, /window\.addEventListener\('focus', onPopupFocus\)/)
+
+  const page = readFileSync('src/content/index.js', 'utf8')
+  assert.match(page, /installProUnlock\(resumeAutofillAfterPro\)/)
+  assert.match(page, /resumeAutofillAfterPro/)
+
+  const autofill = readFileSync('src/content/autofill.ts', 'utf8')
+  assert.match(autofill, /rememberFillBlock\(\{ code: 'hard_cap', paywall: 'hard' \}\)/)
+  assert.doesNotMatch(autofill, /skipFreeFillCapForDryRun/)
+  const block = autofill.slice(autofill.indexOf('rememberFillBlock'), autofill.indexOf('const activeSiteRule'))
+  assert.match(block, /code: 'hard_cap'/)
+
+  const paywall = readFileSync('src/content/fillPaywall.ts', 'utf8')
+  assert.match(paywall, /dataset\.paywall = mode/)
+
+  const unlock = readFileSync('src/services/billing/proUnlock.ts', 'utf8')
+  assert.match(unlock, /extensionpay_user/)
+  assert.match(unlock, /installProUnlock/)
+
+  const background = readFileSync('background.js', 'utf8')
+  assert.match(background, /typeof request !== 'object'/)
+  assert.match(background, /extpay-fetch-user/)
 })
 
 test('a stale free entitlement re-checks ExtPay before the hard cap blocks', async () => {

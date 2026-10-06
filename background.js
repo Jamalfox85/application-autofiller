@@ -417,6 +417,11 @@ async function reopenPopupAfterSignIn() {
 
 // Handle messages from content scripts or popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // ExtPay's payment page messages the string "extpay-fetch-user". Returning true
+  // here claims that message and never answers it, so the paid-status poll dies
+  // and the popup stays on the free cap until Chrome is reloaded.
+  if (typeof request !== 'object' || request === null) return
+
   if (request.action === 'billing') {
     handleBillingMessage(request)
       .then((result) => sendResponse(result))

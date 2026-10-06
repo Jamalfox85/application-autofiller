@@ -71,6 +71,7 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
 
   const overlay = document.createElement('div')
   overlay.className = 'gofillr-paywall'
+  overlay.dataset.paywall = mode
   overlay.style.cssText = `
     position: fixed;
     inset: 0;
@@ -81,6 +82,7 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
 
   const card = document.createElement('div')
   card.className = 'gofillr-paywall-card'
+  card.dataset.paywall = mode
   card.style.cssText = `
     width: min(340px, calc(100vw - 32px));
     background: #16161a;
