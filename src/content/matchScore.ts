@@ -17,7 +17,7 @@ import {
 } from '../services/matchScore/types.ts'
 import { isMatchAts } from '../services/matchScore/types.ts'
 import { trackEvent } from '../services/mixpanelHttp.ts'
-import { getProfileSetupCompletedAt, getProfileSetupSession } from '../services/profileSetupSession.ts'
+import { matchScoreSetupReady } from '../services/profileSetupGate.ts'
 import { detectAts } from '../utils/ats.ts'
 import {
   hideMatchScoreCard,
@@ -354,16 +354,21 @@ async function undoSkillAdd(skill: string) {
   }
 }
 
-async function runOnce() {
+export function resetMatchScoreForTests(): void {
+  sent.clear()
+  userDisabled = false
+}
+
+export async function runOnce() {
   if (!matchScoreEnabled()) return
   // Read the popup switch on every run so a change applies without a reload.
   const userEnabled = await readResumeMatchingEnabled()
   userDisabled = !userEnabled
   if (!userEnabled) return
-  const session = await getProfileSetupSession()
-  if (session) return
-  const completedAt = await getProfileSetupCompletedAt()
-  if (!completedAt) return
+  // First-run (no profiles, no saved info, setup not finished) stays blocked. An account
+  // that already has profiles, or that skipped/finished setup, is not blocked by a missing
+  // or leftover profileSetupSession.
+  if (!(await matchScoreSetupReady())) return
   const ats = detectAts({ hostname: window.location.hostname, href: window.location.href, document })
   if (!ats || !isMatchAts(ats)) return
   const extraction = await extractJobDescription(
