@@ -428,10 +428,10 @@ test('home screen upgrade sits beside autofill and uses paywall checkout', () =>
 })
 
 test('extension pay skus and profile plan stay out of ordinary profile saves', () => {
-  assert.equal(EXTENSION_PAY_EXTENSION_ID, 'gofillr')
+  assert.equal(EXTENSION_PAY_EXTENSION_ID, 'gofillr-admin')
   assert.equal(isExtensionPayConfigured(''), false)
   assert.equal(isExtensionPayConfigured('gofillr'), true)
-  assert.deepEqual(EXTENSION_PAY_PLAN_SKUS, { monthly: 'pro_monthly', annual: 'pro_annual' })
+  assert.deepEqual(EXTENSION_PAY_PLAN_SKUS, { monthly: 'pro-monthly', annual: 'pro-yearly' })
 
   const profileSync = readFileSync('src/lib/sync/profile.ts', 'utf8')
   const fn = profileSync.slice(profileSync.indexOf('export function profileToDbRows'), profileSync.indexOf('export function dbRowsToProfile'))
