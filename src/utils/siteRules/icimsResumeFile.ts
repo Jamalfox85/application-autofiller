@@ -152,10 +152,16 @@ type ResumeDocument = {
   body?: { textContent?: string | null } | null
   documentElement?: { textContent?: string | null } | null
   querySelectorAll?: (selector: string) => ArrayLike<StatusNode>
+  getElementById?: (id: string) => StatusNode | null
 }
 
 let claimed: Set<string> | null = null
 let unscopedAttached = false
+// Set only after this document decides to attach. A new document starts over
+// (a reload does that by loading the content script again). sessionStorage can
+// still hold the job from an earlier document in the same tab.
+let attachedThisDocument = new Set<string>()
+let unscopedThisDocument = false
 
 // Drops the in-memory copy so the next read uses sessionStorage. A reload does
 // this on its own because the content script starts over; tests call it to
@@ -163,6 +169,8 @@ let unscopedAttached = false
 export function resetIcimsResumeAttachMemory() {
   claimed = null
   unscopedAttached = false
+  attachedThisDocument = new Set()
+  unscopedThisDocument = false
 }
 
 function liveStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
@@ -209,11 +217,18 @@ function persistClaimed(keys: Set<string>) {
   }
 }
 
+function claimedThisDocument(jobKey: string): boolean {
+  if (!jobKey) return unscopedThisDocument
+  return attachedThisDocument.has(jobKey)
+}
+
 function rememberIcimsResumeAttached(jobKey: string) {
   if (!jobKey) {
     unscopedAttached = true
+    unscopedThisDocument = true
     return
   }
+  attachedThisDocument.add(jobKey)
   const keys = loadClaimed()
   if (keys.has(jobKey)) return
   keys.add(jobKey)
@@ -223,8 +238,10 @@ function rememberIcimsResumeAttached(jobKey: string) {
 function forgetIcimsResumeAttached(jobKey: string) {
   if (!jobKey) {
     unscopedAttached = false
+    unscopedThisDocument = false
     return
   }
+  attachedThisDocument.delete(jobKey)
   const keys = loadClaimed()
   if (!keys.delete(jobKey)) return
   persistClaimed(keys)
@@ -457,12 +474,69 @@ function pageShowsAcceptedResume(input: unknown, docs: ResumeDocument[]): boolea
   return false
 }
 
-function readIcimsResumeContext(input: unknown): { jobKey: string; accepted: boolean } {
+function nodeValueText(node: StatusNode | null | undefined): string {
+  if (!node) return ''
+  if (typeof node.value === 'string') return node.value
+  try {
+    const attr = node.getAttribute?.('value')
+    return typeof attr === 'string' ? attr : ''
+  } catch {
+    return ''
+  }
+}
+
+// PortalProfileFields.Resume and Resume_FileName are type=hidden, so they are
+// not "shown". The empty Kemin chooser stores Resume=false and a blank
+// filename. After iCIMS accepts the file those values change even if the
+// Replace Resume control is still being toggled.
+function portalResumeFields(docs: ResumeDocument[]): { flag: string | null; fileName: string | null } {
+  let flag: string | null = null
+  let fileName: string | null = null
+  for (const doc of docs) {
+    if (typeof doc.getElementById !== 'function') continue
+    try {
+      if (flag == null) {
+        const node = doc.getElementById('PortalProfileFields.Resume')
+        if (node) flag = nodeValueText(node)
+      }
+      if (fileName == null) {
+        const node = doc.getElementById('PortalProfileFields.Resume_FileName')
+        if (node) fileName = nodeValueText(node)
+      }
+    } catch {
+      // Ignore a document that rejects id lookups.
+    }
+  }
+  return { flag, fileName }
+}
+
+function storedResumeAccepted(flag: string | null, fileName: string | null): boolean {
+  if (fileName != null && fileName.trim() !== '') return true
+  if (flag == null) return false
+  const value = flag.trim().toLowerCase()
+  return value !== '' && value !== 'false' && value !== '0'
+}
+
+function storedResumeEmpty(flag: string | null, fileName: string | null): boolean {
+  if (flag == null || fileName == null) return false
+  if (fileName.trim() !== '') return false
+  const value = flag.trim().toLowerCase()
+  return value === '' || value === 'false' || value === '0'
+}
+
+function readIcimsResumeContext(input: unknown): { jobKey: string; accepted: boolean; emptyChooser: boolean } {
   const locations = collectLocations(input)
+  const docs = documentsFor(input)
+  const stored = portalResumeFields(docs)
   const accepted =
     locations.some((loc) => resumeSubmitted(loc.search) || resumeSubmitted(loc.href)) ||
-    pageShowsAcceptedResume(input, documentsFor(input))
-  return { jobKey: jobKeyFromLocations(locations), accepted }
+    pageShowsAcceptedResume(input, docs) ||
+    storedResumeAccepted(stored.flag, stored.fileName)
+  return {
+    jobKey: jobKeyFromLocations(locations),
+    accepted,
+    emptyChooser: !accepted && storedResumeEmpty(stored.flag, stored.fileName),
+  }
 }
 
 function assignedFileName(input: unknown): string {
@@ -471,18 +545,27 @@ function assignedFileName(input: unknown): string {
   return typeof name === 'string' ? name : ''
 }
 
-// Attaches the saved resume the first time this tab sees this iCIMS job, and
-// not again after iCIMS reloads. A page that already shows an accepted resume
-// (a visible Resume<timestamp>.pdf, a visible Replace Resume control, or
-// resumeSubmitted=1) is left alone. Hidden iCIMS_NoDisplay templates on the
-// empty chooser do not count. The claim is stored before the file is assigned
-// so the parse reload cannot win the race. A download that never assigns a
-// file is forgotten so a later fill can still attach it. This does not click
-// Replace Resume, Submit, or the cloud-picker buttons.
+// Attaches the saved resume when this iCIMS job has not accepted one yet, and
+// not again after iCIMS reloads onto an accepted resume. Accepted means
+// resumeSubmitted=1, PortalProfileFields.Resume=true, a stored filename,
+// a visible Resume<timestamp>.pdf, or a visible Replace Resume control.
+// The empty chooser keeps Replace Resume and the filename label hidden with
+// iCIMS_NoDisplay, and stores Resume=false with a blank filename. A record
+// already in this tab's sessionStorage must not block that chooser: earlier
+// fills, including a hidden Replace Resume control, wrote the job down and
+// survived reload. A second fill in the same document still does not attach
+// again. The claim is stored before the file is assigned so the parse reload
+// cannot win the race. A download that never assigns a file is forgotten so a
+// later fill can still attach it. This does not click Replace Resume, Submit,
+// or the cloud-picker buttons.
 export async function attachIcimsResumeOnce(input: FileInputLike): Promise<boolean | 'skip'> {
   const page = readIcimsResumeContext(input)
-  if (page.accepted) rememberIcimsResumeAttached(page.jobKey)
-  if (page.accepted || icimsResumeAlreadyClaimed(page.jobKey)) return 'skip'
+  if (page.accepted) {
+    rememberIcimsResumeAttached(page.jobKey)
+    return 'skip'
+  }
+  if (page.emptyChooser && !claimedThisDocument(page.jobKey)) forgetIcimsResumeAttached(page.jobKey)
+  if (icimsResumeAlreadyClaimed(page.jobKey)) return 'skip'
   rememberIcimsResumeAttached(page.jobKey)
   const attached = await applyIcimsResumeFile(input, await loadIcimsSavedResume())
   if (attached !== true && !assignedFileName(input)) forgetIcimsResumeAttached(page.jobKey)

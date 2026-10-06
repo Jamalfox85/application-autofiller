@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import { JSDOM } from 'jsdom'
 import type { PersonalInfo } from '../../types/index.ts'
 import { icimsGateMayAdvance, planIcimsFill, type IcimsControl } from './icimsFields.ts'
 import {
@@ -629,6 +630,212 @@ test('a failed iCIMS resume download does not use up the one attach', async () =
     assert.deepEqual(second.submits, [])
   } finally {
     harness.restore()
+  }
+})
+
+// Live Kemin create-profile markup, captured from icims_content_iframe.
+// Replace Resume and the filename label stay in the DOM with iCIMS_NoDisplay.
+// Resume=false and Resume_FileName="" mean iCIMS has not accepted a file.
+const KEMIN_CHOOSER_HTML = `<!doctype html><html><body>
+<form id="profile">
+<div class="iCIMS_ResumeSection" role="group" aria-labelledby="label_PortalProfileFields.Resume_File">
+ <div class="iCIMS_InfoMsg"><label id="label_PortalProfileFields.Resume_File">Or please select your resume from one of the following:</label></div>
+ <div id="PortalProfileFields.Resume_Loading" class="iCIMS_NoDisplay iCIMS_loadingImageResume">Parsing resume, please wait...</div>
+ <div class="iCIMS_ResumeContentDiv" id="PortalProfileFields.Resume_Content">
+  <input id="PortalProfileFields.Resume" type="hidden" value="false">
+  <input id="PortalProfileFields.Resume_FileName" type="hidden" value="">
+  <div id="PortalProfileFields.Resume_CurrentFile">
+   <div id="PortalProfileFields.Resume_FileNameLabel" class="iCIMS_CurrentFile iCIMS_NoDisplay"><span></span></div>
+   <div id="PortalProfileFields.Resume_DeleteButtonSpan" class="iCIMS_FileUploadDeleteButtonContainer iCIMS_NoDisplay">
+    <button id="PortalProfileFields.Resume_Button" type="button" class="small iCIMS_Button iCIMS_DeleteButton iCIMS_SecondaryButton">Replace Resume</button>
+   </div>
+  </div>
+  <div id="PortalProfileFields.Resume_UploadButtons" class="upload-buttons">
+   <div class="iCIMS_FileUploadButtonBlock PortalProfileFields.Resume_local_ButtonContainer localButton">
+    <div tabindex="0" class="iCIMS_FileFieldButton iCIMS_SecondaryButton iCIMS_resumeUpload">
+     <span>My Computer (Opens new window)</span>
+     <input type="file" id="PortalProfileFields.Resume_File" name="PortalProfileFields.Resume_File" tabindex="-1" aria-labelledby="label_PortalProfileFields.Resume_File" aria-required="true" onchange="this.form.submit()">
+    </div>
+   </div>
+   <button type="button">Google Drive</button>
+   <button type="button">Dropbox</button>
+   <button type="button">OneDrive</button>
+  </div>
+ </div>
+</div>
+<input id="PersonProfileFields.FirstName" name="PersonProfileFields.FirstName" value="">
+<input id="PersonProfileFields.LastName" name="PersonProfileFields.LastName" value="">
+<input id="PersonProfileFields.Email" name="PersonProfileFields.Email" type="email" value="">
+<button type="submit">Submit Profile</button>
+</form>
+</body></html>`
+
+function savedResumeWire() {
+  let binary = ''
+  for (const byte of PDF) binary += String.fromCharCode(byte)
+  // chrome.runtime.sendMessage JSON-serializes the worker reply. The Uint8Array
+  // becomes a plain object. The file that arrives is bytesBase64.
+  return JSON.parse(
+    JSON.stringify({
+      ok: true,
+      fileName: 'Jamal_Fox_Resume_Feb_2026.pdf',
+      mimeType: 'application/pdf',
+      bytes: PDF,
+      bytesBase64: btoa(binary),
+    }),
+  ) as { ok: boolean; fileName: string; bytesBase64: string }
+}
+
+function keminChooser(search: string) {
+  const dom = new JSDOM(KEMIN_CHOOSER_HTML, {
+    url: `https://${KEMIN_HOST}${KEMIN_PATH}${search}`,
+  })
+  class FakeDataTransfer {
+    files: File[] = []
+    items = {
+      add: (file: File) => {
+        this.files.push(file)
+      },
+    }
+  }
+  dom.window.DataTransfer = FakeDataTransfer as unknown as typeof DataTransfer
+  const input = dom.window.document.getElementById('PortalProfileFields.Resume_File') as HTMLInputElement
+  let files: File[] | null = null
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    get() {
+      return files
+    },
+    set(value: File[] | null) {
+      files = value
+    },
+  })
+  const clicks: string[] = []
+  const submits: string[] = []
+  dom.window.document.querySelectorAll('button, a, div, input').forEach((el) => {
+    ;(el as HTMLElement).click = () => {
+      clicks.push((el.textContent || (el as HTMLElement).id || 'click').replace(/\s+/g, ' ').trim())
+    }
+  })
+  const form = input.form
+  if (form) {
+    form.submit = () => {
+      submits.push('submit')
+    }
+    form.requestSubmit = () => {
+      submits.push('requestSubmit')
+    }
+  }
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    sessionStorage: (globalThis as { sessionStorage?: unknown }).sessionStorage,
+    chrome: (globalThis as { chrome?: unknown }).chrome,
+  }
+  const messages: unknown[] = []
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    sessionStorage: dom.window.sessionStorage,
+    chrome: {
+      runtime: {
+        async sendMessage(message: unknown) {
+          messages.push(message)
+          const wire = savedResumeWire()
+          assert.equal(typeof wire.bytesBase64, 'string')
+          assert.equal(wire.bytesBase64.length > 0, true)
+          return wire
+        },
+      },
+    },
+  })
+  resetIcimsSavedResumeCache()
+  resetIcimsResumeAttachMemory()
+  return {
+    dom,
+    input,
+    clicks,
+    submits,
+    messages,
+    restore() {
+      resetIcimsSavedResumeCache()
+      resetIcimsResumeAttachMemory()
+      globalThis.window = previous.window
+      globalThis.document = previous.document
+      Object.assign(globalThis, { sessionStorage: previous.sessionStorage, chrome: previous.chrome })
+    },
+  }
+}
+
+test('the live Kemin chooser attaches once, and an accepted reload does not', async () => {
+  const search = '?from=login&eem=dsu8m_bv36l1sNcHTnw_aNOHR&accept_gdpr=1&in_iframe=1'
+  const page = keminChooser(search)
+  // This tab already recorded job 12279. A reload keeps that record. The page
+  // itself has not accepted a resume.
+  page.dom.window.sessionStorage.setItem(
+    'gofillr.icims.resumeAttached',
+    JSON.stringify([`${KEMIN_HOST}|12279`]),
+  )
+  resetIcimsResumeAttachMemory()
+  try {
+    const rule = await icimsRule()
+    assert.equal(
+      await rule.apply(page.input, 'portalprofilefields resume file my computer file', person),
+      true,
+    )
+    assert.equal(page.input.files?.[0]?.name, 'Jamal_Fox_Resume_Feb_2026.pdf')
+    assert.equal(page.messages.length, 1)
+    assert.deepEqual(page.clicks, [])
+    assert.deepEqual(page.submits, [])
+
+    const firstName = page.dom.window.document.getElementById('PersonProfileFields.FirstName') as HTMLInputElement
+    assert.equal(await rule.apply(firstName, 'first name', person), true)
+    assert.equal(firstName.value, 'Jamal')
+
+    // A second pass in this same document must not attach again.
+    const messagesAfterFirst = page.messages.length
+    assert.equal(await rule.apply(page.input, 'resume', person), 'skip')
+    assert.equal(page.messages.length, messagesAfterFirst)
+    assert.deepEqual(page.clicks, [])
+    assert.deepEqual(page.submits, [])
+
+    async function assertReloadSkips(mutate: (dom: JSDOM) => void) {
+      const reloaded = keminChooser(search)
+      mutate(reloaded.dom)
+      page.dom.window.sessionStorage.clear()
+      reloaded.dom.window.sessionStorage.clear()
+      resetIcimsResumeAttachMemory()
+      resetIcimsSavedResumeCache()
+      try {
+        assert.equal(await rule.apply(reloaded.input, 'resume', person), 'skip')
+        assert.equal(reloaded.input.files, null)
+        assert.deepEqual(reloaded.messages, [])
+        assert.deepEqual(reloaded.clicks, [])
+        assert.deepEqual(reloaded.submits, [])
+      } finally {
+        reloaded.restore()
+      }
+    }
+
+    await assertReloadSkips((dom) => {
+      const url = new URL(dom.window.location.href)
+      url.search = '?from=profilebuilder&resumeSubmitted=1&hrs=1&eem=next-token&in_iframe=1'
+      dom.window.history.replaceState({}, '', `${url.pathname}${url.search}`)
+    })
+    await assertReloadSkips((dom) => {
+      const flag = dom.window.document.getElementById('PortalProfileFields.Resume') as HTMLInputElement
+      flag.value = 'true'
+    })
+    await assertReloadSkips((dom) => {
+      const fileName = dom.window.document.getElementById('PortalProfileFields.Resume_FileName') as HTMLInputElement
+      fileName.value = 'Resume202610061102.pdf'
+    })
+    await assertReloadSkips((dom) => {
+      const replace = dom.window.document.getElementById('PortalProfileFields.Resume_DeleteButtonSpan') as HTMLElement
+      replace.className = 'iCIMS_FileUploadDeleteButtonContainer'
+    })
+  } finally {
+    page.restore()
   }
 })
 })
