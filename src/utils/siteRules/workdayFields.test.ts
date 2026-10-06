@@ -1130,6 +1130,27 @@ test('education school and degree options match the listed prompt row', () => {
   assert.equal(workdayDegreeOption(adobeDegrees, 'Certificate'), null)
   assert.equal(workdayDegreeOption(adobeDegrees, 'Bootcamp'), null)
   assert.equal(workdayDegreeOption(['Bachelor of Science', 'Bachelors'], 'Bachelor of Science'), 'Bachelor of Science')
+  assert.equal(
+    workdayDegreeOption(
+      ['Bachelor of Arts', 'Bachelor of Science', 'Master of Science', 'Juris Doctorate'],
+      'Bachelor of Science',
+    ),
+    'Bachelor of Science',
+  )
+  assert.equal(
+    workdayDegreeOption(
+      ['Bachelors', 'Bachelor of Arts', 'Bachelor of Science'],
+      'Bachelor of Science',
+    ),
+    'Bachelor of Science',
+  )
+  assert.notEqual(
+    workdayDegreeOption(
+      ['Bachelors', 'Bachelor of Arts', 'Bachelor of Science'],
+      'Bachelor of Science',
+    ),
+    'Bachelors',
+  )
   assert.equal(workdayDegreeOption(['Doctorate', 'JD'], 'PhD'), 'Doctorate')
   assert.equal(workdayDegreeOption(['Doctorate', 'JD'], 'JD'), 'JD')
   assert.equal(workdayDegreeOption(['GED', 'High School'], 'GED'), 'GED')
@@ -2210,6 +2231,73 @@ test('a later autofill does not clear a degree that already shows Bachelors', as
   assert.notEqual(button.textContent, 'Select One')
   assert.equal(input.value, '')
   assert.equal(keydowns, 0)
+})
+
+// Cisco lists Bachelor of Science, not a plain Bachelors row. A face that
+// already says Bachelors is not the selected degree when that exact row is open.
+test('Cisco degree list prefers Bachelor of Science over a generic Bachelors face', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+      <button id="degree" type="button" aria-haspopup="listbox" aria-expanded="true" aria-controls="degree-menu">Bachelors</button>
+    </div>
+    <div id="degree-menu" role="listbox">
+      <div role="option" id="ba">Bachelor of Arts</div>
+      <div role="option" id="generic">Bachelors</div>
+      <div role="option" id="bs">Bachelor of Science</div>
+      <div role="option" id="ms">Master of Science</div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const chosen: string[] = []
+  for (const id of ['ba', 'generic', 'bs', 'ms']) {
+    doc.getElementById(id)!.addEventListener('click', () => {
+      const label = doc.getElementById(id)!.textContent || ''
+      chosen.push(label)
+      button.textContent = label
+    })
+  }
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.deepEqual(chosen, ['Bachelor of Science'])
+  assert.equal(button.textContent, 'Bachelor of Science')
+  assert.notEqual(button.textContent, 'Bachelors')
+  assert.equal(chosen.includes('Bachelors'), false)
+  assert.equal(chosen.includes('Bachelor of Arts'), false)
+})
+
+// Typing the generic word commits Bachelors and then stops. The exact title
+// has to be what is typed when that row is also listed.
+test('Cisco degree typeahead types Bachelor of Science when Bachelors is also listed', async () => {
+  const labels = ['Select One', 'Bachelors', 'Bachelor of Arts', 'Bachelor of Science', 'Master of Science']
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+      <button id="degree" type="button" aria-haspopup="listbox" aria-expanded="false">Select One</button>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  let keys = ''
+  const matchFrom = (text: string): number => {
+    for (let index = 1; index < labels.length; index++) {
+      if (labels[index].toLowerCase().startsWith(text.toLowerCase())) return index
+    }
+    return -1
+  }
+  button.addEventListener('keydown', (event) => {
+    const key = (event as KeyboardEvent).key
+    if (key.length !== 1 && key !== ' ' && key !== 'Spacebar') return
+    keys += key === 'Spacebar' ? ' ' : key
+    const index = matchFrom(keys)
+    if (index < 0) return
+    button.textContent = labels[index]
+  })
+  const { selectWorkdayListedDegree } = await import('./workday.ts')
+  assert.equal(await selectWorkdayListedDegree(button, 'Bachelor of Science'), 'Bachelor of Science')
+  assert.equal(button.textContent, 'Bachelor of Science')
+  assert.notEqual(button.textContent, 'Bachelors')
+  assert.notEqual(keys, 'Bachelors')
+  assert.equal(keys.startsWith('Bachelor of S'), true)
 })
 
 // A selected-pill listbox is already on the page (source, company, school).

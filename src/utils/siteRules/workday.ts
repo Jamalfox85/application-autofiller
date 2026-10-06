@@ -496,9 +496,9 @@ export default function workdayConfig(): SiteRule {
         const selected = await selectWorkdayPromptQuery(input, school, undefined, { pillPrompt: true })
         return selected ? true : 'skip'
       }
-      // A degree that already shows the mapped label must not be typed again.
-      // "Bachelor of Science" is not a prefix of "Bachelors", so a later pass
-      // clears that face back to Select One.
+      // A degree that already shows the chosen label must not be typed again.
+      // On Adobe that label is Bachelors. On Cisco it is Bachelor of Science
+      // when that row is listed. Typing the other string clears the face.
       if (workdayElementIsDegree(input, fieldText)) {
         const degree = profileDegreeType(input, personalInfo)
         if (!degree) return 'skip'
@@ -1832,24 +1832,46 @@ export async function selectWorkdayPromptQuery(
   return false
 }
 
+function visibleDegreeLabels(button: HTMLButtonElement): string[] {
+  const prompt = workdayActivePrompt(button)
+  if (!prompt) return []
+  return substantivePromptLabels(workdayOptionLabels(prompt))
+}
+
 export async function selectWorkdayListedDegree(
   button: HTMLButtonElement,
   degreeType: string,
 ): Promise<string | null> {
   const trimmed = degreeType.trim()
   if (!trimmed) return null
-  // A later autofill must not reopen a degree that already mapped. Typing
-  // "Bachelor of Science" is not a prefix of "Bachelors", and the Canvas
-  // select clears that face back to Select One.
+  // A later autofill must not reopen a degree that already shows the right
+  // label. A generic face ("Bachelors") is that label only when the catalog
+  // does not also list the exact profile degree. Cisco lists Bachelor of
+  // Science itself; typing the shorter word selects the wrong row.
   if (!listboxIsPlaceholder(button)) {
     const shown = workdayListboxValue(button)
+    const visible = visibleDegreeLabels(button)
+    if (visible.length > 0) {
+      const best = workdayDegreeOption(visible, trimmed)
+      if (best && listboxShowsLabel(button, best)) return best
+      if (best) {
+        const option = listedOptionElement(button, best)
+        if (option) {
+          const settled = await settleListedChoice(button, option, best, true)
+          if (settled) return settled
+        }
+        const typed = await commitCanvasDegreeTypeahead(button, best)
+        if (typed) return typed
+      }
+    }
     const mapped = workdayDegreeOption([shown], trimmed)
     if (mapped && listboxShowsLabel(button, mapped)) return mapped
     return null
   }
   // Read the catalog before typing. "Bachelor of Science" is not a prefix of
-  // the Workday option "Bachelors", so typing the profile string clears the
-  // closed face back to Select One. Commit the mapped label instead.
+  // the Workday option "Bachelors", so typing the profile string clears an
+  // Adobe face that only offers Bachelors. When the exact title is listed,
+  // that title is what gets typed.
   const picked = await chooseFirstListedOption(
     button,
     (labels) => workdayDegreeOption(labels, trimmed),
