@@ -6,7 +6,7 @@ import {
   installSourceProperties,
   referrerOrigin,
   type InstallSourceRecord,
-} from './installAttribution'
+} from './installAttribution.ts'
 
 export async function getInstallSourceProperties(): Promise<Record<string, string>> {
   try {

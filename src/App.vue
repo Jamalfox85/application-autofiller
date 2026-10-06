@@ -37,6 +37,8 @@ import ProFeatures from './components/ProFeatures.vue'
 import ProfilesModal from './components/ProfilesModal.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
 import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
+import { healProfileSetupCompletion, resolvePopupView } from '@/services/profileSetupGate'
+import { completeProfileSetupSession, getProfileSetupCompletedAt } from '@/services/profileSetupSession'
 import { applyEntitlementToBilling, entitlementFromStorage, fillQuotaNote } from '@/services/billing/proUnlock'
 import {
   WORKDAY_ACCOUNT_NOTICE_KEY,
@@ -314,6 +316,13 @@ const autofillCurrentPage = async () => {
 }
 
 const handleOnboardingFinish = async (profile?: any) => {
+  // Every Welcome exit lands here, including Skip and the parse-wait fallback. Those paths
+  // used to skip completeProfileSetupSession, which left Match Score gated off.
+  try {
+    await completeProfileSetupSession()
+  } catch (error) {
+    console.error('Failed to mark profile setup complete', error)
+  }
   welcomeFile.value = null
   if (profile) {
     personalInfo.value = profile
@@ -491,9 +500,28 @@ const loadAppState = async () => {
   }
 
   personalInfo.value = await loadPersonalInfo(active)
-  if (personalInfo.value.firstName && personalInfo.value.lastName) {
+  const profileCount = profilesStore.loaded.value
+    ? profilesStore.profiles.value.length
+    : (active?.profileCount ?? 0)
+  const rosterHasSavedWork =
+    profilesStore.loaded.value &&
+    profilesStore.profiles.value.some((profile) => profile.has_resume || !!profile.hint)
+  const setupCompletedAt = await getProfileSetupCompletedAt()
+  if (
+    resolvePopupView({
+      personalInfo: personalInfo.value,
+      profileCount,
+      rosterHasSavedWork,
+      setupCompletedAt,
+    }) === 'main'
+  ) {
     activeView.value = 'main'
   }
+  await healProfileSetupCompletion(chrome.storage.local, {
+    personalInfo: personalInfo.value,
+    profileCount,
+    rosterHasSavedWork,
+  })
 
   await loadFillHistory()
   await refreshBilling()

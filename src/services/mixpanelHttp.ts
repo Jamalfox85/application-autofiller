@@ -12,14 +12,14 @@
 // src/services/mixpanelIdentity.ts for the shared distinct_id this reads. background.js
 // mirrors this same HTTP approach inline (it isn't bundled by Vite, so it can't import
 // either module).
-import { getOrCreateDistinctId } from './mixpanelIdentity'
+import { getOrCreateDistinctId } from './mixpanelIdentity.ts'
 import {
   MIXPANEL_HTTP_TRACK_URL,
   MIXPANEL_TOKEN,
   extensionSuperProperties,
   stripEmpty,
-} from './mixpanelConfig'
-import { getInstallSourceProperties } from './installSource'
+} from './mixpanelConfig.ts'
+import { getInstallSourceProperties } from './installSource.ts'
 
 export async function trackEvent(
   eventName: string,

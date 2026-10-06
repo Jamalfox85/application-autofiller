@@ -10,7 +10,7 @@ import { useResumeUpload } from '@/composables/useResumeUpload'
 import { captureEvent } from '@/services/posthog'
 import { CORE_SECTIONS } from '@/utils/infocards.ts'
 import { trackEvent } from '@/services/mixpanel'
-import { completeProfileSetupSession, getProfileSetupSession } from '@/services/profileSetupSession'
+import { completeProfileSetupSession, getProfileSetupSession, skipProfileSetup } from '@/services/profileSetupSession'
 
 const props = defineProps<{
   personalInfo: PersonalInfo
@@ -49,8 +49,17 @@ const armParsingFallback = () => {
   parsingFallback = setTimeout(() => {
     if (step.value !== 'parsing') return
     resumeUpload.clear()
-    emit('finish')
+    void handleSkip()
   }, PARSING_FALLBACK_MS)
+}
+
+const markSetupComplete = () => completeProfileSetupSession()
+
+// Skip never starts a setup session (only Upload / Enter manually do). It still has to
+// record completion, or Match Score stays gated off and the next popup open returns here.
+const handleSkip = async () => {
+  await skipProfileSetup()
+  emit('finish')
 }
 
 const handleUpload = (file: File) => {
@@ -132,8 +141,8 @@ const handleFinish = async () => {
     }
     trackEvent('profile_completed', properties)
     void captureEvent('profile_completed', properties)
-    await completeProfileSetupSession()
   }
+  await markSetupComplete()
 
   if (parsedData.value) {
     emit('finish', finalProfile)
@@ -150,7 +159,7 @@ const handleFinish = async () => {
       @upload="handleUpload"
       @invalid="handleInvalidFile"
       @manual="step = 'manual'"
-      @skip="$emit('finish')"
+      @skip="handleSkip"
     />
 
     <div v-else-if="step === 'parsing'" class="parsing-state">
