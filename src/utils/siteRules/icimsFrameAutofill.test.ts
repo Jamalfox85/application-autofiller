@@ -4,7 +4,7 @@ import test from 'node:test'
 import type { PersonalInfo } from '../../types/index.ts'
 import { bytesToBase64 } from '../savedResumeFile.ts'
 import { icimsGateMayAdvance } from './icimsFields.ts'
-import { resetIcimsSavedResumeCache } from './icimsResumeFile.ts'
+import { resetIcimsResumeAttachMemory, resetIcimsSavedResumeCache } from './icimsResumeFile.ts'
 import {
   chooseIcimsAutofillFrameIds,
   deliverIcimsAutofill,
@@ -285,6 +285,7 @@ test('a plain iCIMS resume file input in a frame receives the saved filename', a
     const { default: icimsConfig } = await import('./icims.ts')
     const rule = icimsConfig()
     resetIcimsSavedResumeCache()
+    resetIcimsResumeAttachMemory()
 
     const sent: number[] = []
     const result = await deliverIcimsAutofill(11, {
@@ -342,6 +343,7 @@ test('a plain iCIMS resume file input in a frame receives the saved filename', a
     assert.deepEqual(submits, [])
   } finally {
     resetIcimsSavedResumeCache()
+    resetIcimsResumeAttachMemory()
     Object.assign(globalThis, previous)
   }
 })
