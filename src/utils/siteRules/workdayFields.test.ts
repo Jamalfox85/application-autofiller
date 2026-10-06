@@ -1908,6 +1908,239 @@ test('Adobe school typeahead leaves the field empty when that school is not offe
   assert.equal(input.value, '')
 })
 
+// Education 1 is already on the page and empty. The school name sitting in the
+// suggestion list is the query, not a pill. Add must not create Education 2.
+// From / To years stay blank even when the profile has them.
+function adobeEducationPage(catalog: string[], options?: { delayPanel?: boolean }) {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div role="group" aria-labelledby="education-section">
+      <div id="education-section">Education</div>
+      <div id="education-rows"></div>
+      <button type="button" data-automation-id="add-button" id="add-education">Add Another</button>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const clicked: string[] = []
+  let iconPressed = false
+  let adds = 0
+  const paintPanel = () => {
+    if (doc.getElementById('Education-1-panel')) return
+    const panel = doc.createElement('div')
+    panel.setAttribute('role', 'group')
+    panel.setAttribute('aria-labelledby', 'Education-1-panel')
+    panel.innerHTML = `
+      <div id="Education-1-panel">Education 1</div>
+      <div data-automation-id="formField-school" data-fkit-id="education-1--school">
+        <label for="school-input">School or University</label>
+        <div data-automation-id="multiSelectContainer">
+          <div data-automation-id="selectedItemList" id="school-pills">
+            <div id="school-query-mirror">Kennesaw State University</div>
+            <input id="school-input" data-automation-id="searchBox" value="" />
+          </div>
+        </div>
+      </div>
+      <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+        <label for="degree">Degree</label>
+        <button id="degree" type="button" aria-haspopup="listbox">Select One</button>
+      </div>
+      <div data-automation-id="formField-fieldOfStudy" data-fkit-id="education-1--fieldOfStudy">
+        <label for="study-input">Field of Study</label>
+        <div data-automation-id="multiSelectContainer">
+          <input id="study-input" value="" />
+          <span data-automation-id="promptIcon" id="study-icon"></span>
+          <div data-automation-id="selectedItemList" id="study-pills"></div>
+        </div>
+      </div>
+      <div data-automation-id="formField-gradeAverage">
+        <label for="gpa">Overall Result (GPA)</label>
+        <input id="gpa" value="" />
+      </div>
+      <div data-automation-id="formField-firstYearAttended">
+        <label for="from-year">From</label>
+        <input id="from-year" data-automation-id="dateSectionYear-input" placeholder="YYYY" value="" />
+      </div>
+      <div data-automation-id="formField-lastYearAttended">
+        <label for="to-year">To (Actual or Expected)</label>
+        <input id="to-year" data-automation-id="dateSectionYear-input" placeholder="YYYY" value="" />
+      </div>
+    `
+    doc.getElementById('education-rows')!.appendChild(panel)
+    const input = doc.getElementById('school-input') as HTMLInputElement
+    input.value = 'Kennesaw State University'
+    doc.getElementById('study-icon')!.addEventListener('mousedown', () => {
+      iconPressed = true
+    })
+    doc.getElementById('study-icon')!.addEventListener('click', () => {
+      iconPressed = true
+    })
+    input.addEventListener('input', () => {
+      doc.getElementById('school-popup')?.remove()
+      const query = input.value.trim()
+      if (!query) return
+      const popup = doc.createElement('div')
+      popup.id = 'school-popup'
+      popup.setAttribute('role', 'listbox')
+      const schools = catalog.filter((label) => label.toLowerCase().includes(query.toLowerCase()))
+      const rows = schools.length > 0 ? schools : ['No Items.']
+      for (const label of rows) {
+        const leaf = doc.createElement('div')
+        leaf.setAttribute('data-automation-id', 'promptLeafNode')
+        const option = doc.createElement('div')
+        option.setAttribute('data-automation-id', 'promptOption')
+        option.setAttribute('data-automation-label', label)
+        option.textContent = label
+        leaf.appendChild(option)
+        if (label !== 'No Items.') {
+          leaf.addEventListener('click', () => {
+            clicked.push(label)
+            const pill = doc.createElement('div')
+            pill.setAttribute('data-automation-id', 'selectedItem')
+            const chosen = doc.createElement('div')
+            chosen.setAttribute('data-automation-id', 'promptOption')
+            chosen.setAttribute('data-automation-label', label)
+            chosen.textContent = label
+            pill.appendChild(chosen)
+            doc.getElementById('school-pills')!.appendChild(pill)
+            doc.getElementById('school-query-mirror')?.remove()
+            input.value = ''
+            popup.remove()
+          })
+        }
+        popup.appendChild(leaf)
+      }
+      doc.body.appendChild(popup)
+    })
+    const study = doc.getElementById('study-input') as HTMLInputElement
+    study.addEventListener('input', () => {
+      if (!study.value.trim()) return
+      const pill = doc.createElement('div')
+      pill.setAttribute('data-automation-id', 'selectedItem')
+      pill.setAttribute('data-automation-label', study.value)
+      pill.textContent = study.value
+      doc.getElementById('study-pills')!.replaceChildren(pill)
+      study.value = ''
+    })
+    const degree = doc.getElementById('degree') as HTMLButtonElement
+    degree.addEventListener('click', () => {
+      if (doc.getElementById('degree-menu')) return
+      const menu = doc.createElement('div')
+      menu.id = 'degree-menu'
+      menu.setAttribute('role', 'listbox')
+      for (const label of ['Select One', 'GED', 'High School', 'Associates', 'Bachelors', 'Masters', 'Doctorate', 'JD']) {
+        const leaf = doc.createElement('div')
+        leaf.setAttribute('data-automation-id', 'promptLeafNode')
+        leaf.setAttribute('role', 'option')
+        const option = doc.createElement('div')
+        option.setAttribute('data-automation-id', 'promptOption')
+        option.setAttribute('data-automation-label', label)
+        option.textContent = label
+        leaf.appendChild(option)
+        if (label !== 'Select One') {
+          leaf.addEventListener('click', () => {
+            degree.textContent = label
+            menu.remove()
+          })
+        }
+        menu.appendChild(leaf)
+      }
+      doc.body.appendChild(menu)
+    })
+  }
+  doc.getElementById('add-education')!.addEventListener('click', () => {
+    adds += 1
+    const extra = doc.createElement('div')
+    extra.id = 'Education-2-panel'
+    extra.textContent = 'Education 2'
+    extra.setAttribute('role', 'group')
+    extra.setAttribute('aria-labelledby', 'Education-2-panel')
+    doc.getElementById('education-rows')!.appendChild(extra)
+  })
+  if (options?.delayPanel) setTimeout(paintPanel, 150)
+  else paintPanel()
+  return {
+    doc,
+    clicked,
+    iconPressed: () => iconPressed,
+    adds: () => adds,
+  }
+}
+
+const adobeEducationProfile = {
+  education: [
+    {
+      schoolName: 'Kennesaw State University',
+      degreeType: 'Bachelor of Science',
+      gpa: '3.8',
+      startYear: '2017',
+      graduationYear: '2020',
+    },
+  ],
+} as PersonalInfo
+
+test('empty Education 1 is filled in place and the school is a matching pill', async () => {
+  const { doc, clicked, iconPressed, adds } = adobeEducationPage([
+    'Kenyon College',
+    'Kennesaw State University',
+  ])
+  const input = doc.getElementById('school-input') as HTMLInputElement
+  assert.equal(input.value, 'Kennesaw State University')
+  assert.equal(doc.querySelector('[data-automation-id="selectedItem"]'), null)
+  const workday = await import('./workday.ts')
+  const { fillWorkdayEducation } = workday
+  const rule = workday.default()
+  assert.equal(await rule.apply(doc.getElementById('from-year')!, 'from yyyy', adobeEducationProfile), 'skip')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
+  await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(adds(), 0)
+  assert.equal(doc.getElementById('Education-2-panel'), null)
+  assert.deepEqual(clicked, ['Kennesaw State University'])
+  assert.equal(clicked.includes('Kenyon College'), false)
+  assert.equal(iconPressed(), false)
+  const pill = doc.querySelector(
+    '#school-pills [data-automation-id="selectedItem"] [data-automation-id="promptOption"]',
+  )
+  assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
+  assert.equal(input.value, '')
+  assert.equal(doc.getElementById('degree')?.textContent, 'Bachelors')
+  assert.equal((doc.getElementById('gpa') as HTMLInputElement).value, '3.8')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+  assert.notEqual((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
+  assert.notEqual((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
+  const again = await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(again, 1)
+  assert.equal(adds(), 0)
+  assert.equal(doc.getElementById('degree')?.textContent, 'Bachelors')
+})
+
+test('Education 1 that appears after the add button is not given an Education 2', async () => {
+  const { doc, adds } = adobeEducationPage(['Kennesaw State University'], { delayPanel: true })
+  assert.equal(doc.getElementById('Education-1-panel'), null)
+  const { fillWorkdayEducation } = await import('./workday.ts')
+  await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(adds(), 0)
+  assert.equal(doc.getElementById('Education-2-panel'), null)
+  assert.equal(doc.getElementById('Education-1-panel') != null, true)
+  const pill = doc.querySelector('#school-pills [data-automation-id="promptOption"]')
+  assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+})
+
+test('a school that is not offered is cleared and does not add Education 2', async () => {
+  const { doc, clicked, iconPressed, adds } = adobeEducationPage(['Kenyon College'])
+  const { fillWorkdayEducation } = await import('./workday.ts')
+  await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(adds(), 0)
+  assert.equal(doc.getElementById('Education-2-panel'), null)
+  assert.deepEqual(clicked, [])
+  assert.equal(iconPressed(), false)
+  assert.equal(doc.querySelector('#school-pills [data-automation-id="selectedItem"]'), null)
+  assert.equal((doc.getElementById('school-input') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+})
+
 test('school prompt detection does not claim LinkedIn, degree, or former employee', () => {
   const dom = new JSDOM(`<!doctype html><body>
     <div data-automation-id="formField-linkedIn">
