@@ -22,7 +22,7 @@ import {
   icimsLocationMenuCommitted,
   planIcimsFill,
 } from './icimsFields.ts'
-import { applyIcimsResumeFile, loadIcimsSavedResume } from './icimsResumeFile.ts'
+import { attachIcimsResumeOnce } from './icimsResumeFile.ts'
 
 function icimsFieldRowText(element: {
   closest?: (selector: string) => { textContent?: string | null } | null
@@ -169,7 +169,9 @@ export default function icimsConfig(): SiteRule {
       if (plan.action === 'file') {
         // Select the saved resume on this file input. Do not click it, and do
         // not submit. An "Autofill with resume" control never reaches this branch.
-        return applyIcimsResumeFile(input, await loadIcimsSavedResume())
+        // iCIMS parses that file and reloads the candidate page; attaching on
+        // the next fill repeats the parse. One attach per tab per job.
+        return attachIcimsResumeOnce(input)
       }
       if (plan.action === 'select' && (plan.mode === 'country' || plan.mode === 'state')) {
         const doc = input.ownerDocument
