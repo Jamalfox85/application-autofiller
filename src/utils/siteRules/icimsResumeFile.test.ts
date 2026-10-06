@@ -275,18 +275,26 @@ function resumeDocument(options?: { text?: string; nodes?: object[] }) {
   }
 }
 
-function labeledControl(label: string, extras?: { hidden?: boolean; type?: string }) {
+function labeledControl(label: string, extras?: { hidden?: boolean; type?: string; className?: string }) {
   const clicks: string[] = []
+  const className = extras?.className || ''
   const node = {
     tagName: extras?.type === 'submit' ? 'INPUT' : 'BUTTON',
     type: extras?.type || 'button',
     hidden: extras?.hidden === true,
+    className,
     textContent: label,
     value: label,
-    parentElement: null,
+    parentElement: null as {
+      className?: string
+      hidden?: boolean
+      parentElement?: null
+      getAttribute?: (name: string) => string | null
+    } | null,
     getAttribute(name: string) {
       if (name === 'type') return extras?.type || 'button'
       if (name === 'aria-label') return label
+      if (name === 'class') return className || null
       return null
     },
     click() {
@@ -508,10 +516,94 @@ test('an already accepted iCIMS resume is not attached again', async () => {
   const submit = labeledControl('Submit Profile', { type: 'submit' })
   const finish = labeledControl('Finish', { type: 'button' })
   await assertSkipped({ nodes: [replace, submit, finish] })
-  await assertSkipped({ text: 'Uploaded resume Resume202610061102.pdf' })
+  await assertSkipped({ nodes: [labeledControl('Resume202610061102.pdf')] })
   await assertSkipped({
     topSearch: '?from=profilebuilder&resumeSubmitted=1&hrs=1&eem=changing-token',
   })
+})
+
+test('the empty Kemin resume chooser still attaches the saved file, and a reload does not attach it again', async () => {
+  // Fresh tab after an extension reload. The address bar has from=login and
+  // accept_gdpr, and no resumeSubmitted=1. The visible chooser is only the
+  // source buttons. iCIMS still keeps Replace Resume and a timestamp filename
+  // in the markup, hidden with iCIMS_NoDisplay, and a visible wrapper's
+  // textContent includes that hidden text.
+  const harness = installIcimsHarness()
+  const search = '?from=login&eem=dsu8m_bv36l1sNcHTnw_aNOHR&accept_gdpr=1'
+  harness.location.search = search
+  harness.location.href = `https://${KEMIN_HOST}${KEMIN_PATH}${search}`
+  const chooser = 'Or please select your resume from one of the following:'
+  const replace = labeledControl('Replace Resume', { className: 'iCIMS_NoDisplay' })
+  replace.node.className = ''
+  const filename = labeledControl('Resume202610061102.pdf', { className: 'NoDisplay' })
+  const myComputer = labeledControl('My Computer')
+  const googleDrive = labeledControl('Google Drive')
+  const dropbox = labeledControl('Dropbox')
+  const oneDrive = labeledControl('OneDrive')
+  const submit = labeledControl('Submit Profile', { type: 'submit' })
+  const wrapper = {
+    id: 'PortalProfileFields.Resume_Content',
+    textContent: `${chooser} Replace Resume Resume202610061102.pdf My Computer Google Drive Dropbox OneDrive`,
+    childNodes: [
+      { nodeType: 3, nodeName: '#text', nodeValue: chooser },
+      replace.node,
+      filename.node,
+      myComputer.node,
+      googleDrive.node,
+      dropbox.node,
+      oneDrive.node,
+    ],
+    parentElement: null,
+    getAttribute() {
+      return null
+    },
+  }
+  replace.node.parentElement = wrapper
+  filename.node.parentElement = wrapper
+  const doc = resumeDocument({
+    text: `${chooser} Replace Resume Resume202610061102.pdf`,
+    nodes: [
+      wrapper,
+      replace.node,
+      filename.node,
+      myComputer.node,
+      googleDrive.node,
+      dropbox.node,
+      oneDrive.node,
+      submit.node,
+    ],
+  })
+  const untouched = [replace, filename, myComputer, googleDrive, dropbox, oneDrive, submit]
+  try {
+    const rule = await icimsRule()
+    const first = fileInput('Resume Choose File', doc)
+    assert.equal(
+      await rule.apply(first.input as unknown as HTMLInputElement, 'resume choose file', person),
+      true,
+    )
+    assert.equal(first.input.files?.[0]?.name, 'Ada Lovelace.pdf')
+    assert.deepEqual(first.events, ['input', 'change'])
+    assert.deepEqual(first.clicks, [])
+    assert.deepEqual(first.submits, [])
+    assert.deepEqual(harness.messages, [{ action: 'loadSavedResume' }])
+    for (const entry of untouched) assert.deepEqual(entry.clicks, [])
+
+    resetIcimsResumeAttachMemory()
+    const second = fileInput('Resume Choose File', doc)
+    const messagesBefore = harness.messages.length
+    assert.equal(
+      await rule.apply(second.input as unknown as HTMLInputElement, 'resume choose file', person),
+      'skip',
+    )
+    assert.equal(second.input.files, null)
+    assert.deepEqual(second.events, [])
+    assert.deepEqual(second.clicks, [])
+    assert.deepEqual(second.submits, [])
+    assert.equal(harness.messages.length, messagesBefore)
+    for (const entry of untouched) assert.deepEqual(entry.clicks, [])
+  } finally {
+    harness.restore()
+  }
 })
 
 test('a failed iCIMS resume download does not use up the one attach', async () => {
