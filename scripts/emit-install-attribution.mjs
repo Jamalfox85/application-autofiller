@@ -25,7 +25,7 @@ if (existsSync('.env')) {
 
 const define = {
   'import.meta.env.VITE_EXTENSIONPAY_EXTENSION_ID': JSON.stringify(
-    process.env.VITE_EXTENSIONPAY_EXTENSION_ID || 'gofillr',
+    process.env.VITE_EXTENSIONPAY_EXTENSION_ID || 'gofillr-admin',
   ),
   'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.VITE_SUPABASE_URL ?? ''),
   'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY ?? ''),

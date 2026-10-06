@@ -1,16 +1,16 @@
-// Verified ExtensionPay dashboard SKUs for gofillr:
-//   pro_monthly — $5.99 USD / month
-//   pro_annual  — $49 USD / year
+// Verified ExtensionPay dashboard SKUs for gofillr-admin:
+//   pro-monthly — $5.99 USD / month
+//   pro-yearly  — $49 USD / year
 // They are SKU keys, not secrets. Checkout passes the nickname to
 // extpay.openPaymentPage(nickname).
 
 // Permanent ExtensionPay extension id for GoFillr. Not a secret. ExtPay mints a
 // per-install API key at runtime and stores it in chrome.storage.sync.
-export const EXTENSION_PAY_EXTENSION_ID = 'gofillr'
+export const EXTENSION_PAY_EXTENSION_ID = 'gofillr-admin'
 
 export const EXTENSION_PAY_PLAN_SKUS = {
-  monthly: 'pro_monthly',
-  annual: 'pro_annual',
+  monthly: 'pro-monthly',
+  annual: 'pro-yearly',
 } as const
 
 export const PLAN_PRICE = {
