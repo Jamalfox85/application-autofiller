@@ -6,9 +6,11 @@ import type { StorageAreaLike } from '../lib/sync/activeProfile.ts'
 import { ACTIVE_PROFILE_KEY, PERSONAL_INFO_KEY } from '../lib/sync/activeProfile.ts'
 import {
   accountSetupEstablished,
+  gateCanFinish,
   healProfileSetupCompletion,
   matchScoreSetupReady,
   resolvePopupView,
+  signedInPopupScreen,
 } from './profileSetupGate.ts'
 import { getProfileSetupCompletedAt, skipProfileSetup, startProfileSetupSession } from './profileSetupSession.ts'
 
@@ -147,6 +149,65 @@ test('Match Score setup gate opens for a finished setup or an existing roster, a
   assert.equal(await matchScoreSetupReady(firstRun.storage), false)
 })
 
+test('signed-in established account does not render Welcome before the gate resolves', () => {
+  const empty = cloneDefaultPersonalInfo()
+  // activeView defaults to welcome. Until the gate runs, that must be the spinner.
+  assert.equal(signedInPopupScreen({ gateResolved: false, activeView: 'welcome' }), 'loading')
+
+  // Live reopen: profileSetupCompletedAt and activeProfile.profileCount are already in
+  // chrome.storage.local while get_profile is still pending.
+  const early = gateCanFinish({
+    personalInfo: empty,
+    profileCount: 3,
+    setupCompletedAt: 1_700_000_000_000,
+    personalInfoLoaded: false,
+  })
+  assert.equal(early.view, 'main')
+  assert.equal(early.resolved, true)
+  assert.equal(
+    signedInPopupScreen({ gateResolved: early.resolved, activeView: early.view }),
+    'main',
+  )
+
+  // The same roster without a timestamp is still past first-run.
+  const rosterOnly = gateCanFinish({
+    personalInfo: empty,
+    profileCount: 3,
+    setupCompletedAt: null,
+    personalInfoLoaded: false,
+  })
+  assert.equal(rosterOnly.view, 'main')
+  assert.equal(rosterOnly.resolved, true)
+})
+
+test('first-run Welcome stays, but only after personal info has loaded', () => {
+  const personalInfo = { ...cloneDefaultPersonalInfo(), email: 'new@example.com' }
+  const pending = gateCanFinish({
+    personalInfo,
+    profileCount: 1,
+    setupCompletedAt: null,
+    personalInfoLoaded: false,
+  })
+  assert.equal(pending.resolved, false)
+  assert.equal(
+    signedInPopupScreen({ gateResolved: pending.resolved, activeView: 'welcome' }),
+    'loading',
+  )
+
+  const decided = gateCanFinish({
+    personalInfo,
+    profileCount: 1,
+    setupCompletedAt: null,
+    personalInfoLoaded: true,
+  })
+  assert.equal(decided.view, 'welcome')
+  assert.equal(decided.resolved, true)
+  assert.equal(
+    signedInPopupScreen({ gateResolved: decided.resolved, activeView: decided.view }),
+    'welcome',
+  )
+})
+
 test('Welcome Skip and loadAppState both go through the setup-completion gate', () => {
   const welcome = readFileSync(new URL('../components/Welcome.vue', import.meta.url), 'utf8')
   const app = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
@@ -158,8 +219,11 @@ test('Welcome Skip and loadAppState both go through the setup-completion gate', 
   assert.match(welcome, /await markSetupComplete\(\)/)
   assert.match(welcome, /trackEvent\('profile_completed'/)
 
-  assert.match(app, /resolvePopupView\(/)
+  assert.match(app, /gateCanFinish\(/)
   assert.match(app, /healProfileSetupCompletion\(/)
+  assert.match(app, /signedInScreen === 'loading'/)
+  assert.match(app, /signedInScreen === 'welcome'/)
+  assert.doesNotMatch(app, /v-else-if="activeView === 'welcome'"/)
   assert.match(app, /completeProfileSetupSession\(/)
   assert.doesNotMatch(app, /personalInfo\.value\.firstName && personalInfo\.value\.lastName/)
 

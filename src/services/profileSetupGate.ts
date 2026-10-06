@@ -43,6 +43,37 @@ export function resolvePopupView(input: PopupLoadState): 'main' | 'welcome' {
   return 'welcome'
 }
 
+export interface GateFinishInput extends PopupLoadState {
+  // False while get_profile is still in flight. Welcome stays unmounted until that read
+  // finishes, so a slow fetch cannot paint Step 1 before we know the account is empty.
+  // Main can resolve earlier: completedAt, profileCount > 1, or a saved resume/hint
+  // already live in the local mirror and do not need the profile body.
+  personalInfoLoaded: boolean
+}
+
+// Whether this open may leave the loading spinner. Established accounts resolve to main
+// before personal info returns. A brand-new account stays unresolved (spinner) until
+// personal info has loaded, then Welcome.
+export function gateCanFinish(input: GateFinishInput): {
+  view: 'main' | 'welcome'
+  resolved: boolean
+} {
+  const view = resolvePopupView(input)
+  if (view === 'main') return { view, resolved: true }
+  if (!input.personalInfoLoaded) return { view: 'welcome', resolved: false }
+  return { view: 'welcome', resolved: true }
+}
+
+// Signed-in popup surface. The view ref defaults to welcome; until the gate has run for
+// this open that must be the spinner, not Welcome.
+export function signedInPopupScreen(input: {
+  gateResolved: boolean
+  activeView: 'welcome' | 'main' | 'history'
+}): 'loading' | 'welcome' | 'main' | 'history' {
+  if (!input.gateResolved) return 'loading'
+  return input.activeView
+}
+
 // Existing installs that finished setup before the flag existed (or skipped without writing
 // it) get profileSetupCompletedAt the next time the popup can see they are past first-run.
 // Does not overwrite a timestamp that is already stored.

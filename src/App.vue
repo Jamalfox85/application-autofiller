@@ -37,7 +37,11 @@ import ProFeatures from './components/ProFeatures.vue'
 import ProfilesModal from './components/ProfilesModal.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
 import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
-import { healProfileSetupCompletion, resolvePopupView } from '@/services/profileSetupGate'
+import {
+  gateCanFinish,
+  healProfileSetupCompletion,
+  signedInPopupScreen,
+} from '@/services/profileSetupGate'
 import { completeProfileSetupSession, getProfileSetupCompletedAt } from '@/services/profileSetupSession'
 import { applyEntitlementToBilling, entitlementFromStorage, fillQuotaNote } from '@/services/billing/proUnlock'
 import {
@@ -67,6 +71,15 @@ const { status: authStatus, isSigningIn, signInError, initAuth, signIn, signOut 
 // State
 const personalInfo = ref<any>({})
 const activeView = ref<'main' | 'welcome' | 'history'>('welcome')
+// False until this open's setup gate has decided. The view defaults to welcome, so the
+// template must not mount Welcome while this is false.
+const gateResolved = ref(false)
+const signedInScreen = computed(() =>
+  signedInPopupScreen({
+    gateResolved: gateResolved.value,
+    activeView: activeView.value,
+  }),
+)
 const autofillState = ref<'idle' | 'filling' | 'done'>('idle')
 const lastFillCount = ref<{ filled: number; total: number } | null>(null)
 const billing = ref<BillingState | null>(null)
@@ -476,7 +489,40 @@ const handleSignOut = async () => {
   await signOut()
   profilesStore.reset()
   showProfiles.value = false
+  gateResolved.value = false
   activeView.value = 'welcome'
+}
+
+function popupRoster() {
+  const profileCount = profilesStore.loaded.value
+    ? profilesStore.profiles.value.length
+    : (profilesStore.activeMirror.value?.profileCount ?? 0)
+  const rosterHasSavedWork =
+    profilesStore.loaded.value &&
+    profilesStore.profiles.value.some((profile) => profile.has_resume || !!profile.hint)
+  return { profileCount, rosterHasSavedWork }
+}
+
+// Publish the gate as soon as local evidence can prove main. Welcome is published only
+// after personal info has loaded, so Step 1 never flashes during get_profile.
+function publishPopupGate(setupCompletedAt: number | null, personalInfoLoaded: boolean) {
+  const { profileCount, rosterHasSavedWork } = popupRoster()
+  const decision = gateCanFinish({
+    personalInfo: personalInfo.value,
+    profileCount,
+    rosterHasSavedWork,
+    setupCompletedAt,
+    personalInfoLoaded,
+  })
+  if (decision.view === 'main') activeView.value = 'main'
+  else if (
+    decision.resolved &&
+    activeView.value !== 'main' &&
+    activeView.value !== 'history'
+  ) {
+    activeView.value = 'welcome'
+  }
+  if (decision.resolved) gateResolved.value = true
 }
 
 // Loads the account-gated app state — run once we know a signed-in session exists, whether
@@ -487,41 +533,53 @@ const loadAppState = async () => {
   const userId = await getUserIdOrNull()
 
   // Server's active_profile_id wins on every open (a swap on another device shows up here).
-  await profilesStore.loadMirror()
+  try {
+    await profilesStore.loadMirror()
+  } catch (error) {
+    console.error('Failed to load active profile mirror', error)
+  }
+  let setupCompletedAt: number | null = null
+  try {
+    setupCompletedAt = await getProfileSetupCompletedAt()
+  } catch (error) {
+    console.error('Failed to read profile setup completion', error)
+  }
+  // completedAt / profileCount on the local mirror can already prove main, before list or
+  // get_profile. Leave the spinner up when they cannot — do not mount Welcome yet.
+  publishPopupGate(setupCompletedAt, false)
+
   try {
     await profilesStore.refresh()
   } catch (error) {
     console.error('Failed to list profiles — using the last-known active profile', error)
   }
+  publishPopupGate(setupCompletedAt, false)
   const active = profilesStore.activeMirror.value
 
   if (userId && active) {
-    await migrateLocalDataToSupabase(userId, active.id)
+    try {
+      await migrateLocalDataToSupabase(userId, active.id)
+    } catch (error) {
+      console.error('Failed to migrate local profile data', error)
+    }
   }
 
-  personalInfo.value = await loadPersonalInfo(active)
-  const profileCount = profilesStore.loaded.value
-    ? profilesStore.profiles.value.length
-    : (active?.profileCount ?? 0)
-  const rosterHasSavedWork =
-    profilesStore.loaded.value &&
-    profilesStore.profiles.value.some((profile) => profile.has_resume || !!profile.hint)
-  const setupCompletedAt = await getProfileSetupCompletedAt()
-  if (
-    resolvePopupView({
+  try {
+    personalInfo.value = await loadPersonalInfo(active)
+  } catch (error) {
+    console.error('Failed to load personal info', error)
+  }
+  const { profileCount, rosterHasSavedWork } = popupRoster()
+  publishPopupGate(setupCompletedAt, true)
+  try {
+    await healProfileSetupCompletion(chrome.storage.local, {
       personalInfo: personalInfo.value,
       profileCount,
       rosterHasSavedWork,
-      setupCompletedAt,
-    }) === 'main'
-  ) {
-    activeView.value = 'main'
+    })
+  } catch (error) {
+    console.error('Failed to record profile setup completion', error)
   }
-  await healProfileSetupCompletion(chrome.storage.local, {
-    personalInfo: personalInfo.value,
-    profileCount,
-    rosterHasSavedWork,
-  })
 
   await loadFillHistory()
   await refreshBilling()
@@ -622,15 +680,21 @@ watch(authStatus, (next, previous) => {
       @signIn="signIn"
     />
 
+    <!-- Signed-in, but this open has not decided welcome vs main yet. Default view is
+         welcome, so mounting it here flashes Step 1 for every established account. -->
+    <div v-else-if="signedInScreen === 'loading'" class="auth-loading">
+      <div class="spinner"></div>
+    </div>
+
     <Welcome
-      v-else-if="activeView === 'welcome'"
+      v-else-if="signedInScreen === 'welcome'"
       :personalInfo="personalInfo"
       :initialFile="welcomeFile"
       @save="saveProfile"
       @finish="handleOnboardingFinish"
     />
 
-    <div v-else-if="activeView === 'main'" class="content">
+    <div v-else-if="signedInScreen === 'main'" class="content">
       <div class="status-card" :class="{ muted: !detection.detected }">
         <template v-if="detection.detected">
           <div class="status-row">
