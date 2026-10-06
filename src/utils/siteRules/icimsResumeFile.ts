@@ -129,6 +129,13 @@ type LocationParts = {
   href: string
 }
 
+type StatusChild = {
+  nodeType?: number
+  nodeName?: string | null
+  nodeValue?: string | null
+  textContent?: string | null
+}
+
 type StatusNode = {
   hidden?: boolean
   type?: string
@@ -137,6 +144,7 @@ type StatusNode = {
   value?: string | null
   style?: { display?: string; visibility?: string } | string | null
   parentElement?: StatusNode | null
+  childNodes?: ArrayLike<StatusChild> | null
   getAttribute?: (name: string) => string | null
 }
 
@@ -325,9 +333,20 @@ function styleHides(node: StatusNode): boolean {
 }
 
 function classHides(node: StatusNode): boolean {
-  const fromAttr = node.getAttribute?.('class')
-  const raw = typeof node.className === 'string' ? node.className : fromAttr || ''
-  return /(?:^|\s)(?:hidden|hide|is-hidden|d-none|iCIMS_Hide)(?:\s|$)/i.test(raw)
+  const parts: string[] = []
+  if (typeof node.className === 'string' && node.className) parts.push(node.className)
+  try {
+    const fromAttr = node.getAttribute?.('class')
+    if (fromAttr) parts.push(fromAttr)
+  } catch {
+    // A host node that rejects attribute reads still honors className.
+  }
+  // iCIMS hides the empty form's Replace Resume control and filename label
+  // with iCIMS_NoDisplay (and, in older portal scripts, NoDisplay). Those are
+  // not the same token as iCIMS_Hide.
+  return /(?:^|\s)(?:hidden|hide|is-hidden|d-none|iCIMS_Hide|iCIMS_NoDisplay|NoDisplay)(?:\s|$)/i.test(
+    parts.join(' '),
+  )
 }
 
 // "Shows" means a person can see it. A hidden Replace Resume template on the
@@ -351,6 +370,26 @@ function isShown(node: StatusNode | null | undefined): boolean {
   return true
 }
 
+// Direct text only. textContent on a visible wrapper includes the hidden
+// Replace Resume label and filename that iCIMS keeps in the empty chooser.
+function ownVisibleText(node: StatusNode): string {
+  const children = node.childNodes
+  if (!children || typeof children.length !== 'number') {
+    return typeof node.textContent === 'string' ? node.textContent : ''
+  }
+  let text = ''
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i]
+    if (!child) continue
+    const name = String(child.nodeName || '')
+    const isText = child.nodeType === 3 || name === '#text' || name.toLowerCase() === '#text'
+    if (!isText) continue
+    const value = typeof child.nodeValue === 'string' ? child.nodeValue : child.textContent
+    if (typeof value === 'string') text += value
+  }
+  return text
+}
+
 function nodeLabels(node: StatusNode): string[] {
   const labels: string[] = []
   const push = (value: unknown) => {
@@ -358,7 +397,7 @@ function nodeLabels(node: StatusNode): string[] {
     const text = value.replace(/\s+/g, ' ').trim()
     if (text) labels.push(text)
   }
-  push(node.textContent)
+  push(ownVisibleText(node))
   push(node.value)
   try {
     push(node.getAttribute?.('aria-label'))
@@ -396,13 +435,9 @@ function pageShowsAcceptedResume(input: unknown, docs: ResumeDocument[]): boolea
     if (ACCEPTED_RESUME_NAME.test(selected) || ACCEPTED_RESUME_NAME.test(named)) return true
   }
   for (const doc of docs) {
-    let body = ''
-    try {
-      body = String(doc.body?.textContent || doc.documentElement?.textContent || '')
-    } catch {
-      body = ''
-    }
-    if (ACCEPTED_RESUME_NAME.test(body.slice(0, 200000))) return true
+    // Do not scan body or document text. The empty chooser still contains
+    // "Replace Resume" and a Resume<timestamp>.pdf label inside nodes iCIMS
+    // hides with iCIMS_NoDisplay, and textContent includes those descendants.
     if (typeof doc.querySelectorAll !== 'function') continue
     let nodes: ArrayLike<StatusNode> | null = null
     try {
@@ -438,11 +473,12 @@ function assignedFileName(input: unknown): string {
 
 // Attaches the saved resume the first time this tab sees this iCIMS job, and
 // not again after iCIMS reloads. A page that already shows an accepted resume
-// (Resume<timestamp>.pdf, a visible Replace Resume control, or resumeSubmitted=1)
-// is left alone. The claim is stored before the file is assigned so the parse
-// reload cannot win the race. A download that never assigns a file is forgotten
-// so a later fill can still attach it. This does not click Replace Resume,
-// Submit, or the cloud-picker buttons.
+// (a visible Resume<timestamp>.pdf, a visible Replace Resume control, or
+// resumeSubmitted=1) is left alone. Hidden iCIMS_NoDisplay templates on the
+// empty chooser do not count. The claim is stored before the file is assigned
+// so the parse reload cannot win the race. A download that never assigns a
+// file is forgotten so a later fill can still attach it. This does not click
+// Replace Resume, Submit, or the cloud-picker buttons.
 export async function attachIcimsResumeOnce(input: FileInputLike): Promise<boolean | 'skip'> {
   const page = readIcimsResumeContext(input)
   if (page.accepted) rememberIcimsResumeAttached(page.jobKey)
