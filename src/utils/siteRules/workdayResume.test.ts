@@ -14,6 +14,7 @@ import {
   fileFromWorkdaySavedResume,
   isWorkdayCoverLetterFileInput,
   isWorkdayResumeFileInput,
+  workdayResumeAlreadyPresent,
   workdayResumeFileInput,
 } from './workdayResume.ts'
 import workdayConfig, { setWorkdayResumeLoader } from './workday.ts'
@@ -347,6 +348,65 @@ test('a resume input is not assigned again after Workday clears its files', asyn
   assert.equal(await rule.apply(cover, 'file', profile), 'skip')
   assert.equal(cover.files?.length ?? 0, 0)
   assert.deepEqual(clicks, [])
+  setWorkdayResumeLoader(null)
+})
+
+test('a resume dropzone that already shows Successfully Uploaded is not uploaded again', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div>
+      <div data-automation-id="formLabel">Resume/CV</div>
+      <div data-automation-id="file-upload" id="resume-shell">
+        <p>Successfully Uploaded</p>
+        <div data-automation-id="file-upload-item">
+          <span data-automation-id="file-upload-item-name">Ada-Lovelace-resume.pdf</span>
+        </div>
+        <input id="resume" type="file" data-automation-id="file-upload-input-ref" />
+      </div>
+    </div>
+    <div>
+      <h2>Cover Letter</h2>
+      <div data-automation-id="file-upload" id="cover-shell">
+        <p>Successfully Uploaded</p>
+        <input id="cover" type="file" data-automation-id="file-upload-input-ref" />
+      </div>
+    </div>
+    <div>
+      <div data-automation-id="formLabel">Resume/CV</div>
+      <div data-automation-id="file-upload" id="empty-shell">
+        <p>Upload a file (5MB max)*</p>
+        <div>Drop files here</div>
+        <span>or</span>
+        <button type="button">Select files</button>
+        <input id="empty" type="file" data-automation-id="file-upload-input-ref" />
+      </div>
+    </div>
+  </body>`)
+  installDataTransfer(dom.window)
+  const doc = dom.window.document
+  const resume = doc.getElementById('resume') as HTMLInputElement
+  const cover = doc.getElementById('cover') as HTMLInputElement
+  const empty = doc.getElementById('empty') as HTMLInputElement
+  const file = savedFile(dom.window, STORED_BYTES)
+  assert.equal(workdayResumeAlreadyPresent(resume), true)
+  assert.equal(workdayResumeAlreadyPresent(cover), false)
+  assert.equal(workdayResumeAlreadyPresent(empty), false)
+  let downloads = 0
+  const fill = createWorkdayResumeAttempt(async () => {
+    downloads += 1
+    return file
+  })
+  assert.equal(await fill(doc), true)
+  assert.equal(downloads, 0)
+  assert.equal(resume.files?.length ?? 0, 0)
+  assert.equal(await attachWorkdaySavedResume(resume, file), false)
+  setWorkdayResumeLoader(async () => file)
+  const rule = workdayConfig()
+  assert.equal(await rule.apply(resume, 'file', profile), 'skip')
+  assert.equal(resume.files?.length ?? 0, 0)
+  assert.equal(await rule.apply(empty, 'file', profile), true)
+  assert.equal(empty.files?.length, 1)
+  assert.equal(await rule.apply(cover, 'file', profile), 'skip')
+  assert.equal(cover.files?.length ?? 0, 0)
   setWorkdayResumeLoader(null)
 })
 

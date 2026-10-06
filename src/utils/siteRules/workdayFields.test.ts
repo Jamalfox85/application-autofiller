@@ -2233,6 +2233,165 @@ test('a later autofill does not clear a degree that already shows Bachelors', as
   assert.equal(keydowns, 0)
 })
 
+function educationDegreeSelectPage(options: string[], selected = 'Select One') {
+  const labels = options.includes('Select One') ? options : ['Select One', ...options]
+  const optionHtml = labels
+    .map((label) => `<option${label === selected ? ' selected' : ''}>${label}</option>`)
+    .join('')
+  return new JSDOM(`<!doctype html><body>
+    <div role="group" aria-labelledby="Education-1-panel">
+      <div id="Education-1-panel">Education 1</div>
+      <div data-automation-id="formField-school" data-fkit-id="education-1--school">
+        <div data-automation-id="selectedItemList" id="school-pills">
+          <div data-automation-id="selectedItem">
+            <div data-automation-id="promptOption" data-automation-label="Kennesaw State University">Kennesaw State University</div>
+          </div>
+        </div>
+      </div>
+      <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+        <label for="degree">Degree</label>
+        <select id="degree">${optionHtml}</select>
+      </div>
+      <div data-automation-id="formField-gradeAverage">
+        <label for="gpa">Overall Result (GPA)</label>
+        <input id="gpa" value="" />
+      </div>
+      <div data-automation-id="formField-firstYearAttended">
+        <input id="from-year" data-automation-id="dateSectionYear-input" placeholder="YYYY" value="" />
+      </div>
+      <div data-automation-id="formField-lastYearAttended">
+        <input id="to-year" data-automation-id="dateSectionYear-input" placeholder="YYYY" value="" />
+      </div>
+    </div>
+  </body>`)
+}
+
+function selectedDegreeText(select: HTMLSelectElement): string {
+  return (select.options[select.selectedIndex]?.text || '').replace(/\s+/g, ' ').trim()
+}
+
+// Cisco My Experience left Degree on Select One while School and GPA filled.
+// That control is a select, not the Canvas listbox button. Mapping still runs:
+// Bachelor of Science stays that option, and an Adobe-only list becomes Bachelors.
+test('Cisco education degree select maps Bachelor of Science and keeps GPA', async () => {
+  const dom = educationDegreeSelectPage([
+    'Doctor of Medicine (MD)',
+    'Associate of Science',
+    'Bachelor of Science',
+    'Doctor of Medicine',
+    'Juris Doctorate',
+  ])
+  const doc = dom.window.document
+  const select = doc.getElementById('degree') as HTMLSelectElement
+  assert.equal(selectedDegreeText(select), 'Select One')
+  const { fillWorkdayEducation } = await import('./workday.ts')
+  await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(selectedDegreeText(select), 'Bachelor of Science')
+  assert.notEqual(selectedDegreeText(select), 'Select One')
+  assert.notEqual(selectedDegreeText(select), 'Bachelors')
+  assert.notEqual(selectedDegreeText(select), 'Associate of Science')
+  assert.equal((doc.getElementById('gpa') as HTMLInputElement).value, '3.8')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+  const pill = doc.querySelector('#school-pills [data-automation-id="promptOption"]')
+  assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
+})
+
+test('Adobe education degree select maps Bachelor of Science to Bachelors', async () => {
+  const dom = educationDegreeSelectPage([
+    'GED',
+    'High School',
+    'Associates',
+    'Bachelors',
+    'Masters',
+    'Doctorate',
+    'JD',
+  ])
+  const doc = dom.window.document
+  const select = doc.getElementById('degree') as HTMLSelectElement
+  const { default: workdayConfig, fillWorkdayEducation } = await import('./workday.ts')
+  const rule = workdayConfig()
+  assert.equal(await rule.apply(select, 'degree', adobeEducationProfile), true)
+  assert.equal(selectedDegreeText(select), 'Bachelors')
+  await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(selectedDegreeText(select), 'Bachelors')
+  assert.equal((doc.getElementById('gpa') as HTMLInputElement).value, '3.8')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+})
+
+test('a degree select that already shows the mapped label is not cleared', async () => {
+  const dom = educationDegreeSelectPage(
+    ['GED', 'High School', 'Associates', 'Bachelors', 'Masters', 'Doctorate', 'JD'],
+    'Bachelors',
+  )
+  const doc = dom.window.document
+  const select = doc.getElementById('degree') as HTMLSelectElement
+  let changes = 0
+  select.addEventListener('change', () => {
+    changes += 1
+    select.selectedIndex = 0
+  })
+  const { fillWorkdayEducation } = await import('./workday.ts')
+  await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(selectedDegreeText(select), 'Bachelors')
+  assert.equal(changes, 0)
+  assert.notEqual(selectedDegreeText(select), 'Select One')
+})
+
+test('Cisco degree select prefers Bachelor of Science when Bachelors is also listed', async () => {
+  const dom = educationDegreeSelectPage(['Bachelors', 'Bachelor of Arts', 'Bachelor of Science', 'Master of Science'])
+  const doc = dom.window.document
+  const select = doc.getElementById('degree') as HTMLSelectElement
+  const { fillWorkdayEducation } = await import('./workday.ts')
+  await fillWorkdayEducation(doc, adobeEducationProfile)
+  assert.equal(selectedDegreeText(select), 'Bachelor of Science')
+  assert.notEqual(selectedDegreeText(select), 'Bachelors')
+  assert.notEqual(selectedDegreeText(select), 'Bachelor of Arts')
+})
+
+test('a degree button without aria-haspopup still maps the Cisco degree', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div role="group" aria-labelledby="Education-1-panel">
+      <div id="Education-1-panel">Education 1</div>
+      <div data-automation-id="formField-degree" data-fkit-id="education-1--degree">
+        <label for="degree">Degree</label>
+        <button id="degree" type="button">Select One</button>
+      </div>
+    </div>
+  </body>`)
+  const doc = dom.window.document
+  const button = doc.getElementById('degree') as HTMLButtonElement
+  const chosen: string[] = []
+  button.addEventListener('click', () => {
+    if (doc.getElementById('degree-menu')) return
+    const menu = doc.createElement('div')
+    menu.id = 'degree-menu'
+    menu.setAttribute('role', 'listbox')
+    for (const label of ['Select One', 'Bachelor of Arts', 'Bachelor of Science', 'Master of Science']) {
+      const option = doc.createElement('div')
+      option.setAttribute('role', 'option')
+      option.textContent = label
+      option.addEventListener('click', () => {
+        if (label === 'Select One') return
+        chosen.push(label)
+        button.textContent = label
+        menu.remove()
+      })
+      menu.appendChild(option)
+    }
+    doc.body.appendChild(menu)
+  })
+  const { fillWorkdayEducation } = await import('./workday.ts')
+  await fillWorkdayEducation(doc, {
+    education: [{ degreeType: 'Bachelor of Science' }],
+  } as PersonalInfo)
+  assert.deepEqual(chosen, ['Bachelor of Science'])
+  assert.equal(button.textContent, 'Bachelor of Science')
+  assert.notEqual(button.textContent, 'Select One')
+  assert.notEqual(button.textContent, 'Bachelors')
+})
+
 // Cisco lists Bachelor of Science, not a plain Bachelors row. A face that
 // already says Bachelors is not the selected degree when that exact row is open.
 test('Cisco degree list prefers Bachelor of Science over a generic Bachelors face', async () => {

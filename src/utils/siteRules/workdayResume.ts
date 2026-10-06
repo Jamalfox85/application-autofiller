@@ -201,9 +201,56 @@ export function isWorkdayCoverLetterFileInput(input: HTMLInputElement): boolean 
 // attached". A different resume input on the same page is not in this set.
 const resumeInputsGivenFile = new WeakSet<HTMLInputElement>()
 
+const UPLOADED_RESUME = /successfully uploaded/i
+
+function resumeUploadShell(input: HTMLInputElement): Element | null {
+  const upload = input.closest('[data-automation-id="file-upload"]')
+  if (upload) return upload
+  const zone = input.closest('[data-automation-id="file-upload-drop-zone"]')
+  const zoneParent = zone?.parentElement
+  const doc = input.ownerDocument
+  if (zoneParent && zoneParent !== doc?.body && zoneParent !== doc?.documentElement) return zoneParent
+  const parent = input.parentElement
+  if (!parent || parent === doc?.body || parent === doc?.documentElement) return null
+  return parent
+}
+
+function shellShowsUploadedResume(shell: Element): boolean {
+  if (
+    shell.querySelector(
+      '[data-automation-id="file-upload-item"], [data-automation-id="file-upload-item-name"]',
+    )
+  ) {
+    return true
+  }
+  return UPLOADED_RESUME.test(shell.textContent || '')
+}
+
+// Workday paints "Successfully Uploaded" or a file row and then clears the
+// input. A replacement input is not in the WeakSet. The empty dropzone caption
+// ("Upload a file", "Drop files here", "Select files") is not an uploaded
+// resume. A cover-letter success in a different upload shell is not either.
+export function workdayResumeAlreadyPresent(input: HTMLInputElement): boolean {
+  if (!isWorkdayResumeFileInput(input)) return false
+  const shell = resumeUploadShell(input)
+  if (!shell) return false
+  if (shellShowsUploadedResume(shell)) return true
+  const parent = shell.parentElement
+  const doc = input.ownerDocument
+  if (!parent || parent === doc?.body || parent === doc?.documentElement) return false
+  const files = Array.from(parent.querySelectorAll('input')).filter(
+    (node): node is HTMLInputElement => node.tagName === 'INPUT',
+  )
+  const resumeFiles = files.filter((node) => isWorkdayResumeFileInput(node))
+  const coverFiles = files.filter((node) => isWorkdayCoverLetterFileInput(node))
+  if (resumeFiles.length !== 1 || coverFiles.length > 0) return false
+  return UPLOADED_RESUME.test(parent.textContent || '')
+}
+
 // Puts the saved file on a plain Workday resume input. Does not click the
 // control, Autofill with Resume, or Submit. No file, or an empty file, leaves
-// the input empty and is not remembered as attached.
+// the input empty and is not remembered as attached. A dropzone that already
+// shows the resume is left alone.
 export async function attachWorkdaySavedResume(
   input: HTMLInputElement,
   file: File | null,
@@ -211,6 +258,7 @@ export async function attachWorkdaySavedResume(
   if (!isWorkdayResumeFileInput(input)) return false
   if (resumeInputsGivenFile.has(input)) return false
   if ((input.files?.length ?? 0) > 0) return false
+  if (workdayResumeAlreadyPresent(input)) return false
   const assigned = await assignResumeFile(input, file)
   if (assigned) resumeInputsGivenFile.add(input)
   return assigned
@@ -263,7 +311,7 @@ export function createWorkdayResumeAttempt(load: () => Promise<File | null>) {
   return async (root: ParentNode): Promise<boolean> => {
     if (done) return true
     const input = workdayResumeFileInput(root)
-    if (input && (input.files?.length ?? 0) > 0) {
+    if (input && ((input.files?.length ?? 0) > 0 || workdayResumeAlreadyPresent(input))) {
       done = true
       return true
     }
