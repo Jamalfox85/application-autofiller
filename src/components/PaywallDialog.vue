@@ -178,7 +178,9 @@ async function restore() {
 
 <style scoped>
 .paywall-overlay {
-  position: absolute;
+  /* Fixed to the viewport. The Profiles sheet is also fixed, so an absolute overlay only
+     covers the 400px popup column when popup.html is opened as a full tab. */
+  position: fixed;
   inset: 0;
   /* Above the full-screen Profiles sheet (z 1000), which can open the multi-profile paywall. */
   z-index: 1100;
@@ -189,7 +191,7 @@ async function restore() {
   padding: 16px;
 }
 .paywall-card {
-  width: 100%;
+  width: min(100%, 368px);
   background: #16161a;
   border: 1px solid #2e2e36;
   border-radius: 12px;

@@ -4,7 +4,8 @@
 import { computed, ref } from 'vue'
 import { getValidAccessToken } from '../lib/api'
 import { profilesApi } from '../lib/sync/profile'
-import { MAX_PROFILES, type ProfileSummary } from '../lib/sync/profiles'
+import { createProfileAfterPlanRefresh } from '../lib/sync/profileCreateGate'
+import { MAX_PROFILES, profileErrorCode, type ProfileSummary } from '../lib/sync/profiles'
 import {
   activeMirrorFromList,
   readActiveProfile,
@@ -42,22 +43,32 @@ function apiConfig() {
 }
 
 // POST /billing/plan/refresh. Never throws; a failure keeps the plan the DB already has.
-// Returns true when the server reported a plan change (so locks may have moved).
-async function refreshServerPlan(): Promise<boolean> {
+type PlanSyncResult = { ok: true; plan: 'pro' | 'free'; changed: boolean } | { ok: false }
+
+async function syncServerPlan(): Promise<PlanSyncResult> {
   try {
     const extpayApiKey = await readExtPayApiKey({
       sync: chrome.storage?.sync,
       local: chrome.storage?.local,
     })
-    if (!extpayApiKey) return false
+    if (!extpayApiKey) return { ok: false }
     const token = await getValidAccessToken()
     const result = await postPlanRefresh({ token, extpayApiKey, ...apiConfig() })
-    if (!result.ok) console.warn('[profiles] plan refresh skipped', result.reason)
-    return result.ok && result.changed
+    if (!result.ok) {
+      console.warn('[profiles] plan refresh skipped', result.reason)
+      return { ok: false }
+    }
+    return { ok: true, plan: result.plan, changed: result.changed }
   } catch (error) {
     console.warn('[profiles] plan refresh failed', error)
-    return false
+    return { ok: false }
   }
+}
+
+// True when the server reported a plan change (so locks may have moved).
+async function refreshServerPlan(): Promise<boolean> {
+  const result = await syncServerPlan()
+  return result.ok && result.changed
 }
 
 async function loadMirror(): Promise<ActiveProfileMirror | null> {
@@ -82,8 +93,15 @@ async function refresh(opts: { verifyPlan?: boolean } = {}): Promise<ProfileSumm
 
 export type CreateResult = { id: string; resumeWarning: string | null }
 
+// Create and duplicate share this. ExtPay can already say Pro while profiles.plan is still
+// free; create_profile then raises pro_required. Refresh immediately before the RPC, the
+// same way activate does, and retry once if that refresh is what flips the plan to pro.
 async function create(name: string, copyFrom: string | null = null): Promise<CreateResult> {
-  const id = await profilesApi().createProfile(name, copyFrom)
+  const id = await createProfileAfterPlanRefresh({
+    refreshPlan: syncServerPlan,
+    createProfile: () => profilesApi().createProfile(name, copyFrom),
+    proRequired: (error) => profileErrorCode(error) === 'pro_required',
+  })
   let resumeWarning: string | null = null
   if (copyFrom) {
     const source = profiles.value.find((p) => p.id === copyFrom)
