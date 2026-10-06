@@ -187,7 +187,13 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     } catch (error) {
       console.error('[billing] quota check failed', error)
     }
-    if (access?.decision === 'block') {
+    // TEMPORARY / DRY-RUN ONLY: skip the free weekly fill cap so Auto-fill
+    // still runs when the popup shows "25 of 25 free fills this week", and
+    // does not open the "You've hit your free fill limit" paywall. Revert
+    // this before any release. ExtensionPay, pricing, and the Pro upsell
+    // are unchanged.
+    const skipFreeFillCapForDryRun = true
+    if (!skipFreeFillCapForDryRun && access?.decision === 'block') {
       return {
         success: false,
         code: 'hard_cap',
