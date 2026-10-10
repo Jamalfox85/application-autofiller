@@ -276,7 +276,6 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       const fieldText = constructFieldText(input)
       const snapshot = captureFieldSnapshot(input)
 
-      console.log('Processing field:', fieldText, input)
       // Try site-specific handling first. 'skip' means the rule recognized the
       // field and left it blank (custom screening questions, resume file, an
       // unmatched radio). Do not count or highlight those, and do not fall
@@ -290,7 +289,6 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       // Site rules return true for fields they own even when they had nothing to
       // write. Only a field whose value or visible selection changed is a fill.
       if (handled) {
-        console.log('Filled by site rule:', fieldText, input)
         filledCount++
         fillRecords.push({ input, ...snapshot })
         if (reviewHighlightEnabled) highlightFilledField(input)
@@ -311,7 +309,6 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
 
       handled = await fillByDefault(input, matchedValue, relativeMatchKey)
       if (handled) {
-        console.log('Filled by default logic:', fieldText, input)
         filledCount++
         fillRecords.push({ input, ...snapshot })
         if (reviewHighlightEnabled) highlightFilledField(input)

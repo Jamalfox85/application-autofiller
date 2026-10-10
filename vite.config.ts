@@ -13,7 +13,10 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 // Manifest V3 content scripts can't load ES module chunks (only background service workers
 // support "type": "module"), so that shared chunk would have been a silent runtime break.
 // A dedicated single-entry build for content.js sidesteps chunk-splitting entirely.
+// Production bundles drop console.log/debug so field text, HTML and payloads never reach the
+// page's console. console.error/warn stay.
 export default defineConfig({
+  esbuild: { pure: ['console.log', 'console.debug'] },
   plugins: [vue()],
   build: {
     rollupOptions: {

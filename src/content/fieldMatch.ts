@@ -133,7 +133,6 @@ export function matchFieldToData(
 }
 
 function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
-  console.log('Matching full name for field:', fieldText)
   const fullNamePositivePatterns = [
     'fullname',
     'full_name',

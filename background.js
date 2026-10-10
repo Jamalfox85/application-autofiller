@@ -399,7 +399,8 @@ async function handleResumeUpload({ url, token, profileId, fileName, fileType, f
     } catch {
       body = null
     }
-    console.log('[resume-upload]', res.status, rawBody.slice(0, 2000))
+    // Never log the response body: it holds the parsed resume (name, phone, address).
+    console.log('[resume-upload]', res.status)
     if (res.ok && body && body.success === true) {
       firstUpload = body.data ? body.data.first_upload ?? null : null
       parsed = body.data ? body.data.parsed ?? null : null

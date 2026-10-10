@@ -18,8 +18,6 @@ export const captureEvent = async (
     timestamp: new Date().toISOString(),
   }
 
-  console.log('PostHog payload:', payload)
-
   try {
     const response = await fetch('https://app.posthog.com/capture/', {
       method: 'POST',
@@ -29,8 +27,6 @@ export const captureEvent = async (
     })
 
     const text = await response.text()
-    console.log('PostHog response:', text)
-
     if (!response.ok) {
       console.error('PostHog error:', response.status, text)
     }
