@@ -651,29 +651,64 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'trackAutofill') {
     // Answer only after the History row is stored. The popup reloads History as soon as
     // the fill returns; responding before set() left the counter ahead of the list.
+    // Same exclusive lock as reconcileFillHistory (FILL_HISTORY_LOCK). The popup rewrites
+    // the mirror inside that lock; appending out here used to be overwritten by a stale snapshot.
     const entry = request.entry
-    chrome.storage.local.get(['stats', 'fillHistory', 'activeProfile'], (data) => {
-      const stats = data.stats || { totalAutofills: 0, totalResponsesUsed: 0 }
-      stats.totalAutofills = (stats.totalAutofills || 0) + 1
-      const patch = { stats }
-      if (entry) {
-        const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000
-        const fillHistory = (data.fillHistory || []).filter((e) => e.timestamp >= ninetyDaysAgo)
-        const active = data.activeProfile && typeof data.activeProfile.id === 'string' ? data.activeProfile : null
-        fillHistory.unshift({
-          id: Date.now(),
-          profileId: active ? active.id : null,
-          profileName: active ? active.name || null : null,
-          ...entry,
+    const record = () =>
+      new Promise((resolve) => {
+        chrome.storage.local.get(['stats', 'fillHistory', 'activeProfile'], (data) => {
+          try {
+            const stats = data.stats || { totalAutofills: 0, totalResponsesUsed: 0 }
+            stats.totalAutofills = (stats.totalAutofills || 0) + 1
+            const patch = { stats }
+            if (entry) {
+              const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000
+              const fillHistory = (data.fillHistory || []).filter((e) => e.timestamp >= ninetyDaysAgo)
+              const active = data.activeProfile && typeof data.activeProfile.id === 'string' ? data.activeProfile : null
+              fillHistory.unshift({
+                id: Date.now(),
+                profileId: active ? active.id : null,
+                profileName: active ? active.name || null : null,
+                ...entry,
+              })
+              patch.fillHistory = fillHistory
+            }
+            chrome.storage.local.set(patch, () => {
+              try {
+                sendResponse({ success: true })
+              } catch {
+                // The popup is already gone. The row is still in storage.
+              }
+              resolve()
+            })
+          } catch (error) {
+            // Resolving releases the fill-history lock. Leaving this rejected would hold it.
+            console.error('[history] could not record fill', error)
+            try {
+              sendResponse({ success: false })
+            } catch {
+              // The popup is already gone.
+            }
+            resolve()
+          }
         })
-        patch.fillHistory = fillHistory
+      })
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+    const pending = locks ? locks.request('gofillr-fill-history-reconcile', record) : record()
+    pending.catch((error) => {
+      console.error('[history] could not record fill', error)
+      try {
+        sendResponse({ success: false })
+      } catch {
+        // The popup is already gone.
       }
-      chrome.storage.local.set(patch, () => sendResponse({ success: true }))
     })
     return true
   }
 
   if (request.action === 'clearFillHistory') {
+    // The popup holds gofillr-fill-history-reconcile across this write and the database
+    // delete. Taking the lock here as well would deadlock that caller.
     chrome.storage.local.set({ fillHistory: [] })
     sendResponse({ success: true })
   }

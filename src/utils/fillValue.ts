@@ -32,18 +32,28 @@ const DEFAULT_ONLY_KEYS = new Set([
   'salaryNegotiable',
   // Seeded from the sign-in account at first launch. Email alone is not a filled-in profile:
   // with only this, Skip-for-now left the Dropbox form filling Email and a default US country.
+  // Only the top-level profile email is seeded. An application-account email is something the
+  // user saved, so nested records still count it.
   'email',
 ])
 
 export function profileHasAutofillData(info: unknown): boolean {
-  if (!info || typeof info !== 'object') return false
-  for (const [key, value] of Object.entries(info as Record<string, unknown>)) {
-    if (DEFAULT_ONLY_KEYS.has(key)) continue
-    if (Array.isArray(value)) {
-      if (value.some((item) => profileHasAutofillData(item))) return true
-      continue
-    }
-    if (coerceFillText(value)) return true
+  if (!info || typeof info !== 'object' || Array.isArray(info)) return false
+  return recordHasAutofillData(info as Record<string, unknown>, true)
+}
+
+function recordHasAutofillData(info: Record<string, unknown>, topLevel: boolean): boolean {
+  for (const [key, value] of Object.entries(info)) {
+    // Client-only row ids are numbers, so an empty education row used to look filled.
+    if (key === 'id') continue
+    if (topLevel && DEFAULT_ONLY_KEYS.has(key)) continue
+    if (valueHasAutofillData(value)) return true
   }
   return false
+}
+
+function valueHasAutofillData(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some((item) => valueHasAutofillData(item))
+  if (value && typeof value === 'object') return recordHasAutofillData(value as Record<string, unknown>, false)
+  return coerceFillText(value) != null
 }

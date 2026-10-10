@@ -97,7 +97,7 @@ const handleClose = () => {
     <div class="aa-wrap">
       <div class="aa-notice">
         <span class="aa-notice-dot"></span>
-        <span>Stored encrypted on this device. GoFillr fills the login form — it never submits it for you.</span>
+        <span>Saved to your GoFillr account. GoFillr fills the login form — it never submits it for you.</span>
       </div>
 
       <div v-if="attentionMessage" class="aa-alert" role="status">

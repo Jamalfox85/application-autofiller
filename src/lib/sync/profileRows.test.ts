@@ -106,4 +106,6 @@ test('a GPA the numeric(3,2) column cannot hold is dropped instead of failing th
   assert.equal(gpaOf('95'), null)
   assert.equal(gpaOf('10'), null)
   assert.equal(gpaOf('3.8/4.0'), null)
+  assert.equal(gpaOf('9.994'), 9.99)
+  assert.equal(gpaOf('9.999'), null)
 })

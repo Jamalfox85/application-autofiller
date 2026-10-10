@@ -62,3 +62,19 @@ test('the sign-in email and default country code alone are not a fillable profil
   assert.equal(profileHasAutofillData({ email: 'me@example.com', phoneCountryCode: '+1', country: '' }), false)
   assert.equal(profileHasAutofillData({ email: 'me@example.com', firstName: 'Ada' }), true)
 })
+
+test('skills count, and a row id or a blank list does not', () => {
+  assert.equal(profileHasAutofillData({ email: 'me@example.com', skills: ['Go'] }), true)
+  assert.equal(profileHasAutofillData({ email: 'me@example.com', skills: ['', '  '] }), false)
+  assert.equal(
+    profileHasAutofillData({ email: 'me@example.com', education: [{ id: 1, schoolName: '' }] }),
+    false,
+  )
+  assert.equal(
+    profileHasAutofillData({
+      email: 'me@example.com',
+      applicationAccounts: [{ id: 4, portal: '', email: 'work@example.com', password: '' }],
+    }),
+    true,
+  )
+})

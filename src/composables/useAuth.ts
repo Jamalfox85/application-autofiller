@@ -4,6 +4,7 @@ import { getStoredSession, onAuthStateChanged, signOut as signOutOfSupabase } fr
 import { isSupabaseAuthStorageKey } from '@/lib/googleAuth'
 import { USER_ID_KEY } from '@/services/billing/entitlementStore'
 import { flushPendingProfilePlan } from '@/services/billing/profilePlan'
+import { withFillHistoryLock } from '@/lib/sync/fillHistory'
 
 export type AuthStatus = 'loading' | 'signed-in' | 'signed-out'
 
@@ -87,17 +88,20 @@ export function useAuth() {
     await signOutOfSupabase()
     // Drop the local mirrors so the next person to sign in on this browser never sees the
     // previous account's data, even for a frame. Supabase is the source of truth; these are
-    // rebuilt on the next load.
-    await chrome.storage.local.remove([
-      'personalInfo',
-      'customResponses',
-      'fillHistory',
-      'resumeUploadJob',
-      'savedResumeFile',
-      'localToSupabaseMigrated_v1',
-      'activeProfile',
-      USER_ID_KEY,
-    ])
+    // rebuilt on the next load. The fill-history lock is held so an in-flight reconcile cannot
+    // write the previous account's history back after this remove.
+    await withFillHistoryLock(() =>
+      chrome.storage.local.remove([
+        'personalInfo',
+        'customResponses',
+        'fillHistory',
+        'resumeUploadJob',
+        'savedResumeFile',
+        'localToSupabaseMigrated_v1',
+        'activeProfile',
+        USER_ID_KEY,
+      ]),
+    )
     applySession(null)
   }
 

@@ -93,8 +93,8 @@ const handleManual = () => {
     <div class="intro-copy">
       <div class="intro-title">Set up your profile once.</div>
       <div class="intro-subtitle">
-        Everything you enter stays on this device unless you turn on sync. You can edit any field
-        later.
+        Your profile and resumé are saved to your GoFillr account and sync across your
+        signed-in devices. You can edit any field later.
       </div>
     </div>
 

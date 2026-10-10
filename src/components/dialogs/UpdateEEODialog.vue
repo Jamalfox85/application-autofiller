@@ -165,7 +165,7 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
 
       <div class="demo-notice">
         <span class="demo-notice-dot"></span>
-        <span>Stored on your device. It is never used to decide which fields GoFillr fills.</span>
+        <span>Saved to your GoFillr account. It is never used to decide which fields GoFillr fills.</span>
       </div>
     </div>
 

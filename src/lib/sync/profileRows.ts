@@ -35,10 +35,12 @@ function dateToMonth(date?: string | null): string {
 function gpaToNumeric(gpa?: string | null): number | null {
   if (gpa == null || gpa === '') return null
   const n = Number(gpa)
-  // The column is numeric(3,2): anything of 10 or more ("95" on a percent scale, "10" on a ten
-  // point scale) made save_profile reject the whole profile as invalid_payload. Negative and
-  // non-numeric values ("3.8/4.0") are dropped too.
-  return Number.isFinite(n) && n >= 0 && n < 10 ? Math.round(n * 100) / 100 : null
+  if (!Number.isFinite(n) || n < 0) return null
+  // The column is numeric(3,2): the largest value it accepts is 9.99. Round first, then drop
+  // anything that lands on 10 ("9.995", "95", "10", "3.8/4.0"). Checking the raw number only
+  // let 9.995 through as 10 and save_profile rejected the whole profile.
+  const rounded = Math.round(n * 100) / 100
+  return rounded < 10 ? rounded : null
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v))
