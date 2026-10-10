@@ -36,7 +36,7 @@ test('the first success freezes time_to_first_fill_ms from install', () => {
   assert.equal(firstFillAtToStore, now)
 })
 
-test('later autofill events keep the first-fill duration and clear is_first_fill', () => {
+test('later autofill events clear is_first_fill and omit time_to_first_fill_ms', () => {
   const firstFillAt = installedAt + 45_000
   const { props, firstFillAtToStore } = buildAutofillContractProps({
     hostname: 'careers.example.com',
@@ -47,7 +47,7 @@ test('later autofill events keep the first-fill duration and clear is_first_fill
   })
   assert.equal(props.ats, 'other')
   assert.equal(props.is_first_fill, false)
-  assert.equal(props.time_to_first_fill_ms, 45_000)
+  assert.equal('time_to_first_fill_ms' in props, false)
   assert.equal(firstFillAtToStore, null)
 })
 

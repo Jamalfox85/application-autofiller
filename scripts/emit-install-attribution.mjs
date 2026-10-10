@@ -4,6 +4,11 @@
 import * as esbuild from 'esbuild'
 import { existsSync, readFileSync } from 'node:fs'
 import { copyFile, mkdir } from 'node:fs/promises'
+import { viteBuildChannel } from './vite-build-channel.mjs'
+
+// Captured before .env is copied onto process.env so a mode file can still
+// override .env, matching Vite. A shell value stays first.
+const inlinedBuildChannel = viteBuildChannel()
 
 if (existsSync('.env')) {
   for (const line of readFileSync('.env', 'utf8').split('\n')) {
@@ -31,6 +36,7 @@ const define = {
   'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.VITE_SUPABASE_ANON_KEY ?? ''),
   'import.meta.env.VITE_RESUME_API_URL': JSON.stringify(process.env.VITE_RESUME_API_URL ?? ''),
   'import.meta.env.VITE_RESUME_API_KEY': JSON.stringify(process.env.VITE_RESUME_API_KEY ?? ''),
+  'import.meta.env.VITE_BUILD_CHANNEL': JSON.stringify(inlinedBuildChannel),
 }
 
 await mkdir('dist/src/services/billing', { recursive: true })
@@ -58,6 +64,15 @@ await esbuild.build({
   format: 'esm',
   bundle: true,
   platform: 'neutral',
+})
+// background.js imports this for build_channel. It is not a Vite entry.
+await esbuild.build({
+  entryPoints: ['src/services/mixpanelConfig.ts'],
+  outfile: 'dist/src/services/mixpanelConfig.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
 })
 await esbuild.build({
   entryPoints: ['src/services/extensionPayWorker.ts'],

@@ -34,6 +34,8 @@ Required:
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_EXTENSIONPAY_EXTENSION_ID` — ExtensionPay extension id. The committed default is `gofillr-admin`. Plan nicknames to create in the dashboard: `pro-monthly` ($5.99/mo) and `pro-yearly` ($49/yr). Do not commit the per-install ExtensionPay API key; the library stores it in `chrome.storage.sync`.
 
+`VITE_BUILD_CHANNEL` is optional. Set it to exactly `test` or `production` to force `build_channel` on every Mixpanel and PostHog event. Leave it unset to decide at runtime: an unpacked install is `test`, and a Chrome Web Store install is `production`. A store install stays `production` even if this variable is `test`. `npm run build` fails if the value is `test` (including when it is only in `.env.production`), so a release package cannot be stamped as a test build. Unpacked loads are already `test` without the variable. Set `production` when a local unpacked load should report the production channel.
+
 After a purchase the extension keeps Pro in the local entitlement cache and in `pendingProfilePlan` for offline UX. The server plan is set only by `POST /api/v1/billing/plan` with `X-API-Key`, `Authorization: Bearer <supabase access token>`, and `{ "plan": "pro" }`. A success body is `{ "success": true, "data": { "plan": "pro" } }`. The client does not update `profiles.plan`. `POST /api/v1/resumes/generate` and `POST /api/v1/ats/analyze` send the same Bearer token. A 403 whose error code is `plan_required` (including a nested `error.code`) opens the Pro upgrade UI. Dashboard SKUs on `gofillr-admin` are `pro-monthly` ($5.99/mo) and `pro-yearly` ($49/yr).
 
 If either one is missing, or still set to the `.env.example` placeholder, the popup shows a setup message instead of a blank panel. Sign-in and profile sync need the real values. A store build has to be produced from a `.env` that contains them.
@@ -147,6 +149,8 @@ npm run build
 - Make sure you're using Node 16+
 
 ## 📦 Publishing to Chrome Web Store
+
+`npm run build` refuses to run when `VITE_BUILD_CHANNEL=test`. A store install reports `build_channel=production`.
 
 1. Create a developer account ($5 one-time fee)
 2. Zip the `dist/` folder

@@ -26,6 +26,10 @@ import {
   forgetQuotaClaim,
   quotaPageKey,
 } from './src/services/billing/quotaPage.js'
+import {
+  extensionSuperProperties,
+  finalizeTrackedProperties,
+} from './src/services/mixpanelConfig.js'
 
 startExtensionPay()
 
@@ -53,8 +57,9 @@ chrome.storage.local.remove('profileRoster').catch(() => {})
 // SDK (it needs `document`/`window`, which service workers don't have) so it posts to the
 // HTTP Track API directly — see src/services/mixpanelHttp.ts for the same approach used by
 // content scripts, src/services/mixpanel.ts for the SDK-based path used by the popup, and
-// src/services/mixpanelIdentity.ts for the shared distinct_id this mirrors (background.js
-// isn't bundled by Vite, so it can't import either module).
+// src/services/mixpanelIdentity.ts for the shared distinct_id this mirrors. background.js
+// isn't bundled by Vite; copy-files emits mixpanelConfig.js (build_channel + the
+// first-fill property rule) so this worker can import it.
 const MIXPANEL_TOKEN = '631d1b855c22a921118ebbe7bdcafedb'
 const MIXPANEL_DISTINCT_ID_KEY = 'mixpanelDistinctId'
 
@@ -68,19 +73,14 @@ async function getOrCreateMixpanelDistinctId() {
   return id
 }
 
-function mixpanelSuperProperties() {
-  return {
-    platform: 'chrome_extension',
-    app_version: chrome.runtime.getManifest().version,
-  }
-}
-
 async function trackMixpanelEvent(eventName, properties) {
   try {
     const distinctId = await getOrCreateMixpanelDistinctId()
     const installProps = installSourceProperties(await readInstallSource())
-    const cleanProperties = Object.fromEntries(
-      Object.entries(properties || {}).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+    const superProps = await extensionSuperProperties()
+    const eventProps = finalizeTrackedProperties(
+      { ...superProps, ...installProps, ...(properties || {}) },
+      superProps.build_channel,
     )
 
     await fetch('https://api.mixpanel.com/track', {
@@ -94,9 +94,7 @@ async function trackMixpanelEvent(eventName, properties) {
             distinct_id: distinctId,
             time: Math.floor(Date.now() / 1000),
             $insert_id: crypto.randomUUID(),
-            ...mixpanelSuperProperties(),
-            ...installProps,
-            ...cleanProperties,
+            ...eventProps,
           },
         },
       ]),
