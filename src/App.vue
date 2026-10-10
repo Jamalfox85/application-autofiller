@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { usePersonalInfo } from './composables/usePersonalInfo'
 import { useProfiles } from './composables/useProfiles'
 import {
@@ -376,6 +376,15 @@ const describeSyncError = (error: unknown) => {
     code: (error as { code?: string } | null)?.code ?? 'unknown',
     detail: original?.details ?? original?.message ?? (error as Error | null)?.message,
   }
+}
+
+// A resume uploaded from the Links sheet fills the profile but used to show only a one-line
+// note. Open Personal details right away so the parsed values are actually reviewed.
+const startParsedReview = async () => {
+  closeDialog('links')
+  await nextTick()
+  openDialog('personalInfo')
+  showNotification('We read your resume. Review Personal details, then Work and Education.', 'success')
 }
 
 const handleOnboardingFinish = async (profile?: any) => {
@@ -867,6 +876,7 @@ watch(authStatus, (next, previous) => {
       :personalInfo="personalInfo"
       @close="closeDialog('links')"
       @save="saveProfile"
+      @review="startParsedReview"
     />
     <UpdateEducationDialog
       :show="dialogs.education.value"

@@ -17,4 +17,9 @@ test('an empty profile gets a way back to Welcome from the dashboard', () => {
   assert.match(app, /v-if="!profileLooksFilled"/)
   assert.match(app, /@click="activeView = 'welcome'"/)
   assert.match(app, /Set up your profile/)
+test('a resume parsed in the Links sheet opens a review of the parsed values', () => {
+  assert.match(app, /@review="startParsedReview"/)
+  assert.match(app, /openDialog\('personalInfo'\)/)
+  const dlg = readFileSync(new URL('./components/dialogs/UpdateLinksDialog.vue', import.meta.url), 'utf8')
+  assert.equal((dlg.match(/emit\('review'\)/g) ?? []).length, 2)
 })

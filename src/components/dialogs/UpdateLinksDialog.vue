@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   save: [profile: PersonalInfo]
+  review: []
 }>()
 
 const ACCEPTED_RESUME_EXTENSIONS = ['.pdf', '.docx']
@@ -66,6 +67,7 @@ watch(
         // the user to review it. Waiting for a separate Save click lost the parse.
         prefilledFromResume.value = true
         emit('save', editableProfile.value)
+        emit('review')
       } else {
         // Repeat upload, or the profile already has data. Keep what the user has and
         // show the resume that was just saved. When the API returned a parse, use it only
@@ -85,6 +87,7 @@ watch(
         if (resumeUpload.parsedResume.value) {
           prefilledFromResume.value = true
           emit('save', editableProfile.value)
+          emit('review')
         }
       }
       saved.value = false
