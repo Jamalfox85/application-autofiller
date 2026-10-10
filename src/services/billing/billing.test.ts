@@ -26,7 +26,7 @@ import {
   syncProPlanAfterPurchase,
   type PendingPlanStore,
 } from './profilePlan.ts'
-import { PRO_RESUME_PATHS, PROD_RESUME_API_URL, postProResume, proResumeHeaders, resumeApiBaseUrl } from './proApiContract.ts'
+import { PRO_RESUME_PATHS, PROD_RESUME_API_URL, postProResume, proResumeHeaders, resumeApiBaseUrl, summarizeProData } from './proApiContract.ts'
 import {
   EXTENSION_PAY_EXTENSION_ID,
   EXTENSION_PAY_PLAN_SKUS,
@@ -143,7 +143,7 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this week')
   assert.equal(
     PAYWALL_COPY.soft.body,
-    'Go Pro for unlimited autofills, plus Application Match Score and up to 5 profiles.',
+    'Go Pro for unlimited autofills, plus score matching and up to 5 profiles.',
   )
   assert.equal(PAYWALL_COPY.soft.primary, 'Upgrade to Pro \u2014 $5.99/mo')
   assert.equal(PAYWALL_COPY.soft.secondary, 'Continue free (15 fills left)')
@@ -151,18 +151,22 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.hard.title, 'You\u2019ve hit your free fill limit')
   assert.equal(
     PAYWALL_COPY.hard.body,
-    'Unlock unlimited fills, Application Match Score, and up to 5 profiles with Pro.',
+    'Unlock unlimited fills, score matching, and up to 5 profiles with Pro.',
   )
   assert.equal(PAYWALL_COPY.hard.primary, 'Get Pro \u2014 $5.99/mo')
   assert.equal(PAYWALL_COPY.hard.annual, 'Get Pro \u2014 $49/yr')
-  assert.equal(PAYWALL_COPY.resumeAi.title, 'Application Match Score is a Pro feature.')
+  assert.equal(PAYWALL_COPY.resumeAi.title, 'Score matching is a Pro feature.')
   assert.equal(PAYWALL_COPY.resumeAi.cta, 'Upgrade to Pro')
   assert.equal(PAYWALL_COPY.multiProfile.title, 'Up to 5 profiles, each with its own resume, are a Pro feature.')
   assert.equal(PAYWALL_COPY.lockedProfile.title, 'Resubscribe to use this profile again.')
   const paywallText = JSON.stringify(PAYWALL_COPY).toLowerCase()
+  assert.equal(paywallText.includes('match score'), false)
+  assert.equal(paywallText.includes('ats score'), false)
   for (const ats of ['workday', 'greenhouse', 'lever', 'ashby', 'icims', 'bamboohr', 'jobvite', 'workable']) {
     assert.equal(paywallText.includes(ats), false)
   }
+  assert.equal(summarizeProData({ score: 81 }), 'Job match score: 81')
+  assert.equal(summarizeProData({ ats_score: 64 }), 'Job match score: 64')
 
   assert.equal(PAID_EVENT.softShown, 'soft_paywall_shown')
   assert.equal(PAID_EVENT.softCta, 'soft_paywall_cta_clicked')
@@ -294,6 +298,8 @@ test('generate and ats analyze send the supabase bearer token', async () => {
   // hardwiring resume_ai.
   assert.match(app, /<ProFeatures\s[^>]*@upgrade="onProUpgrade"/)
   const proFeatures = readFileSync('src/components/ProFeatures.vue', 'utf8')
+  assert.match(proFeatures, />Score matching</)
+  assert.doesNotMatch(proFeatures, /Match Score/)
   assert.match(proFeatures, /emit\('upgrade', 'resume_ai'\)/)
   assert.match(proFeatures, /emit\('upgrade', 'multi_profile'\)/)
   const proApi = readFileSync('src/services/billing/proApi.ts', 'utf8')

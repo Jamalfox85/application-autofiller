@@ -52,7 +52,7 @@ function closeButton(doc: Document, onClick: () => void): HTMLButtonElement {
   const button = doc.createElement('button')
   button.type = 'button'
   button.textContent = '×'
-  button.setAttribute('aria-label', 'Dismiss Match Score')
+  button.setAttribute('aria-label', 'Dismiss job match')
   button.style.cssText = `
     border: none;
     background: none;
@@ -164,7 +164,7 @@ function renderScored(
   }
 
   const scoreMark = el(doc, 'div', 'font-size:22px; font-weight:700; letter-spacing:-0.03em;', String(score.score))
-  card.append(headerRow(doc, 'Match Score', scoreMark, handlers.onDismiss))
+  card.append(headerRow(doc, 'Job match', scoreMark, handlers.onDismiss))
   const body = el(doc, 'div', 'padding:0 12px 12px; display:flex; flex-direction:column; gap:8px;')
   body.append(el(doc, 'div', 'font-size:12.5px; font-weight:600; color:#d7d7de;', BAND_LABEL[score.band]))
   if (score.confidence === 'low') {
@@ -246,14 +246,14 @@ export function renderMatchScoreCard(
     return card
   }
   if (model.kind === 'locked') {
-    const row = headerRow(doc, 'Match Score', el(doc, 'span', 'font-size:11px; color:#c4b5fd;', 'Pro'), handlers.onDismiss)
+    const row = headerRow(doc, 'Job match · Pro', null, handlers.onDismiss)
     row.style.cursor = 'pointer'
     row.addEventListener('click', handlers.onUpgrade)
     card.append(row)
     return card
   }
   if (model.kind === 'insufficient') {
-    card.append(headerRow(doc, 'Match Score', null, handlers.onDismiss))
+    card.append(headerRow(doc, 'Job match', null, handlers.onDismiss))
     const body = el(doc, 'div', 'padding:0 12px 12px; display:flex; flex-direction:column; gap:8px;')
     body.append(el(doc, 'div', 'font-size:12.5px; line-height:1.4; color:#d7d7de;', INSUFFICIENT_COPY))
     body.append(pillButton(doc, 'Open profile', handlers.onOpenProfile))

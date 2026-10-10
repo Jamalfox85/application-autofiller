@@ -1,4 +1,4 @@
-// User-facing "Application Match Score" switch from the popup's Pro section.
+// User-facing "Score matching" switch from the popup's Pro section.
 // Stored in chrome.storage.local next to autoDetectEnabled. It only adds a
 // condition on top of the build flags and the Pro entitlement check.
 
