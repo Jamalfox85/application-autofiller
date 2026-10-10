@@ -201,6 +201,11 @@ const detection = ref<{ detected: boolean; siteLabel: string | null; fieldCount:
   fieldCount: 0,
 })
 
+// True while the popup is still asking the page for a form (the first answer can take a few
+// seconds on embeds). The card shows "Looking for the form…" instead of "No application form
+// found" until the retries are exhausted.
+const detecting = ref(true)
+
 const dialogs: Record<string, any> = {
   personalInfo: ref(false),
   links: ref(false),
@@ -240,6 +245,15 @@ const lastFillLabel = computed(() => {
 
 // Methods
 const detectApplication = async () => {
+  detecting.value = true
+  try {
+    await runDetection()
+  } finally {
+    detecting.value = false
+  }
+}
+
+const runDetection = async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     const tabId = tab?.id
@@ -740,6 +754,13 @@ watch(authStatus, (next, previous) => {
           </div>
           <div class="status-detail">Job application detected on this page.</div>
         </template>
+        <template v-else-if="detecting">
+          <div class="status-row">
+            <span class="status-dot muted"></span>
+            <span class="status-site muted">Looking for the form…</span>
+          </div>
+          <div class="status-detail">Checking this page for a job application.</div>
+        </template>
         <template v-else>
           <div class="status-row">
             <span class="status-dot muted"></span>
@@ -764,7 +785,7 @@ watch(authStatus, (next, previous) => {
             Upgrade
           </button>
         </div>
-        <button v-if="!detection.detected" class="scan-btn" @click="scanCurrentPageManually">
+        <button v-if="!detection.detected && !detecting" class="scan-btn" @click="scanCurrentPageManually">
           Scan this page manually
         </button>
       </div>
