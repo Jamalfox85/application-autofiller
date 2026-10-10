@@ -2,24 +2,63 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Fellows Program</title>
+    <title>Job Application for Data Operations Manager, Human Data at Anthropic</title>
+    <link rel="canonical" href="https://job-boards.greenhouse.io/anthropic/jobs/5238460008" />
   </head>
   <body>
-    <div class="job__description">
-      <h1>Anthropic Fellows Program, AI Safety &amp; Security</h1>
-      <p>Build evaluations and research tooling.</p>
-    </div>
-    <form method="get" action="/anthropic/jobs/5183044008" id="application-form" class="application--form">
-      <label id="first_name-label" for="first_name">First name</label>
-      <input id="first_name" name="job_application[first_name]" type="text" />
-      <label id="last_name-label" for="last_name">Last name</label>
-      <input id="last_name" name="job_application[last_name]" type="text" />
-      <label id="email-label" for="email">Email</label>
-      <input id="email" name="job_application[email]" type="email" />
-      <label id="phone-label" for="phone">Phone</label>
-      <input id="phone" name="job_application[phone]" type="tel" />
-      <label id="upload-label-resume" for="resume">Resume</label>
-      <input id="resume" name="job_application[resume]" type="file" />
-    </form>
+    <!-- Reduced from https://job-boards.greenhouse.io/anthropic/jobs/5238460008
+         (job-boards layout, 2026-10-10). The application is inline under the
+         description: form#application-form.application--form, text inputs, a
+         visually-hidden resume file input, and react-select comboboxes. -->
+    <main class="main font-secondary job-post">
+      <div class="job__description body">
+        <h1 class="section-header">Data Operations Manager, Human Data</h1>
+      </div>
+      <div class="application--container">
+        <div class="application--header">
+          <h2 class="section-header">Apply for this job</h2>
+        </div>
+        <form method="get" action="/anthropic/jobs/5238460008" id="application-form" class="application--form">
+          <div class="application--questions">
+            <div class="field-wrapper">
+              <label id="first_name-label" for="first_name">First Name</label>
+              <input id="first_name" class="input input__single-line" aria-label="First Name" type="text" maxlength="255" autocomplete="given-name" value="" />
+            </div>
+            <div class="field-wrapper">
+              <label id="last_name-label" for="last_name">Last Name</label>
+              <input id="last_name" class="input input__single-line" aria-label="Last Name" type="text" maxlength="255" autocomplete="family-name" value="" />
+            </div>
+            <div class="field-wrapper">
+              <label id="email-label" for="email">Email</label>
+              <input id="email" class="input input__single-line" aria-label="Email" type="text" maxlength="255" autocomplete="email" value="" />
+            </div>
+            <div class="select">
+              <label id="country-label" for="country">Country</label>
+              <div class="select__control">
+                <input
+                  class="select__input"
+                  id="country"
+                  type="text"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-haspopup="true"
+                  aria-labelledby="country-label"
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+            <div class="field-wrapper">
+              <label id="phone-label" for="phone">Phone</label>
+              <input id="phone" class="input input__single-line" aria-label="Phone" type="tel" maxlength="255" />
+            </div>
+            <div class="field-wrapper">
+              <label id="upload-label-resume" for="resume">Resume</label>
+              <input id="resume" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf" />
+            </div>
+          </div>
+        </form>
+      </div>
+    </main>
   </body>
 </html>

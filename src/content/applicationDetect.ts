@@ -3,10 +3,17 @@
 // filters, but no application form. Offer the fill only when this document has
 // a fillable application form, or when the URL is a known apply shape and the
 // form shows up after a short retry. Board, listing, and index URLs stay quiet.
+//
+// job-boards.greenhouse.io/…/jobs/{id} already has form#application-form in the
+// server HTML (including react-select comboboxes). Remix then hydrateRoot(document)
+// drops the prompt node; applicationPrompt puts that node back. iCIMS /jobs/{id}/…/job
+// and /login are apply entries even when this document's fields live in the
+// ?in_iframe=1 frame — the frame itself does not offer a second toast.
 
 import { hrefHasGreenhouseJobId, isWorkableApplyHost } from '../utils/ats.ts'
 import { FIELD_POLL_MS, FIELD_WAIT_MS } from '../utils/detectionRetry.ts'
 import { applicationUrlPatterns, excludePatterns, jobPlatforms } from '../utils/jobSitePatterns.ts'
+import { isIcimsCandidateHost, isIcimsLoginPath } from '../utils/siteRules/icimsAccount.ts'
 
 /** Enough controls to look like an application rather than a search box. */
 export const MIN_APPLICATION_FIELDS = 4
@@ -35,6 +42,10 @@ const FORM_MARKER_SELECTOR = [
   '[data-automation-id="applyFlowMyExpPage"]',
   '.iCIMS_ResumeSection',
   '.iCIMS_ProfileForm',
+  // "Enter Your Information" on careers-*.icims.com/jobs/{id}/…/login.
+  '#enterEmailForm',
+  'form.iCIMS_SignIn',
+  '.iCIMS_LoginPage',
   'form#applicationForm',
   'form.BambooHR-ATS',
   '#career-application',
@@ -140,6 +151,56 @@ function isBambooHost(hostname: string): boolean {
   return hostEnds(hostname, 'bamboohr.com')
 }
 
+// careers-acme.icims.com/jobs/{id}/{slug}/job is the description the Apply button
+// sits on. /login is the "Enter Your Information" gate. The candidate form is
+// /candidate. Search and the jobs index are not.
+export function isIcimsApplySurface(url: URL): boolean {
+  if (!isIcimsCandidateHost(url.hostname)) return false
+  const parts = segments(url)
+  if (parts.includes('search') || parts.includes('intro')) return false
+  if (isIcimsLoginPath(url.pathname, url.search)) {
+    return parts.includes('jobs') || parts.some((part) => /^\d+$/.test(part))
+  }
+  if (parts.includes('candidate') || parts.includes('apply') || parts.includes('form')) return true
+  const jobsAt = parts.indexOf('jobs')
+  if (jobsAt < 0) return false
+  const rest = parts.slice(jobsAt + 1)
+  return rest.some((part) => /^\d+$/.test(part)) && rest[rest.length - 1] === 'job'
+}
+
+export function isIcimsInFrameUrl(href: string): boolean {
+  const url = parseUrl(href)
+  if (!url) return /[?&]in_iframe=1(?:&|$)/.test(href)
+  return url.searchParams.get('in_iframe') === '1'
+}
+
+// iCIMS job and login documents often have no local fields: the shell's inputs
+// live in icims_content_iframe, and HealthEdge's login gate is one email plus
+// a checkbox. Workday /apply and BambooHR /careers/{id} could not be snapshotted
+// as a filled form, so a known apply URL prompts instead of staying quiet.
+function promptOnUrlWithoutFields(href: string): boolean {
+  const url = parseUrl(href)
+  if (!url) return false
+  if (isIcimsApplySurface(url)) return true
+  if (isMyWorkdayHost(url.hostname) && /\/apply(?:\/|$)/.test(url.pathname.toLowerCase())) return true
+  if (isBambooHost(url.hostname) && segments(url).some((part) => /^\d+$/.test(part))) return true
+  return false
+}
+
+// The content iframe (?in_iframe=1) and the career-portal shell are the same
+// host, and both used to toast. Only the top document offers the fill, so
+// HealthEdge /login does not stack two prompts. A frame opened on its own
+// (window.top === window) still offers.
+export function shouldOfferAutofillToast(
+  href: string,
+  detection: ApplicationPageDetection,
+  inEmbeddedFrame: boolean,
+): boolean {
+  if (!detection.detected) return false
+  if (inEmbeddedFrame && isIcimsInFrameUrl(href)) return false
+  return true
+}
+
 function isMyWorkdayHost(hostname: string): boolean {
   return hostname.toLowerCase().includes('myworkday')
 }
@@ -191,13 +252,14 @@ export function isListingOrBoardUrl(href: string): boolean {
   }
 
   if (isIcimsHost(host)) {
+    if (!isIcimsCandidateHost(host)) return true
     if (parts.length === 0) return true
     if (parts.includes('search') || parts.includes('intro')) return true
     if (parts.length === 1 && parts[0] === 'jobs') return true
     if (parts[parts.length - 1] === 'jobs') return true
-    // /jobs/{id}/{slug}/job is the description. The form is /candidate.
-    if (parts[parts.length - 1] === 'job') return true
-    return false
+    // /jobs/{id}/{slug}/job and /login are the apply entry, not a board index.
+    if (isIcimsApplySurface(url)) return false
+    return true
   }
 
   if (isBambooHost(host)) {
@@ -233,7 +295,7 @@ export function isKnownApplicationUrl(href: string): boolean {
   if (isJobviteHost(host)) return parts.includes('apply') || parts.includes('job')
   if (isWorkableApplyHost(host)) return parts.includes('apply') || parts.includes('j')
   if (isMyWorkdayHost(host)) return path.includes('/job/') || /\/apply(?:\/|$)/.test(path)
-  if (isIcimsHost(host)) return parts.includes('candidate') || parts.includes('apply') || parts.includes('form')
+  if (isIcimsHost(host)) return isIcimsApplySurface(url)
   if (isBambooHost(host)) return parts.some((part) => /^\d+$/.test(part))
   return false
 }
@@ -274,6 +336,10 @@ export function detectApplicationPage(input: ApplicationPageInput): ApplicationP
   const markers = hasApplicationFormMarkers(doc)
   // Child frame owns the form. Don't wait out a pending poll on the shell.
   if (hasEmbeddedApplicationFrame(doc) && !markers) return none(fields)
+
+  // URL shapes that are the apply step even when this document has no inputs yet
+  // (iCIMS shell, Workday /apply before the flow mounts, BambooHR job id).
+  if (promptOnUrlWithoutFields(href)) return found(fields, 'url_pattern')
 
   if (markers && fields >= 1) return found(fields, 'form')
 
