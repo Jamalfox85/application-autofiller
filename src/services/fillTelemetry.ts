@@ -1,7 +1,6 @@
 // Mixpanel contract events for a fill. Content scripts and the popup both call
 // trackFillContract so autofill_attempted / _succeeded / _failed carry the same props.
-// Mixpanel goes through the HTTP helper (safe in content scripts); PostHog uses captureEvent.
-import { captureEvent } from './posthog'
+// Mixpanel goes through the HTTP helper (safe in content scripts).
 import { trackEvent } from './mixpanelHttp'
 import {
   buildAutofillContractProps,
@@ -100,5 +99,4 @@ export async function trackFillContract(
   const properties =
     event === 'autofill_succeeded' ? { ...contract, ...(await profileCountProp()) } : contract
   void trackEvent(event, properties)
-  void captureEvent(event, properties)
 }

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { captureEvent } from '@/services/posthog'
 import { trackEvent } from '@/services/mixpanel'
 import { startProfileSetupSession } from '@/services/profileSetupSession'
 import { CORE_SECTIONS } from '@/utils/infocards.ts'
@@ -58,7 +57,7 @@ const acceptFile = (file: File) => {
     return
   }
 
-  captureEvent('resume_upload_started', { fileType: extension })
+  trackEvent('resume_upload_started', { fileType: extension })
   trackProfileSetupStarted('default')
   emit('upload', file)
 }
@@ -72,7 +71,6 @@ const trackProfileSetupStarted = async (profileType: 'default' | 'custom') => {
     language: navigator.language,
   }
   trackEvent('onboarding_started', properties)
-  void captureEvent('onboarding_started', properties)
 }
 
 const handleManual = () => {
