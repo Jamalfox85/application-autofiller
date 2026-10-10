@@ -43,6 +43,7 @@ import {
   type GreenhouseEducationField,
   type NativeSelectChoice,
 } from './greenhouseValues.ts'
+import { isCurrentLocationQuestion } from './greenhouseValues.ts'
 import {
   applyGreenhouseResumeFile,
   resetGreenhouseSavedResumeRequest,
@@ -161,6 +162,24 @@ const fieldHandlers: Array<{
         dialingCodeSearchValues(target),
         '[id^=react-select-country-option-]',
         (options) => pickDialingCodeOption(options, target),
+        'greenhouse',
+      )
+      return true
+    },
+  },
+  {
+    // job-boards custom "Current Location" / "City, State" question (question_N combobox).
+    // Not the #candidate-location widget, and not "Location Cost Tier" style internal fields.
+    match: (input, fieldText) => isCurrentLocationQuestion(input.id, fieldText),
+    handle: async (input, _, personalInfo) => {
+      const queries = locationSearchQueries(personalInfo)
+      if (queries.length === 0) return 'skip'
+      await fillReactSelect(
+        input,
+        queries,
+        `[id^=react-select-${input.id}-option-]`,
+        (options) => pickLocationOption(options, personalInfo),
+        'greenhouse',
       )
       return true
     },
@@ -336,7 +355,7 @@ const fieldHandlers: Array<{
       const optionSelector = questionId
         ? `[id^=react-select-question_${questionId}-option-]`
         : undefined
-      await fillReactSelect(input, queries, optionSelector)
+      await fillReactSelect(input, queries, optionSelector, undefined, 'greenhouse')
       return true
     },
   },

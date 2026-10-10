@@ -418,6 +418,20 @@ export function isResidenceCountryField(id: string, fieldText: string): boolean 
   )
 }
 
+// "Current Location*", "Current city and state", "City, State of residence" on a question_N
+// dropdown. Requires a question id so the #candidate-location widget keeps its own handler.
+export function isCurrentLocationQuestion(id: string, fieldText: string): boolean {
+  if (!/^question_\d+/.test(id)) return false
+  if (fieldText.includes('costtier') || fieldText.includes('sponsor')) return false
+  return (
+    fieldText.includes('currentlocation') ||
+    fieldText.includes('currentcity') ||
+    fieldText.includes('citystate') ||
+    fieldText.includes('cityandstate') ||
+    fieldText.includes('locationcity')
+  )
+}
+
 export function isStateQuestion(fieldText: string): boolean {
   if (
     fieldText.includes('statement') ||
