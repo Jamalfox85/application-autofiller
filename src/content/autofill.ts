@@ -35,7 +35,7 @@ import { showFillPaywall } from './fillPaywall'
 type FormField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 type AutofillTriggerSource = 'auto_on_detect' | 'user_clicked_button' | 'resync'
 
-type FieldSnapshot = { prevValue: string; prevChecked?: boolean }
+type FieldSnapshot = { prevValue: string; prevChecked?: boolean; prevContext?: string; prevFiles?: number }
 type FillRecord = FieldSnapshot & { input: FormField }
 
 let autofillDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -52,6 +52,10 @@ let lastFillRecords: FillRecord[] = []
 let lastUnfilledInputs: FormField[] = []
 
 let lastAutofillTriggeredAt: number | null = null
+
+// Pages whose fill already counted against the Free quota. A resync, a second
+// click, or a re-render on the same page is the same application, not another fill.
+const quotaCountedPages = new Set<string>()
 
 const AUTOFILL_TRIGGERED_AT_KEY = 'lastAutofillTriggeredAt'
 const AUTOFILL_JOB_SITE_KEY = 'lastAutofillJobSite'
@@ -244,6 +248,11 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     const unfilledInputs: FormField[] = []
     filledCount += questionFills + experienceFills
 
+    // iCIMS and Workday commit through page-world commands that land after
+    // apply() returns, so a same-tick value check would undercount them.
+    const strictWriteCheck = !isWorkdayApplyHost(window.location.hostname) &&
+      !window.location.hostname.toLowerCase().includes('icims.com')
+
     for (const input of inputsToFill) {
       attemptedCount++
       const fieldText = constructFieldText(input)
@@ -258,7 +267,10 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
         ? await activeSiteRule.apply(input, normalizeText(fieldText), personalInfo)
         : false
       if (applyResult === 'skip') continue
+      if (applyResult === true && strictWriteCheck && !fieldWasWritten(input, snapshot)) continue
       let handled = !!applyResult
+      // Site rules return true for fields they own even when they had nothing to
+      // write. Only a field whose value or visible selection changed is a fill.
       if (handled) {
         console.log('Filled by site rule:', fieldText, input)
         filledCount++
@@ -307,10 +319,14 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
         telemetry,
       })
       try {
-        const committed = await commitSuccessfulFill(ats || 'other')
-        paywall = committed.nudge
-        fillCount = committed.fillCount
-        fillsRemaining = committed.fillsRemaining
+        const pageKey = window.location.href
+        if (!quotaCountedPages.has(pageKey)) {
+          const committed = await commitSuccessfulFill(ats || 'other')
+          quotaCountedPages.add(pageKey)
+          paywall = committed.nudge
+          fillCount = committed.fillCount
+          fillsRemaining = committed.fillsRemaining
+        }
       } catch (error) {
         console.error('[billing] quota update failed', error)
       }
@@ -356,11 +372,33 @@ function highlightFilledField(input: FormField) {
   setTimeout(() => input.classList.remove(REVIEW_HIGHLIGHT_CLASS), REVIEW_HIGHLIGHT_DURATION_MS)
 }
 
+// Text around a control, so a react-select that shows its choice in a sibling
+// node (input.value stays empty) still registers as changed.
+function fieldContextText(input: FormField): string {
+  const box = input.closest('[class*="select"], [role="combobox"]')?.parentElement ?? input.parentElement
+  return (box?.textContent || '').trim()
+}
+
 function captureFieldSnapshot(input: FormField): FieldSnapshot {
+  const prevContext = fieldContextText(input)
+  const prevFiles = input instanceof HTMLInputElement && input.type === 'file' ? input.files?.length ?? 0 : undefined
   if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'radio')) {
-    return { prevValue: input.value, prevChecked: input.checked }
+    return { prevValue: input.value, prevChecked: input.checked, prevContext, prevFiles }
   }
-  return { prevValue: input.value }
+  return { prevValue: input.value, prevContext, prevFiles }
+}
+
+// True when the fill changed something the user can see. A rule that claimed a
+// field and wrote nothing must not count toward the quota.
+export function fieldWasWritten(input: FormField, snapshot: FieldSnapshot): boolean {
+  if (input instanceof HTMLInputElement && input.type === 'file') {
+    return (input.files?.length ?? 0) !== (snapshot.prevFiles ?? 0)
+  }
+  if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'radio')) {
+    return input.checked !== !!snapshot.prevChecked
+  }
+  if (input.value !== snapshot.prevValue) return true
+  return fieldContextText(input) !== (snapshot.prevContext ?? '')
 }
 
 // Restores every field the most recent autofillPage() run changed, back to its pre-fill

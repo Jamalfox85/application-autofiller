@@ -12,6 +12,9 @@ export const reactSelectEeoFieldHandlers: Array<{
     match: (_, fieldText) => fieldText.includes('gender'),
     handle: async (input, _, personalInfo) => {
       if (personalInfo.eeoAnswersEnabled === false) return false
+      // No vault value: leave the dropdown alone. Choosing "decline" for the user
+      // briefly set a value that the page then cleared.
+      if (!personalInfo.gender) return 'skip'
       const genderMap: Record<string, string[]> = {
         '': ['Decline To Self Identify', "I don't wish to answer"],
         male: ['Male', 'Man'],
@@ -28,6 +31,7 @@ export const reactSelectEeoFieldHandlers: Array<{
     match: (_, fieldText) => fieldText.includes('hispanicethnicityareyouhispanic'),
     handle: async (input, _, personalInfo) => {
       if (personalInfo.eeoAnswersEnabled === false) return false
+      if (!personalInfo.raceEthnicity) return 'skip'
       const isHispanic = personalInfo.raceEthnicity === 'hispanic_or_latino'
       await fillReactSelect(
         input,
@@ -58,6 +62,7 @@ export const reactSelectEeoFieldHandlers: Array<{
     match: (_, fieldText) => fieldText.includes('identifymyraceas'),
     handle: async (input, _, personalInfo) => {
       if (personalInfo.eeoAnswersEnabled === false) return false
+      if (!personalInfo.raceEthnicity) return 'skip'
 
       const raceMap: Record<string, string[]> = {
         '': ['Decline To Self Identify'],
@@ -77,6 +82,7 @@ export const reactSelectEeoFieldHandlers: Array<{
     match: (_, fieldText) => fieldText.includes('veteranstatus'),
     handle: async (input, _, personalInfo) => {
       if (personalInfo.eeoAnswersEnabled === false) return false
+      if (!personalInfo.veteranStatus) return 'skip'
       const veteranMap: Record<string, string[]> = {
         '': ["I don't wish to answer", "I don't wish to answer"],
         veteran: [
@@ -94,6 +100,7 @@ export const reactSelectEeoFieldHandlers: Array<{
     match: (_, fieldText) => fieldText.includes('disability'),
     handle: async (input, _, personalInfo) => {
       if (personalInfo.eeoAnswersEnabled === false) return false
+      if (!personalInfo.disabilityStatus) return 'skip'
       const disabilityMap: Record<string, string[]> = {
         '': ['I do not want to answer', "I don't wish to answer"],
         yes: ['Yes', 'Yes, I have a disability, or have had one in the past'],
@@ -110,6 +117,6 @@ export const reactSelectEeoFieldHandlers: Array<{
   },
   {
     match: (input, _) => input.classList.contains('select__input'),
-    handle: () => true, // Prevent default autofill on unhandled dropdowns
+    handle: () => 'skip', // Own unhandled dropdowns without counting them as filled
   },
 ]

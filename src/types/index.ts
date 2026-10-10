@@ -163,4 +163,4 @@ export type FieldHandler = (
   fieldText: string,
   personalInfo: PersonalInfo,
   fieldLabel: string,
-) => boolean | Promise<boolean>
+) => boolean | 'skip' | Promise<boolean | 'skip'>
