@@ -500,6 +500,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // The apply form is in an iframe. The outer career shell only has hidden
   // inputs, and a tab-level autofill message reports that nothing is fillable.
   // Answer from the frame that contains PortalProfileFields.Resume_File.
+  if (request.action === 'ensureContentScript') {
+    // The popup found no live content script (tab opened before install or
+    // update, or a frame loaded late). Inject into every frame; the install
+    // guard in content.js makes this safe to repeat.
+    const tabId = request.tabId
+    Promise.allSettled([
+      chrome.scripting.insertCSS({ target: { tabId, allFrames: true }, files: ['content.css'] }),
+      chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }),
+    ]).then(() => sendResponse({ success: true }))
+    return true
+  }
+
   if (request.action === 'autofillIcimsTab') {
     const tabId = request.tabId
     if (typeof tabId !== 'number') {

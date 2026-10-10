@@ -12,6 +12,7 @@ import {
   applicationUrlPatterns,
   getSiteLabel,
 } from '../utils/jobSitePatterns.ts'
+import { waitForFieldCount } from '../utils/detectionRetry.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
@@ -79,15 +80,26 @@ function onRuntimeMessage(request, _sender, sendResponse) {
   }
 
   if (request.action === 'detectApplication') {
+    // Every frame of the tab receives this and the first answer wins. A frame
+    // with no form must not win the race, so wait for fields to render and let
+    // empty frames answer last.
+    const countFields = () => document.querySelectorAll('input:not([type="hidden"]), textarea, select').length
     const detected = isLikelyJobApplicationPage()
-    sendResponse({
-      detected,
-      siteLabel: detected ? getSiteLabel(window.location.hostname) : null,
-      fieldCount: detected
-        ? document.querySelectorAll('input, textarea, select').length
-        : 0,
-    })
-    return false
+    waitForFieldCount(countFields, (ms) => new Promise((r) => setTimeout(r, ms)), detected ? 4000 : 0).then(
+      (fieldCount) => {
+        const found = detected && fieldCount > 0
+        const respond = () =>
+          sendResponse({
+            detected: found,
+            siteLabel: found ? getSiteLabel(window.location.hostname) : null,
+            fieldCount: found ? fieldCount : 0,
+          })
+        // Empty answers are delayed so a populated frame answers first.
+        if (found) respond()
+        else setTimeout(respond, isTopFrame() ? 800 : 1500)
+      },
+    )
+    return true
   }
 }
 

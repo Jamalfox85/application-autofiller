@@ -52,6 +52,7 @@ import {
   ICIMS_ACCOUNT_NOTICE_KEY,
   parseIcimsAccountNotice,
 } from '@/utils/siteRules/icimsAccountNotice.ts'
+import { detectWithRetry } from '@/utils/detectionRetry.ts'
 import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
 import { EMPTY_PROFILE_FILL_MESSAGE, profileHasAutofillData } from '@/utils/fillValue.ts'
 
@@ -241,8 +242,12 @@ const lastFillLabel = computed(() => {
 const detectApplication = async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'detectApplication' })
-    detection.value = response
+    const tabId = tab.id
+    detection.value = await detectWithRetry({
+      ask: () => chrome.tabs.sendMessage(tabId, { action: 'detectApplication' }),
+      inject: () => chrome.runtime.sendMessage({ action: 'ensureContentScript', tabId }),
+      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    })
   } catch (error) {
     // No content script on this tab (e.g. chrome:// pages) — treat as not detected
     detection.value = { detected: false, siteLabel: null, fieldCount: 0 }
