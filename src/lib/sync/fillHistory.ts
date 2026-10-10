@@ -62,10 +62,16 @@ export async function insertFillHistoryToDb(
   knownProfileIds?: ReadonlySet<string> | null,
 ): Promise<void> {
   if (!entries.length) return
-  const { error } = await supabase
-    .from('fill_history')
-    .insert(entries.map((e) => fillHistoryRow(userId, e, knownProfileIds)))
-  if (error) throw error
+  const rows = entries.map((e) => fillHistoryRow(userId, e, knownProfileIds))
+  const { error } = await supabase.from('fill_history').insert(rows)
+  if (!error) return
+  // 23505: a unique index on (user_id, occurred_at, site) rejected a row that is already
+  // stored. Retry row by row so one duplicate does not drop the rest.
+  if ((error as { code?: string }).code !== '23505') throw error
+  for (const row of rows) {
+    const { error: rowError } = await supabase.from('fill_history').insert(row)
+    if (rowError && (rowError as { code?: string }).code !== '23505') throw rowError
+  }
 }
 
 export async function clearFillHistoryInDb(userId: string): Promise<void> {
@@ -75,7 +81,22 @@ export async function clearFillHistoryInDb(userId: string): Promise<void> {
 
 // Merges local-only entries into the remote set (pushing them to the DB) and returns the
 // unified, newest-first list. Pure-ish apart from the insert side effect.
-export async function reconcileFillHistory(
+// Reconciles run one at a time. The popup calls this from mount, after every fill, and from the
+// auth watcher; two overlapping runs both saw the same "not stored yet" local rows and each
+// inserted them, so every fill was stored twice with the same occurred_at.
+let reconcileQueue: Promise<unknown> = Promise.resolve()
+
+export function reconcileFillHistory(
+  userId: string,
+  local: FillHistoryEntry[],
+  knownProfileIds?: ReadonlySet<string> | null,
+): Promise<FillHistoryEntry[]> {
+  const run = reconcileQueue.then(() => reconcileOnce(userId, local, knownProfileIds))
+  reconcileQueue = run.catch(() => undefined)
+  return run
+}
+
+async function reconcileOnce(
   userId: string,
   local: FillHistoryEntry[],
   knownProfileIds?: ReadonlySet<string> | null,
