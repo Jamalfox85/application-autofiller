@@ -8,7 +8,9 @@ import {
   employmentFillPlan,
   employmentMonthReactFill,
   isGreenhousePhoneDialingCodeField,
+  currentLocationQueries,
   locationSearchQueries,
+  pickCurrentLocationOption,
   parseGreenhouseEmploymentField,
   phoneDialingCodeTarget,
   pickDialingCodeOption,
@@ -172,13 +174,13 @@ const fieldHandlers: Array<{
     // Not the #candidate-location widget, and not "Location Cost Tier" style internal fields.
     match: (input, fieldText) => isCurrentLocationQuestion(input.id, fieldText),
     handle: async (input, _, personalInfo) => {
-      const queries = locationSearchQueries(personalInfo)
+      const queries = currentLocationQueries(personalInfo)
       if (queries.length === 0) return 'skip'
       await fillReactSelect(
         input,
         queries,
         `[id^=react-select-${input.id}-option-]`,
-        (options) => pickLocationOption(options, personalInfo),
+        (options) => pickCurrentLocationOption(options, personalInfo),
         'greenhouse',
       )
       return true

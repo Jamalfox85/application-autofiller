@@ -167,6 +167,7 @@ export const fillReactSelect = async (
       input.dispatchEvent(new Event('change', { bubbles: true }))
     } catch (error) {
       console.error('[fillReactSelect] Error:', error)
+      closeReactSelectMenu(input)
       return false
     }
   }
@@ -174,8 +175,31 @@ export const fillReactSelect = async (
   // Every query failed to settle. Drop a trailing typed query so the field cannot
   // keep "The University of Texas at Austin" after the catalog attempt missed.
   if (input.value.trim() && input.value.trim() !== values[0]) setReactInputValue(input, '')
-  input.blur()
+  closeReactSelectMenu(input)
   return false
+}
+
+// A failed fill must not leave the menu hanging open on "No options". input.blur() alone does
+// nothing when the page is not focused (the usual case for a content script), so also send
+// Escape and the blur/focusout events react-select listens for, and toggle the flyout closed
+// if the menu is still expanded.
+export function closeReactSelectMenu(input: HTMLInputElement) {
+  try {
+    if (input.value) setReactInputValue(input, '')
+    const keyInit = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }
+    input.dispatchEvent(new KeyboardEvent('keydown', keyInit))
+    input.dispatchEvent(new KeyboardEvent('keyup', keyInit))
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: false }))
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    input.blur()
+    if (input.getAttribute('aria-expanded') === 'true') {
+      const root = input.closest('.select') || input.parentElement
+      const toggle = root?.querySelector<HTMLElement>('button[aria-label="Toggle flyout"]')
+      toggle?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }))
+    }
+  } catch {
+    // Best effort: the fill already failed.
+  }
 }
 
 function delay(ms: number) {
