@@ -170,3 +170,17 @@ test('a sentence that merely contains role or position does not become the job t
     null,
   )
 })
+
+test('a hybrid-schedule question that mentions cities and a working location stays empty', () => {
+  const info = profile({ city: 'Blue Bell', state: 'Pennsylvania', country: 'united_states' })
+  const label =
+    'question_15378612004 question_15378612004 this role will ideally be based out of chicago, il or redwood city, ca. are you comfortable working a hybrid schedule 4-days a week in office? please include any preferences regarding working location or other circumstances that are helpful for us to be aware of for the interview process. thank you!* text'
+  const ft = label.replace(/[_,-]/g, ' ').replace(/\s+/g, '')
+  assert.equal(matchFieldToData(ft, info, []), null)
+})
+
+test('a question that does ask for the applicant city still maps', () => {
+  const info = profile({ city: 'Blue Bell' })
+  assert.equal(matchFieldToData('whatcitydoyoulivein?', info, [])?.matchedValue, 'Blue Bell')
+  assert.equal(matchFieldToData('city', info, [])?.matchedValue, 'Blue Bell')
+})
