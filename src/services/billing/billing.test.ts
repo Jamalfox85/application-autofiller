@@ -26,7 +26,7 @@ import {
   syncProPlanAfterPurchase,
   type PendingPlanStore,
 } from './profilePlan.ts'
-import { PRO_RESUME_PATHS, postProResume, proResumeHeaders } from './proApiContract.ts'
+import { PRO_RESUME_PATHS, PROD_RESUME_API_URL, postProResume, proResumeHeaders, resumeApiBaseUrl } from './proApiContract.ts'
 import {
   EXTENSION_PAY_EXTENSION_ID,
   EXTENSION_PAY_PLAN_SKUS,
@@ -242,11 +242,11 @@ test('generate and ats analyze send the supabase bearer token', async () => {
     body: { job_description: 'Role' },
     fetchImpl,
     token: 'jwt-1',
-    baseUrl: 'http://localhost:8080/api/v1',
+    baseUrl: 'https://api.example.test/api/v1',
     apiKey: '',
   })
   assert.deepEqual(blocked, { ok: false, gate: 'resume_ai' })
-  assert.equal(calls[0].url, 'http://localhost:8080/api/v1/resumes/generate')
+  assert.equal(calls[0].url, 'https://api.example.test/api/v1/resumes/generate')
   assert.equal((calls[0].init.headers as Record<string, string>).Authorization, 'Bearer jwt-1')
   assert.equal(calls[0].init.method, 'POST')
 
@@ -599,4 +599,11 @@ test('a stale free entitlement re-checks ExtPay before the hard cap blocks', asy
     throw new Error('worker unavailable')
   }
   assert.equal(await decideFillWithRefresh({ quota: atCap, isPro: false, ats: 'lever' }, failing), 'block')
+})
+
+test('resumeApiBaseUrl falls back to production, never localhost', () => {
+  assert.equal(resumeApiBaseUrl(''), PROD_RESUME_API_URL)
+  assert.equal(resumeApiBaseUrl(undefined), PROD_RESUME_API_URL)
+  assert.ok(!PROD_RESUME_API_URL.includes('localhost'))
+  assert.equal(resumeApiBaseUrl('https://x.test/api/v1/'), 'https://x.test/api/v1')
 })
