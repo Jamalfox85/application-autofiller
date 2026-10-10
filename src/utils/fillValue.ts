@@ -30,6 +30,9 @@ const DEFAULT_ONLY_KEYS = new Set([
   'phoneCountryCode',
   'eeoAnswersEnabled',
   'salaryNegotiable',
+  // Seeded from the sign-in account at first launch. Email alone is not a filled-in profile:
+  // with only this, Skip-for-now left the Dropbox form filling Email and a default US country.
+  'email',
 ])
 
 export function profileHasAutofillData(info: unknown): boolean {

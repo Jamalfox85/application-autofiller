@@ -36,7 +36,7 @@ test('an install placeholder profile has nothing to autofill', () => {
 })
 
 test('a partial profile with one real field is fillable', () => {
-  assert.equal(profileHasAutofillData({ email: 'ada@example.com' }), true)
+  assert.equal(profileHasAutofillData({ phone: '5550100' }), true)
   assert.equal(
     profileHasAutofillData({ education: [{ schoolName: 'MIT', degreeType: '' }] }),
     true,
@@ -56,4 +56,9 @@ test('a profile holding only app defaults is empty', () => {
     false,
   )
   assert.equal(profileHasAutofillData({ phoneCountryCode: '+1', firstName: 'Ada' }), true)
+})
+
+test('the sign-in email and default country code alone are not a fillable profile', () => {
+  assert.equal(profileHasAutofillData({ email: 'me@example.com', phoneCountryCode: '+1', country: '' }), false)
+  assert.equal(profileHasAutofillData({ email: 'me@example.com', firstName: 'Ada' }), true)
 })
