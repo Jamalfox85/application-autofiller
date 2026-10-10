@@ -1,5 +1,11 @@
 import { autofillPage, undoLastFill } from './autofill.ts'
-import { dismissAutofillPrompt, renderAutofillPrompt } from './applicationPrompt.ts'
+import {
+  dismissAutofillPrompt,
+  markAutofillPromptClosed,
+  renderAutofillPrompt,
+  beginAutofillPrompt,
+  scheduleAutofillPromptRestore,
+} from './applicationPrompt.ts'
 import { brandIcon, mountInToastStack } from './toastStack.ts'
 import { ACTIVE_PROFILE_KEY, fillToastSubtitle, parseActiveProfile } from '../lib/sync/activeProfile.ts'
 
@@ -185,9 +191,11 @@ export function showErrorNotification(message: string) {
 
 export function showAutofillPrompt() {
   dismissAutofillPrompt()
+  beginAutofillPrompt()
 
   // All styles inline — external pages don't have your stylesheet
   const prompt = renderAutofillPrompt(document)
+  scheduleAutofillPromptRestore(prompt)
 
   // Fade in
   requestAnimationFrame(() => {
@@ -198,12 +206,14 @@ export function showAutofillPrompt() {
   })
 
   prompt.querySelector('[data-action="dismiss"]')?.addEventListener('click', () => {
+    markAutofillPromptClosed()
     prompt.style.opacity = '0'
     prompt.style.transform = 'translateY(20px)'
     setTimeout(() => prompt.remove(), 300)
   })
 
   prompt.querySelector('[data-action="autofill"]')?.addEventListener('click', async () => {
+    markAutofillPromptClosed()
     prompt.style.opacity = '0'
     prompt.style.transform = 'translateY(20px)'
     setTimeout(() => prompt.remove(), 300)

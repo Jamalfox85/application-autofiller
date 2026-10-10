@@ -3,8 +3,56 @@ import { brandIcon, mountInToastStack } from './toastStack.ts'
 export const AUTOFILL_PROMPT_COPY =
   'Job application detected! Would you like to auto-fill this form?'
 
+// Greenhouse job boards call hydrateRoot(document) from requestIdleCallback.
+// That pass deletes nodes the content script appended to <body>. The prompt
+// starts at opacity 0, so a "only remount if visible" check never puts it back.
+let userClosedPrompt = false
+let promptGeneration = 0
+
+export function autofillPromptClosedByUser(): boolean {
+  return userClosedPrompt
+}
+
+export function beginAutofillPrompt(): void {
+  promptGeneration += 1
+  userClosedPrompt = false
+}
+
+export function resetAutofillPromptSession(): void {
+  promptGeneration += 1
+  userClosedPrompt = false
+}
+
 export function dismissAutofillPrompt(doc: Document = document): void {
   doc.querySelectorAll('.gofillr-autofill-prompt').forEach((node) => node.remove())
+}
+
+export function connectedAutofillPrompt(doc: Document = document): HTMLElement | null {
+  const node = doc.querySelector('.gofillr-autofill-prompt')
+  if (!node || !node.isConnected) return null
+  return node as HTMLElement
+}
+
+// Put the same prompt node back after the page rebuilds <body>. A click on
+// Not now or Auto-fill sets userClosedPrompt so hydration cannot reopen it.
+export function scheduleAutofillPromptRestore(
+  prompt: HTMLElement,
+  schedule: (fn: () => void, ms: number) => void = (fn, ms) => {
+    setTimeout(fn, ms)
+  },
+): void {
+  const view = prompt.ownerDocument.defaultView
+  const href = view?.location?.href
+  const generation = promptGeneration
+  const restore = () => {
+    if (generation !== promptGeneration) return
+    if (userClosedPrompt) return
+    const liveView = prompt.ownerDocument.defaultView
+    if (href && liveView && liveView.location.href !== href) return
+    if (prompt.isConnected) return
+    mountInToastStack(prompt, 'bottom', prompt.ownerDocument)
+  }
+  for (const delayMs of [400, 1200, 2500, 4000]) schedule(restore, delayMs)
 }
 
 /** The on-page offer. Callers attach the fill and dismiss actions. */
@@ -61,4 +109,8 @@ export function renderAutofillPrompt(doc: Document = document): HTMLElement {
 
   mountInToastStack(prompt, 'bottom', doc)
   return prompt
+}
+
+export function markAutofillPromptClosed(): void {
+  userClosedPrompt = true
 }

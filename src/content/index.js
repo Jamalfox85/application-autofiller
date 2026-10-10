@@ -13,8 +13,14 @@ import {
   detectApplicationPageWhenReady,
   isKnownApplicationUrl,
   isListingOrBoardUrl,
+  shouldOfferAutofillToast,
 } from './applicationDetect.ts'
-import { dismissAutofillPrompt } from './applicationPrompt.ts'
+import {
+  autofillPromptClosedByUser,
+  connectedAutofillPrompt,
+  dismissAutofillPrompt,
+  resetAutofillPromptSession,
+} from './applicationPrompt.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
@@ -131,6 +137,9 @@ let applicationHooksInstalled = false
 let lateFormWatchInstalled = false
 let claimedUrl = ''
 let syncGen = 0
+// Remix hydration can delete the prompt more than once. Stop after a handful
+// of restores so a page that always strips unknown body children cannot loop.
+let promptRestores = 0
 
 async function initialize() {
   // gofillr.com is not a job page, so this has to run before the early return below.
@@ -156,6 +165,8 @@ async function initialize() {
     pageNavigated()
     hasShownPopup = false
     claimedUrl = ''
+    promptRestores = 0
+    resetAutofillPromptSession()
     dismissAutofillPrompt()
     void syncApplicationPage()
   }, 500)
@@ -164,19 +175,27 @@ async function initialize() {
 }
 
 function installLateFormWatch() {
-  if (lateFormWatchInstalled || !document.body) return
+  if (lateFormWatchInstalled || !document.documentElement) return
   lateFormWatchInstalled = true
   let timer = 0
   const observer = new MutationObserver(() => {
-    if (isListingOrBoardUrl(window.location.href)) return
-    if (hasShownPopup && claimedUrl === window.location.href) return
+    const href = window.location.href
+    // Already showing. A Greenhouse hydrate that drops the node falls through
+    // and the detect below runs only then.
+    if (hasShownPopup && claimedUrl === href && connectedAutofillPrompt(document)) return
+    if (isListingOrBoardUrl(href)) return
+    if (autofillPromptClosedByUser()) return
+    const now = detectApplicationPage({ href, document })
+    const offer = shouldOfferAutofillToast(href, now, !isTopFrame())
+    if (!offer) return
     window.clearTimeout(timer)
     timer = window.setTimeout(() => {
-      const now = detectApplicationPage({ href: window.location.href, document })
-      if (now.detected) void syncApplicationPage()
+      void syncApplicationPage()
     }, FIELD_POLL_MS)
   })
-  observer.observe(document.body, { childList: true, subtree: true })
+  // documentElement, not body: hydrateRoot(document) can replace <body> and
+  // would otherwise leave this observer attached to a detached node.
+  observer.observe(document.documentElement, { childList: true, subtree: true })
 }
 
 function readApplicationPage() {
@@ -215,14 +234,21 @@ async function syncApplicationPage() {
     dismissAutofillPrompt()
     return
   }
-  if (claimedUrl === hrefAtStart) return
+  const offer = shouldOfferAutofillToast(hrefAtStart, detection, !isTopFrame())
+  if (!offer || autofillPromptClosedByUser()) return
+  const promptConnected = !!connectedAutofillPrompt(document)
+  if (claimedUrl === hrefAtStart && promptConnected) return
+  if (claimedUrl === hrefAtStart && promptRestores >= 6) return
+  const firstOffer = claimedUrl !== hrefAtStart
+  if (firstOffer) promptRestores = 0
+  else promptRestores += 1
   claimedUrl = hrefAtStart
 
   // job_site_visit_detected only makes sense once the user actually has a profile to fill
   // with — before that there's no meaningful "time since profile completed" to report.
-  const profileCompletedAt = await getProfileSetupCompletedAt()
+  const profileCompletedAt = firstOffer ? await getProfileSetupCompletedAt() : null
   if (gen !== syncGen || window.location.href !== hrefAtStart) return
-  if (profileCompletedAt) {
+  if (firstOffer && profileCompletedAt) {
     await trackJobSiteVisit(detection.method, profileCompletedAt)
   }
 
@@ -231,7 +257,7 @@ async function syncApplicationPage() {
   // the Free cap and History). Auto-detect OFF shows nothing at all; the popup and shortcut
   // still work.
   if (autoDetectEnabled) {
-    if (!hasShownPopup) {
+    if (!connectedAutofillPrompt(document)) {
       showAutofillPrompt()
       hasShownPopup = true
     }
@@ -253,7 +279,11 @@ function installApplicationHooks(personalInfo) {
     const siteSpecificChangeDetected =
       activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
     if (!siteSpecificChangeDetected) return
-    if (!detectApplicationPage({ href: window.location.href, document }).detected) return
+    const href = window.location.href
+    const now = detectApplicationPage({ href, document })
+    // iCIMS onMount already ran. The content iframe must not offer a second
+    // toast when the password step replaces the email gate.
+    if (!shouldOfferAutofillToast(href, now, !isTopFrame())) return
     hasShownPopup = false
     debounceAutofill(autoDetectEnabled)
   })
