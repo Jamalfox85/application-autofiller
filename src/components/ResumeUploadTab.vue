@@ -31,7 +31,15 @@ const onChange = (event: Event) => {
   const el = event.target as HTMLInputElement
   const file = el.files?.[0]
   el.value = ''
-  if (!file) return
+  if (file) accept(file)
+}
+
+const onDrop = (event: DragEvent) => {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) accept(file)
+}
+
+const accept = (file: File) => {
   const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
   if (!ACCEPTED.includes(ext)) {
     error.value = 'Please upload a PDF or DOCX file.'
@@ -46,7 +54,7 @@ const onChange = (event: Event) => {
 </script>
 
 <template>
-  <main class="upload-tab">
+  <main class="upload-tab" @dragover.prevent @drop.prevent="onDrop">
     <h1>Upload your resume</h1>
     <p v-if="!finished && resumeUpload.phase.value !== 'uploading'">
       Choose a PDF or DOCX. GoFillr reads it and fills in your profile.

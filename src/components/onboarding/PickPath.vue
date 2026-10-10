@@ -22,15 +22,31 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const triggerFilePicker = async () => {
   // The toolbar popup closes when the native file dialog opens and the file is lost, so
   // pick it in a tab instead. The worker finishes the upload; reopening the popup shows it.
-  if (isToolbarPopup() && (await openResumeUploadTab())) return
+  if (isToolbarPopup()) {
+    void trackProfileSetupStarted('default')
+    if (await openResumeUploadTab()) return
+  }
   fileInput.value?.click()
 }
+
+const dragging = ref(false)
 
 const handleFileChange = (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
+  acceptFile(file)
+}
+
+// Dropping a file never opens the native dialog, so it works inside the toolbar popup.
+const handleDrop = (event: DragEvent) => {
+  dragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) acceptFile(file)
+}
+
+const acceptFile = (file: File) => {
 
   const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
   if (!ACCEPTED_EXTENSIONS.includes(extension)) {
@@ -83,7 +99,14 @@ const handleManual = () => {
     </div>
 
     <div class="path-options">
-      <button class="path-card primary" @click="triggerFilePicker">
+      <button
+        class="path-card primary"
+        :class="{ dragging }"
+        @click="triggerFilePicker"
+        @dragover.prevent="dragging = true"
+        @dragleave="dragging = false"
+        @drop.prevent="handleDrop"
+      >
         <div class="path-card-row">
           <span class="path-card-title">Upload a resumé</span>
           <span class="path-badge">Fastest</span>
@@ -128,6 +151,11 @@ const handleManual = () => {
 </template>
 
 <style scoped>
+.path-card.dragging {
+  border-color: #a78bfa;
+  background: #1f1b2e;
+}
+
 .onboarding-screen {
   flex: 1;
   display: flex;
