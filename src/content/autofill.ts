@@ -66,6 +66,8 @@ let lastAutofillTriggeredAt: number | null = null
 // Same-frame guard. The service worker claim is what stops a second frame of the
 // same tab from charging again; this set stops a resync that overlaps the claim.
 const quotaCountedPages = new Set<string>()
+// True when the last fill was not counted because this page already used its fill this week.
+let lastChargeWasRepeat = false
 
 const AUTOFILL_TRIGGERED_AT_KEY = 'lastAutofillTriggeredAt'
 const AUTOFILL_JOB_SITE_KEY = 'lastAutofillJobSite'
@@ -393,6 +395,8 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       paywall,
       fillCount,
       fillsRemaining,
+      // Fill worked but is not a new counted fill (same page, same week): no History row.
+      repeatFill: filledCount > 0 && lastChargeWasRepeat,
       ats,
     }
   } catch {
@@ -420,7 +424,11 @@ function highlightFilledField(input: FormField) {
 // every frame, so an embed and its shell cannot both increment the weekly count.
 async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof commitSuccessfulFill>> | null> {
   const pageKey = quotaPageKey(window.location.href) || window.location.href.split('#')[0]
-  if (quotaCountedPages.has(pageKey)) return null
+  lastChargeWasRepeat = false
+  if (quotaCountedPages.has(pageKey)) {
+    lastChargeWasRepeat = true
+    return null
+  }
   quotaCountedPages.add(pageKey)
 
   let owned = true
@@ -430,7 +438,10 @@ async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof c
   } catch {
     // Worker unreachable: this frame's set still blocks a second charge here.
   }
-  if (!owned) return null
+  if (!owned) {
+    lastChargeWasRepeat = true
+    return null
+  }
 
   try {
     return await commitSuccessfulFill(ats)

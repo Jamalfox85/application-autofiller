@@ -45,3 +45,9 @@ test('a client-side navigation requires another click and can show the toast', (
   assert.match(autofill, /export function pageNavigated/)
   assert.match(interval, /if \(autoDetectEnabled\)/)
 })
+
+test('a repeat fill on the same page says so instead of silently not counting', () => {
+  assert.match(autofill, /repeatFill: filledCount > 0 && lastChargeWasRepeat/)
+  const notifications = readFileSync(new URL('./notifications.ts', import.meta.url), 'utf8')
+  assert.match(notifications, /already counted this week/)
+})
