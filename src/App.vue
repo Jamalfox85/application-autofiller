@@ -205,6 +205,9 @@ const detection = ref<{ detected: boolean; siteLabel: string | null; fieldCount:
 // seconds on embeds). The card shows "Looking for the form…" instead of "No application form
 // found" until the retries are exhausted.
 const detecting = ref(true)
+// Skip for now leaves an empty profile and used to strand the user on the dashboard. While the
+// profile has nothing to fill, the dashboard offers the way back to the Welcome screen.
+const profileLooksFilled = computed(() => profileHasAutofillData(personalInfo.value))
 
 const dialogs: Record<string, any> = {
   personalInfo: ref(false),
@@ -799,6 +802,14 @@ watch(authStatus, (next, previous) => {
         </button>
       </div>
 
+      <button
+        v-if="!profileLooksFilled"
+        class="setup-link-btn"
+        type="button"
+        @click="activeView = 'welcome'"
+      >
+        Set up your profile
+      </button>
       <button class="history-btn" type="button" @click="activeView = 'history'">History</button>
 
       <AutoDetectSwitch class="section" />
@@ -1195,6 +1206,23 @@ watch(authStatus, (next, previous) => {
     color: #ebebee;
     border-color: #47475a;
   }
+}
+
+.setup-link-btn {
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid #7c5cff;
+  border-radius: 10px;
+  background: transparent;
+  color: #c9bdff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.setup-link-btn:hover {
+  background: rgba(124, 92, 255, 0.12);
 }
 
 .history-btn {
