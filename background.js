@@ -331,7 +331,7 @@ function savedResumeReply(result) {
   return { ...result, bytesBase64: bytesToBase64(result.bytes) }
 }
 
-async function handleResumeUpload({ url, token, profileId, fileName, fileType, fileBytesBase64 }) {
+async function handleResumeUpload({ url, token, profileId, fileName, fileType, fileBytesBase64, embeddedLinks }) {
   await writeResumeJob({ phase: 'uploading', fileName })
 
   if (!token) {
@@ -407,6 +407,13 @@ async function handleResumeUpload({ url, token, profileId, fileName, fileType, f
     if (res.ok && body && body.success === true) {
       firstUpload = body.data ? body.data.first_upload ?? null : null
       parsed = body.data ? body.data.parsed ?? null : null
+      // Links the file carries as link text only (GitHub, LinkedIn): add what the parse missed.
+      if (parsed && embeddedLinks && typeof embeddedLinks === 'object') {
+        const contact = { ...(parsed.contact || {}) }
+        if (embeddedLinks.github && !contact.github) contact.github = embeddedLinks.github
+        if (embeddedLinks.linkedin && !contact.linkedin) contact.linkedin = embeddedLinks.linkedin
+        parsed = { ...parsed, contact }
+      }
     } else {
       console.error('[resume-upload] parse failed after the resume was saved', res.status)
     }
