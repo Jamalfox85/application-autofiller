@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import type { PersonalInfo } from '../../types/index.ts'
 import SectionSheet from './SectionSheet.vue'
@@ -13,9 +14,7 @@ const emit = defineEmits<{
   save: [profile: PersonalInfo]
 }>()
 
-const editableProfile = ref<PersonalInfo>({
-  ...props.personalInfo,
-})
+const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
 const skillDraft = ref('')
 const saved = ref(false)
 const dragIndex = ref<number | null>(null)
@@ -123,9 +122,7 @@ watch(
   () => props.show,
   (isShowing) => {
     if (isShowing) {
-      editableProfile.value = {
-        ...props.personalInfo,
-      }
+      editableProfile.value = completePersonalInfo(props.personalInfo)
       skillDraft.value = ''
       saved.value = false
     }

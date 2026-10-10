@@ -21,6 +21,7 @@ import {
   setSelectValue,
   setCheckboxValue,
   setRadioValue,
+  fillReactSelectAnswer,
 } from '@/utils/inputHandlers.ts'
 import { normalizeText } from '@/utils/helpers.ts'
 import { trackFillContract, type TrackFillContractContext } from '@/services/fillTelemetry'
@@ -30,6 +31,7 @@ import { rememberFillBlock } from '@/services/billing/proUnlock'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
+import { withTimeout } from '../utils/withTimeout.ts'
 import { quotaPageKey } from '@/services/billing/quotaPage'
 import {
   captureFieldSnapshot,
@@ -64,6 +66,8 @@ let lastAutofillTriggeredAt: number | null = null
 // Same-frame guard. The service worker claim is what stops a second frame of the
 // same tab from charging again; this set stops a resync that overlaps the claim.
 const quotaCountedPages = new Set<string>()
+// True when the last fill was not counted because this page already used its fill this week.
+let lastChargeWasRepeat = false
 
 const AUTOFILL_TRIGGERED_AT_KEY = 'lastAutofillTriggeredAt'
 const AUTOFILL_JOB_SITE_KEY = 'lastAutofillJobSite'
@@ -342,18 +346,29 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     const ats = access?.ats
 
     if (filledCount > 0) {
-      await trackFillContract('autofill_succeeded', {
-        ...fillContext,
-        eeo: readLeverEeoTelemetry(),
-        telemetry,
-      })
-      try {
+      // Analytics and billing are network calls. Bound the wait so a slow one cannot hold back
+      // the "Autofill completed" toast; the work still finishes in the background.
+      await withTimeout(
+        trackFillContract('autofill_succeeded', {
+          ...fillContext,
+          eeo: readLeverEeoTelemetry(),
+          telemetry,
+        }),
+        2500,
+        undefined,
+      )
+      const charge = (async () => {
         const charged = await chargeFillQuota(ats || 'other')
         if (charged) {
           // One counted fill is one History row, recorded here so every path (popup, toast,
-          // shortcut, resync) agrees with the counter. Await the write: the popup reloads
-          // History as soon as this returns, and the free counter is already committed.
+          // shortcut, resync) agrees with the counter.
           await recordFillHistory(filledCount, attemptedCount)
+        }
+        return charged
+      })()
+      try {
+        const charged = await withTimeout(charge, 6000, null)
+        if (charged) {
           paywall = charged.nudge
           fillCount = charged.fillCount
           fillsRemaining = charged.fillsRemaining
@@ -380,6 +395,8 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       paywall,
       fillCount,
       fillsRemaining,
+      // Fill worked but is not a new counted fill (same page, same week): no History row.
+      repeatFill: filledCount > 0 && lastChargeWasRepeat,
       ats,
     }
   } catch {
@@ -407,7 +424,11 @@ function highlightFilledField(input: FormField) {
 // every frame, so an embed and its shell cannot both increment the weekly count.
 async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof commitSuccessfulFill>> | null> {
   const pageKey = quotaPageKey(window.location.href) || window.location.href.split('#')[0]
-  if (quotaCountedPages.has(pageKey)) return null
+  lastChargeWasRepeat = false
+  if (quotaCountedPages.has(pageKey)) {
+    lastChargeWasRepeat = true
+    return null
+  }
   quotaCountedPages.add(pageKey)
 
   let owned = true
@@ -417,7 +438,10 @@ async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof c
   } catch {
     // Worker unreachable: this frame's set still blocks a second charge here.
   }
-  if (!owned) return null
+  if (!owned) {
+    lastChargeWasRepeat = true
+    return null
+  }
 
   try {
     return await commitSuccessfulFill(ats)
@@ -580,6 +604,11 @@ async function fillByDefault(
   const text = coerceFillText(matchedValue)
   if (!text) return false
 
+  if (input instanceof HTMLInputElement && input.classList.contains('select__input')) {
+    // Greenhouse react-select question with a vault or saved-response answer. Select the
+    // matching option; leave it empty and closed when the list has no such answer.
+    return fillReactSelectAnswer(input, text)
+  }
   if (input instanceof HTMLSelectElement && relativeMatchKey) {
     const handled = setSelectValue(input, text, relativeMatchKey)
     if (handled) {

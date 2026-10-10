@@ -8,7 +8,9 @@ import {
   employmentFillPlan,
   employmentMonthReactFill,
   isGreenhousePhoneDialingCodeField,
+  currentLocationQueries,
   locationSearchQueries,
+  pickCurrentLocationOption,
   parseGreenhouseEmploymentField,
   phoneDialingCodeTarget,
   pickDialingCodeOption,
@@ -84,8 +86,9 @@ export default function greenhouseConfig(): SiteRule {
           return result
         }
       }
-      // A dropdown with no handler stays empty: typing into its search box never selects.
-      if (isReactSelectControl(input)) return 'skip'
+      // A dropdown with no handler goes to the generic matcher, which now selects an option only
+      // when an answer (vault value or saved response) matches one exactly, and otherwise
+      // leaves it empty and closed.
       return false
     },
     formChanged: () => {
@@ -172,13 +175,13 @@ const fieldHandlers: Array<{
     // Not the #candidate-location widget, and not "Location Cost Tier" style internal fields.
     match: (input, fieldText) => isCurrentLocationQuestion(input.id, fieldText),
     handle: async (input, _, personalInfo) => {
-      const queries = locationSearchQueries(personalInfo)
+      const queries = currentLocationQueries(personalInfo)
       if (queries.length === 0) return 'skip'
       await fillReactSelect(
         input,
         queries,
         `[id^=react-select-${input.id}-option-]`,
-        (options) => pickLocationOption(options, personalInfo),
+        (options) => pickCurrentLocationOption(options, personalInfo),
         'greenhouse',
       )
       return true

@@ -34,6 +34,9 @@ export async function fillNativeInput(
   input.focus()
   input.dispatchEvent(new Event('focus', { bubbles: true }))
 
+  // Per-character events are what the page's handlers see, but 20ms each made a long answer
+  // (a cover note, a URL) take seconds. Keep full fidelity for short values, go faster on long.
+  const perCharDelayMs = text.length > 40 ? 2 : text.length > 15 ? 8 : 20
   let current = ''
   for (const char of text) {
     current += char
@@ -41,7 +44,7 @@ export async function fillNativeInput(
     input.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
     setReactInputValue(input, current)
     input.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => setTimeout(resolve, perCharDelayMs))
   }
 
   input.dispatchEvent(new Event('change', { bubbles: true }))
@@ -167,6 +170,7 @@ export const fillReactSelect = async (
       input.dispatchEvent(new Event('change', { bubbles: true }))
     } catch (error) {
       console.error('[fillReactSelect] Error:', error)
+      closeReactSelectMenu(input)
       return false
     }
   }
@@ -174,8 +178,31 @@ export const fillReactSelect = async (
   // Every query failed to settle. Drop a trailing typed query so the field cannot
   // keep "The University of Texas at Austin" after the catalog attempt missed.
   if (input.value.trim() && input.value.trim() !== values[0]) setReactInputValue(input, '')
-  input.blur()
+  closeReactSelectMenu(input)
   return false
+}
+
+// A failed fill must not leave the menu hanging open on "No options". input.blur() alone does
+// nothing when the page is not focused (the usual case for a content script), so also send
+// Escape and the blur/focusout events react-select listens for, and toggle the flyout closed
+// if the menu is still expanded.
+export function closeReactSelectMenu(input: HTMLInputElement) {
+  try {
+    if (input.value) setReactInputValue(input, '')
+    const keyInit = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }
+    input.dispatchEvent(new KeyboardEvent('keydown', keyInit))
+    input.dispatchEvent(new KeyboardEvent('keyup', keyInit))
+    input.dispatchEvent(new FocusEvent('blur', { bubbles: false }))
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    input.blur()
+    if (input.getAttribute('aria-expanded') === 'true') {
+      const root = input.closest('.select') || input.parentElement
+      const toggle = root?.querySelector<HTMLElement>('button[aria-label="Toggle flyout"]')
+      toggle?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }))
+    }
+  } catch {
+    // Best effort: the fill already failed.
+  }
 }
 
 function delay(ms: number) {
@@ -747,4 +774,31 @@ const waitForBambooHROption = (
     // country (Uganda, when the list is windowed next to United States).
     retryLater()
   })
+}
+
+// Picks the option that IS the answer: an exact label, or a label that starts with the answer as
+// whole words ("Yes" -> "Yes, I am"). Never a substring, so "No" cannot land on "Not applicable"
+// and a stray value cannot select an unrelated row.
+export function pickExactAnswerOption(optionTexts: string[], answer: string): string | null {
+  const q = answer.toLowerCase().replace(/\s+/g, ' ').trim()
+  if (!q) return null
+  const norm = optionTexts.map((text) => (text || '').toLowerCase().replace(/\s+/g, ' ').trim())
+  const exact = norm.indexOf(q)
+  if (exact >= 0) return optionTexts[exact]
+  const prefixed = norm.findIndex((text) => text.startsWith(q) && /^[\s,.:;)\-–—]/.test(text.slice(q.length)))
+  return prefixed >= 0 ? optionTexts[prefixed] : null
+}
+
+// A react-select search box is not a text field: typing into it selects nothing. Open the
+// menu, take the option that matches the answer, and close the menu if none does.
+export async function fillReactSelectAnswer(input: HTMLInputElement, answer: string): Promise<boolean> {
+  const text = answer.trim()
+  if (!text) return false
+  return fillReactSelect(
+    input,
+    text,
+    `[id^=react-select-${input.id}-option-]`,
+    (options) => pickExactAnswerOption(options, text),
+    'greenhouse',
+  )
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
+import { fillEmptyFromParsedResume, mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
 import type { PersonalInfo, OtherLink } from '../../types/index.ts'
 import { isToolbarPopup, openResumeUploadTab } from '@/utils/uploadTab'
@@ -14,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   save: [profile: PersonalInfo]
+  review: []
 }>()
 
 const ACCEPTED_RESUME_EXTENSIONS = ['.pdf', '.docx']
@@ -28,9 +30,7 @@ const LINK_TYPES = [
 const urlPattern = /^[a-z0-9.-]+\.[a-z]{2,}(\/\S*)?$/i
 const stripProtocol = (value: string) => value.replace(/^https?:\/\//i, '')
 
-const editableProfile = ref<PersonalInfo>({
-  ...props.personalInfo,
-})
+const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
 
 // A resume upload only prefills the profile the first time — when there's no saved profile
 // data yet. Once the user has real data (entered manually or from a previous parse), an upload
@@ -67,13 +67,27 @@ watch(
         // the user to review it. Waiting for a separate Save click lost the parse.
         prefilledFromResume.value = true
         emit('save', editableProfile.value)
+        emit('review')
       } else {
-        // Repeat upload, or the profile already has data — keep their fields and
-        // show the resume that was just saved on the account.
+        // Repeat upload, or the profile already has data. Keep what the user has and
+        // show the resume that was just saved. When the API returned a parse, use it only
+        // to complete blank fields (phone, GitHub, degree...), never to overwrite.
+        const base = resumeUpload.parsedResume.value
+          ? fillEmptyFromParsedResume(
+              editableProfile.value,
+              resumeUpload.parsedResume.value,
+              resumeUpload.fileName.value,
+            )
+          : editableProfile.value
         editableProfile.value = {
-          ...editableProfile.value,
+          ...base,
           resumeFileName: resumeUpload.fileName.value,
           resumeFilePath: savedPath,
+        }
+        if (resumeUpload.parsedResume.value) {
+          prefilledFromResume.value = true
+          emit('save', editableProfile.value)
+          emit('review')
         }
       }
       saved.value = false
@@ -170,9 +184,7 @@ watch(
   () => props.show,
   (isShowing) => {
     if (isShowing) {
-      editableProfile.value = {
-        ...props.personalInfo,
-      }
+      editableProfile.value = completePersonalInfo(props.personalInfo)
       saved.value = false
       resumeError.value = ''
     }

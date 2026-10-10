@@ -51,3 +51,19 @@ export function cloneDefaultPersonalInfo(): PersonalInfo {
     otherLinks: [],
   }
 }
+
+// A profile object from storage, a half-loaded popup (`{}`) or a partial parse may lack the list
+// fields. Dialogs read `.length` / `.push` on them, which threw "Cannot read properties of
+// undefined (reading 'length')". Fill in whatever is missing or not an array; keep everything else.
+export function completePersonalInfo(info: Partial<PersonalInfo> | null | undefined): PersonalInfo {
+  const base = cloneDefaultPersonalInfo()
+  const source = (info ?? {}) as Record<string, unknown>
+  const out: Record<string, unknown> = { ...base }
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined) out[key] = value
+  }
+  for (const key of ['education', 'experience', 'skills', 'applicationAccounts', 'otherLinks'] as const) {
+    if (!Array.isArray(out[key])) out[key] = []
+  }
+  return out as unknown as PersonalInfo
+}

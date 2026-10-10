@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { ref, watch, computed, nextTick } from 'vue'
 import { usStates, canadaProvinces, ukRegions } from '../../utils/locationLists.ts'
 import type { PersonalInfo } from '../../types'
@@ -14,9 +15,7 @@ const emit = defineEmits<{
   save: [profile: PersonalInfo]
 }>()
 
-const editableProfile = ref<PersonalInfo>({
-  ...props.personalInfo,
-})
+const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
 
 const dirty = ref(false)
 
@@ -96,9 +95,7 @@ watch(
   () => props.show,
   async (isShowing) => {
     if (isShowing) {
-      editableProfile.value = {
-        ...props.personalInfo,
-      }
+      editableProfile.value = completePersonalInfo(props.personalInfo)
       // Let the deep watcher below settle from this reassignment before clearing dirty,
       // otherwise loading the panel would immediately read as "Unsaved changes".
       await nextTick()

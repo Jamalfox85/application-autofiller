@@ -123,7 +123,7 @@ watch(
         >
           <div class="cr-card-question">{{ response.title }}</div>
           <div class="cr-card-answer">{{ response.text }}</div>
-          <div v-if="response.tags.length > 0" class="cr-card-tags">
+          <div v-if="(response.tags?.length ?? 0) > 0" class="cr-card-tags">
             <span v-for="tag in response.tags" :key="tag" class="cr-card-tag">{{ tag }}</span>
           </div>
         </button>

@@ -9,6 +9,7 @@
 //   1. chrome.storage.onChanged (instant, cross-context)
 //   2. a 2s poll while a job is in flight (covers the rare case #1 doesn't fire)
 // plus a hard timeout so "uploading" can never hang forever.
+import { extractEmbeddedLinks } from '@/lib/resumeLinks'
 import { ref } from 'vue'
 import { resumeApiBaseUrl } from '../services/billing/proApiContract'
 import { getValidAccessToken, normalizeParsedResume } from '../lib/api'
@@ -202,9 +203,14 @@ export function useResumeUpload() {
       return
     }
 
+    // Links shown only as link text ("GitHub") are not in the text the API parses. Read them
+    // from the file here and let the worker add them to the parse.
+    const embeddedLinks = await extractEmbeddedLinks(new Uint8Array(await file.arrayBuffer()), file.name)
+
     try {
       await chrome.runtime.sendMessage({
         action: 'uploadResume',
+        embeddedLinks,
         url: RESUME_UPLOAD_URL,
         token,
         profileId,

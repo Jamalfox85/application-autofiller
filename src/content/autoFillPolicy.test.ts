@@ -23,7 +23,9 @@ test('history is recorded from the counted fill, not from the popup', () => {
   assert.equal(app.includes("action: 'trackAutofill'"), false)
   const background = readFileSync(new URL('../../background.js', import.meta.url), 'utf8')
   const handler = background.slice(background.indexOf("request.action === 'trackAutofill'"))
-  assert.match(handler, /chrome\.storage\.local\.set\(patch, \(\) => sendResponse/)
+  const setAt = handler.indexOf('chrome.storage.local.set(patch')
+  const respondAt = handler.indexOf('sendResponse({ success: true })')
+  assert.ok(setAt >= 0 && respondAt > setAt, 'history responds only after the row is stored')
 })
 
 test('popup, toast, and shortcut still fill from a user click', () => {
@@ -44,4 +46,10 @@ test('a client-side navigation requires another click and can show the toast', (
   assert.equal(interval.includes('let lastUrl'), false)
   assert.match(autofill, /export function pageNavigated/)
   assert.match(interval, /if \(autoDetectEnabled\)/)
+})
+
+test('a repeat fill on the same page says so instead of silently not counting', () => {
+  assert.match(autofill, /repeatFill: filledCount > 0 && lastChargeWasRepeat/)
+  const notifications = readFileSync(new URL('./notifications.ts', import.meta.url), 'utf8')
+  assert.match(notifications, /already counted this week/)
 })

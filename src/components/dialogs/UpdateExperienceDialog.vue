@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { usStates } from '../../utils/locationLists.ts'
 import type { Experience, PersonalInfo } from '../../types/index.ts'
@@ -14,9 +15,7 @@ const emit = defineEmits<{
   save: [profile: PersonalInfo]
 }>()
 
-const editableProfile = ref<PersonalInfo>({
-  ...props.personalInfo,
-})
+const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
 const openIndex = ref(-1)
 const saved = ref(false)
 let savedTimeout: ReturnType<typeof setTimeout> | undefined
@@ -74,9 +73,7 @@ watch(
   () => props.show,
   (isShowing) => {
     if (isShowing) {
-      editableProfile.value = {
-        ...props.personalInfo,
-      }
+      editableProfile.value = completePersonalInfo(props.personalInfo)
       openIndex.value = -1
       saved.value = false
     }

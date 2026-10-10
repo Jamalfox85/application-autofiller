@@ -11,8 +11,50 @@ function matchesPattern(fieldText: string, pattern: string): boolean {
   // inside screening questions. Suppress only those generic tokens on question prose.
   // Specific tokens ("address", "email", "jobtitle", "firstname") still match, including
   // when the label is long or phrased as a question ("What is your address?").
-  if (isQuestionLikeField(fieldText) && GENERIC_QUESTION_PATTERNS.has(normalized)) return false
+  if (isQuestionLikeField(fieldText)) {
+    if (GENERIC_QUESTION_PATTERNS.has(normalized)) return false
+    // "Redwood City, CA" or "working location" inside a hybrid-schedule question is prose,
+    // not a request for the applicant's city. Place words only count on question text that
+    // actually asks for the applicant's own place.
+    if (PLACE_PATTERNS.has(normalized) && !asksForApplicantPlace(fieldText)) return false
+  }
   return true
+}
+
+const PLACE_PATTERNS = new Set([
+  'city',
+  'town',
+  'locality',
+  'municipality',
+  'state',
+  'province',
+  'region',
+  'territory',
+  'stateprovince',
+  'country',
+  'nation',
+])
+
+const APPLICANT_PLACE_ASKS = [
+  'whatcity',
+  'whichcity',
+  'yourcity',
+  'currentcity',
+  'cityofresidence',
+  'cityandstate',
+  'citystate',
+  'whatstate',
+  'whichstate',
+  'yourstate',
+  'stateofresidence',
+  'whatcountry',
+  'whichcountry',
+  'yourcountry',
+  'countryofresidence',
+]
+
+function asksForApplicantPlace(fieldText: string): boolean {
+  return APPLICANT_PLACE_ASKS.some((ask) => fieldText.includes(ask))
 }
 
 // Words that are both field patterns and ordinary English. They must not fire just because

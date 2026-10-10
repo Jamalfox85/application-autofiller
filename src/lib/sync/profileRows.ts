@@ -35,7 +35,12 @@ function dateToMonth(date?: string | null): string {
 function gpaToNumeric(gpa?: string | null): number | null {
   if (gpa == null || gpa === '') return null
   const n = Number(gpa)
-  return Number.isFinite(n) ? n : null
+  if (!Number.isFinite(n) || n < 0) return null
+  // The column is numeric(3,2): the largest value it accepts is 9.99. Round first, then drop
+  // anything that lands on 10 ("9.995", "95", "10", "3.8/4.0"). Checking the raw number only
+  // let 9.995 through as 10 and save_profile rejected the whole profile.
+  const rounded = Math.round(n * 100) / 100
+  return rounded < 10 ? rounded : null
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v))

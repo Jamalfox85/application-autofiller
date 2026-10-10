@@ -66,7 +66,7 @@ function removeFillToasts() {
   })
 }
 
-export function showAutofillNotification(_summary?: { fieldsCount?: number; totalCount?: number }) {
+export function showAutofillNotification(summary?: { fieldsCount?: number; totalCount?: number; repeatFill?: boolean }) {
   removeFillToasts()
 
   const card = document.createElement('div')
@@ -104,6 +104,12 @@ export function showAutofillNotification(_summary?: { fieldsCount?: number; tota
   `
 
   mountInToastStack(card)
+  // If the page rebuilds the body right after the fill (hydration), put the toast back.
+  for (const delayMs of [300, 1200]) {
+    setTimeout(() => {
+      if (!card.isConnected && card.style.opacity !== '0') mountInToastStack(card)
+    }, delayMs)
+  }
 
   // "Filled with {name}" for accounts with 2+ profiles. Read from the activeProfile mirror the
   // popup keeps next to personalInfo, so it names the profile this fill actually used.
@@ -111,7 +117,11 @@ export function showAutofillNotification(_summary?: { fieldsCount?: number; tota
     try {
       const data = await chrome.storage.local.get(ACTIVE_PROFILE_KEY)
       const subtitle = card.querySelector('[data-role="subtitle"]')
-      if (subtitle) subtitle.textContent = fillToastSubtitle(parseActiveProfile(data[ACTIVE_PROFILE_KEY]))
+      if (subtitle) {
+        const base = fillToastSubtitle(parseActiveProfile(data[ACTIVE_PROFILE_KEY]))
+        // Same page, same week: the fill worked but is not counted or logged again.
+        subtitle.textContent = summary?.repeatFill ? `${base} · already counted this week` : base
+      }
     } catch {
       // Keep the generic subtitle.
     }

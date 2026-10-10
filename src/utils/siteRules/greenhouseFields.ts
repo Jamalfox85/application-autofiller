@@ -84,6 +84,29 @@ export function locationSearchQueries(info: LocationProfile) {
   return queries
 }
 
+// Queries for the job-boards "Current Location" question. The list behind it may be a place
+// search or a short fixed list, so try city+state, the city, then the state alone.
+export function currentLocationQueries(info: LocationProfile): string[] {
+  const queries = locationSearchQueries(info)
+  const state = displayState(info.state, info.country)
+  if (state && !queries.includes(state)) queries.push(state)
+  return queries
+}
+
+// Strict city match first. Otherwise accept an option that is just the state (or its
+// abbreviation), which is what a fixed "state" list offers. Never an unrelated place.
+export function pickCurrentLocationOption(optionTexts: string[], info: LocationProfile): string | null {
+  const city = pickLocationOption(optionTexts, info)
+  if (city) return city
+  const spellings = stateSpellings(info.state, info.country)
+  for (const raw of optionTexts) {
+    const text = collapseWhitespace(raw)
+    if (!text) continue
+    if (spellings.includes(normalizePlace(text))) return text
+  }
+  return null
+}
+
 export function pickLocationOption(optionTexts: string[], info: LocationProfile) {
   const city = (info.city || '').trim()
   const state = displayState(info.state, info.country)
