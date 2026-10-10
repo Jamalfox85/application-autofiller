@@ -292,9 +292,10 @@ export function withParseSnapshotFallback(
   })
   const { education, experience, skills, fieldNotes: _notes, ...scalars } = parsed
   const filled: Record<string, unknown> = {}
+  const current = info as unknown as Record<string, unknown>
   for (const [key, value] of Object.entries(scalars)) {
     // Never overwrite something the row already has (the seeded account email, for example).
-    if (value && !(info as Record<string, unknown>)[key]) filled[key] = value
+    if (value && !current[key]) filled[key] = value
   }
   return {
     ...info,

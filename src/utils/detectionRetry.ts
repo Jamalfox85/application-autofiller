@@ -12,6 +12,12 @@ export interface Detection {
 
 export const NOT_DETECTED: Detection = { detected: false, siteLabel: null, fieldCount: 0 }
 
+// How long an application frame polls for controls. The popup waits for every
+// frame and keeps the one with the most fields, so this wait is not raced
+// against a sibling that answers "not found" first.
+export const FIELD_WAIT_MS = 4000
+export const FIELD_POLL_MS = 250
+
 export interface DetectDeps {
   // Ask every frame of the tab. Rejects when no content script answers.
   ask: () => Promise<Detection | undefined>
@@ -62,4 +68,42 @@ export async function waitForFieldCount(
     n = count()
   }
   return n
+}
+
+// chrome.tabs.sendMessage without a frame id returns whichever frame answers
+// first. An empty shell used to answer in 800ms, before an embed finished this
+// wait, and the popup treated that as the only result. Ask each frame, then
+// keep the populated one.
+export function preferDetection(responses: Array<Detection | null | undefined>): Detection {
+  let best: Detection = NOT_DETECTED
+  for (const response of responses) {
+    if (!response?.detected || response.fieldCount <= 0) continue
+    if (response.fieldCount > best.fieldCount) best = response
+  }
+  return best
+}
+
+export async function collectFrameDetections(
+  frameIds: readonly number[],
+  askFrame: (frameId: number) => Promise<Detection | undefined>,
+): Promise<Detection> {
+  if (frameIds.length === 0) throw new Error('Receiving end does not exist')
+  const responses = await Promise.all(
+    frameIds.map(async (frameId) => {
+      try {
+        return await askFrame(frameId)
+      } catch {
+        return undefined
+      }
+    }),
+  )
+  const detection = preferDetection(responses)
+  const missingFrame = responses.some((response) => response == null)
+  // No listener at all, or only empty answers while some frame never answered:
+  // the embed may not have the content script yet. A frame that already found
+  // the form is kept even if another frame is silent.
+  if (responses.every((response) => response == null) || (missingFrame && !detection.detected)) {
+    throw new Error('Receiving end does not exist')
+  }
+  return detection
 }
