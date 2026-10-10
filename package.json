@@ -17,7 +17,6 @@
     "lucide-vue-next": "^0.562.0",
     "mixpanel-browser": "^2.82.1",
     "naive-ui": "^2.43.2",
-    "posthog-js": "^1.375.0",
     "sass": "^1.97.3",
     "vue": "^3.5.13"
   },

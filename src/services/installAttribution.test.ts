@@ -180,10 +180,20 @@ test('locked mixpanel event names stay on the contract', () => {
   const contract = read('src/utils/fillContract.ts')
   const greenhouse = read('src/utils/siteRules/greenhouse.ts')
   const mixpanelHttp = read('src/services/mixpanelHttp.ts')
+  const telemetry = read('src/services/fillTelemetry.ts')
   const background = read('background.js')
 
   assert.match(pick, /trackEvent\('onboarding_started'/)
+  assert.match(pick, /trackEvent\('resume_upload_started', \{ fileType: extension \}/)
   assert.match(welcome, /trackEvent\('profile_completed'/)
+  assert.match(welcome, /trackEvent\('resume_upload_succeeded', \{\}/)
+  assert.match(
+    welcome,
+    /trackEvent\('resume_upload_failed', \{ message: resumeUpload\.errorMessage\.value \}/,
+  )
+  assert.doesNotMatch(pick, /captureEvent|posthog/i)
+  assert.doesNotMatch(welcome, /captureEvent|posthog/i)
+  assert.doesNotMatch(index, /captureEvent|posthog/i)
   assert.match(contract, /autofill_attempted/)
   assert.match(contract, /autofill_succeeded/)
   assert.match(contract, /autofill_failed/)
@@ -199,4 +209,6 @@ test('locked mixpanel event names stay on the contract', () => {
   assert.match(greenhouse, /detectAts/)
   assert.match(mixpanelHttp, /action: 'trackMixpanel'/)
   assert.match(background, /request\.action === 'trackMixpanel'/)
+  assert.match(telemetry, /void trackEvent\(event, properties\)/)
+  assert.doesNotMatch(telemetry, /captureEvent|posthog/i)
 })

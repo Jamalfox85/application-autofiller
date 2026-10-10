@@ -9,7 +9,6 @@ import ConfirmResume from './onboarding/ConfirmResume.vue'
 import EnablePermissions from './onboarding/EnablePermissions.vue'
 import ManualEntryChecklist from './onboarding/ManualEntryChecklist.vue'
 import { useResumeUpload } from '@/composables/useResumeUpload'
-import { captureEvent } from '@/services/posthog'
 import { CORE_SECTIONS } from '@/utils/infocards.ts'
 import { trackEvent } from '@/services/mixpanel'
 import { completeProfileSetupSession, getProfileSetupSession, skipProfileSetup } from '@/services/profileSetupSession'
@@ -106,7 +105,7 @@ watch(
       armParsingFallback()
     } else if (phase === 'done') {
       clearParsingFallback()
-      captureEvent('resume_upload_succeeded', {})
+      trackEvent('resume_upload_succeeded', {})
       if (resumeUpload.parsedResume.value) {
         parsedData.value = {
           ...resumeUpload.parsedResume.value,
@@ -126,7 +125,7 @@ watch(
       resumeUpload.clear()
     } else if (phase === 'error') {
       clearParsingFallback()
-      captureEvent('resume_upload_failed', { message: resumeUpload.errorMessage.value })
+      trackEvent('resume_upload_failed', { message: resumeUpload.errorMessage.value })
       errorMessage.value = resumeUpload.errorMessage.value
       step.value = step.value === 'parsing' ? 'pick' : step.value
       resumeUpload.clear()
@@ -168,7 +167,6 @@ const handleFinish = async () => {
       // experience_level omitted — the profile form does not collect a stated level.
     }
     trackEvent('profile_completed', properties)
-    void captureEvent('profile_completed', properties)
   }
   await markSetupComplete()
 

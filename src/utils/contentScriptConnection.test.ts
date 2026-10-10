@@ -123,7 +123,6 @@ test('manifest content script and the command fallback target content.js', () =>
     'https://chromewebstore.google.com/*',
     'https://chrome.google.com/*',
     'https://extensionpay.com/*',
-    'https://app.posthog.com/*',
     'https://api.mixpanel.com/*',
     'https://api-js.mixpanel.com/*',
     'https://*.supabase.co/*',
