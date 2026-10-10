@@ -10,6 +10,7 @@
 //   2. a 2s poll while a job is in flight (covers the rare case #1 doesn't fire)
 // plus a hard timeout so "uploading" can never hang forever.
 import { ref } from 'vue'
+import { resumeApiBaseUrl } from '../services/billing/proApiContract'
 import { getValidAccessToken, normalizeParsedResume } from '../lib/api'
 import { readActiveProfileId } from '../lib/sync/activeProfile'
 import type { ParsedResumeData } from '../types'
@@ -23,9 +24,9 @@ const POLL_MS = 2000
 // 30s); this mainly bounds the Links & files sheet, which has no other exit.
 const UPLOAD_TIMEOUT_MS = 45_000
 
-const RESUME_UPLOAD_URL = `${
-  (import.meta.env.VITE_RESUME_API_URL as string | undefined) || 'http://localhost:8080/api/v1'
-}/resumes/upload`
+const RESUME_UPLOAD_URL = `${resumeApiBaseUrl(
+  import.meta.env.VITE_RESUME_API_URL as string | undefined,
+)}/resumes/upload`
 
 export type ResumeUploadPhase = 'idle' | 'uploading' | 'done' | 'error'
 
