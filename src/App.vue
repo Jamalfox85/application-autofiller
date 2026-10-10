@@ -52,7 +52,9 @@ import {
   ICIMS_ACCOUNT_NOTICE_KEY,
   parseIcimsAccountNotice,
 } from '@/utils/siteRules/icimsAccountNotice.ts'
+import { collectFrameDetections, detectWithRetry, NOT_DETECTED } from '@/utils/detectionRetry.ts'
 import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
+import { EMPTY_PROFILE_FILL_MESSAGE, profileHasAutofillData } from '@/utils/fillValue.ts'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -240,11 +242,30 @@ const lastFillLabel = computed(() => {
 const detectApplication = async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'detectApplication' })
-    detection.value = response
+    const tabId = tab?.id
+    if (typeof tabId !== 'number') {
+      detection.value = NOT_DETECTED
+      return
+    }
+    detection.value = await detectWithRetry({
+      ask: async () => {
+        const frames = await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: () => true,
+        })
+        const frameIds = frames
+          .map((frame) => frame.frameId)
+          .filter((frameId): frameId is number => typeof frameId === 'number')
+        return collectFrameDetections(frameIds, (frameId) =>
+          chrome.tabs.sendMessage(tabId, { action: 'detectApplication' }, { frameId }),
+        )
+      },
+      inject: () => chrome.runtime.sendMessage({ action: 'ensureContentScript', tabId }),
+      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    })
   } catch (error) {
     // No content script on this tab (e.g. chrome:// pages) — treat as not detected
-    detection.value = { detected: false, siteLabel: null, fieldCount: 0 }
+    detection.value = NOT_DETECTED
   }
 }
 
@@ -257,6 +278,18 @@ const scanCurrentPageManually = async () => {
 
 const autofillCurrentPage = async () => {
   if (autofillState.value !== 'idle') return
+
+  // An empty profile cannot fill anything. Say so now instead of scanning the
+  // page and returning with no explanation.
+  try {
+    const stored = await chrome.storage.local.get('personalInfo')
+    if (!profileHasAutofillData(stored.personalInfo)) {
+      showNotification(EMPTY_PROFILE_FILL_MESSAGE, 'error')
+      return
+    }
+  } catch {
+    // Storage unreadable: let the content script make the call.
+  }
 
   autofillState.value = 'filling'
   try {

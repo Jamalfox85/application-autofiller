@@ -33,7 +33,7 @@ const define = {
   'import.meta.env.VITE_RESUME_API_KEY': JSON.stringify(process.env.VITE_RESUME_API_KEY ?? ''),
 }
 
-await mkdir('dist/src/services', { recursive: true })
+await mkdir('dist/src/services/billing', { recursive: true })
 await mkdir('dist/src/utils/siteRules', { recursive: true })
 // Copied as-is so chrome.scripting.executeScript can stringify the page function
 // without a bundler renaming its body.
@@ -45,6 +45,13 @@ await copyFile(
   'src/utils/siteRules/icimsFrameAutofill.js',
   'dist/src/utils/siteRules/icimsFrameAutofill.js',
 )
+await esbuild.build({
+  entryPoints: ['src/services/billing/quotaPage.ts'],
+  outfile: 'dist/src/services/billing/quotaPage.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'neutral',
+})
 await esbuild.build({
   entryPoints: ['src/services/installAttribution.ts'],
   outfile: 'dist/src/services/installAttribution.js',

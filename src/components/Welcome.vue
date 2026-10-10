@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
-import { mergeParsedResume } from '@/utils/resumeParsing'
+import { mergeParsedResume, profileHasUserData } from '@/utils/resumeParsing'
+import { fetchProfileFromDb } from '@/lib/sync/profile'
+import { readActiveProfileId } from '@/lib/sync/activeProfile'
 import type { ParsedResumeData, PersonalInfo } from '../types'
 import PickPath from './onboarding/PickPath.vue'
 import ConfirmResume from './onboarding/ConfirmResume.vue'
@@ -44,11 +46,33 @@ const clearParsingFallback = () => {
   parsingFallback = undefined
 }
 
+// The server may have saved the parse even when the result never reached the popup (worker
+// killed, popup closed during the file dialog, parse reported as a repeat upload). Read the
+// profile back from the account and, if it holds data, show the review step with it.
+const recoverFromAccount = async (): Promise<boolean> => {
+  try {
+    const profileId = await readActiveProfileId(chrome.storage.local)
+    const info = await fetchProfileFromDb(profileId)
+    if (!profileHasUserData(info)) return false
+    parsedData.value = {
+      ...info,
+      fileName: info.resumeFileName || resumeUpload.fileName.value,
+      resumeFilePath: info.resumeFilePath || undefined,
+    }
+    step.value = 'confirm'
+    return true
+  } catch (error) {
+    console.error('[resume-upload] could not read the parsed profile back', error)
+    return false
+  }
+}
+
 const armParsingFallback = () => {
   clearParsingFallback()
-  parsingFallback = setTimeout(() => {
+  parsingFallback = setTimeout(async () => {
     if (step.value !== 'parsing') return
     resumeUpload.clear()
+    if (await recoverFromAccount()) return
     void handleSkip()
   }, PARSING_FALLBACK_MS)
 }
@@ -91,9 +115,13 @@ watch(
         }
         step.value = 'confirm'
       } else {
-        // Repeat upload (parsed === null) — nothing new to review; carry on.
-        if (props.initialFile) void handleFinish()
-        else step.value = 'permissions'
+        // No parse in the response. Before moving on, check whether the account already
+        // holds the parsed data, so the user still gets the review step.
+        void recoverFromAccount().then((recovered) => {
+          if (recovered) return
+          if (props.initialFile) void handleFinish()
+          else step.value = 'permissions'
+        })
       }
       resumeUpload.clear()
     } else if (phase === 'error') {

@@ -2,6 +2,7 @@
 // (`candidate_profiles` + child tables). No supabase-js import, so node:test can load it.
 // See ./profile.ts for the read/write calls and ./shared.ts for the overall sync model.
 import { cloneDefaultPersonalInfo } from '../personalInfoDefaults.ts'
+import { normalizeParsedResume, splitName } from '../parsedResume.ts'
 import type { CustomResponse, Education, Experience, PersonalInfo } from '../../types/index.ts'
 
 // Child-entry ids in the app are `number`s used only as Vue :keys and for in-session
@@ -198,7 +199,7 @@ export function dbRowsToProfile(rows: {
     locationState: str(r.location_state),
   }))
 
-  return {
+  const base = {
     ...cloneDefaultPersonalInfo(),
     firstName: str(p.first_name),
     middleName: str(p.middle_name),
@@ -245,6 +246,63 @@ export function dbRowsToProfile(rows: {
       password: str(r.password),
       requireConfirmation: !!r.require_confirmation,
     })),
+  }
+  const withSnapshot = withParseSnapshotFallback(base, p, nextId)
+  // Only full_name was set: split it so first/last name fields are not blank.
+  if (!withSnapshot.firstName && !withSnapshot.lastName && str(p.full_name).trim()) {
+    const { first, middle, last } = splitName(str(p.full_name).trim())
+    return { ...withSnapshot, firstName: first, middleName: withSnapshot.middleName || middle, lastName: last }
+  }
+  return withSnapshot
+}
+
+// A resume parse can leave the parsed JSON snapshot (contact, work_history, education, skills,
+// full_name) on the profile row while the editable columns and child tables stay empty. The
+// popup then showed empty Personal details / Work / Education. When the editable data is
+// entirely empty, rebuild it from that snapshot so the user sees (and can save) what was parsed.
+export function withParseSnapshotFallback(
+  info: PersonalInfo,
+  p: Record<string, any>,
+  nextId: () => number,
+): PersonalInfo {
+  const editableIsEmpty =
+    !info.firstName &&
+    !info.lastName &&
+    !info.phone &&
+    !info.address &&
+    !info.city &&
+    info.experience.length === 0 &&
+    info.education.length === 0 &&
+    info.skills.length === 0
+  if (!editableIsEmpty) return info
+
+  const hasSnapshot =
+    (p.contact && typeof p.contact === 'object' && Object.keys(p.contact).length > 0) ||
+    (Array.isArray(p.work_history) && p.work_history.length > 0) ||
+    (Array.isArray(p.education) && p.education.length > 0) ||
+    (Array.isArray(p.skills) && p.skills.length > 0)
+  if (!hasSnapshot) return info
+
+  const parsed = normalizeParsedResume({
+    name: p.full_name,
+    contact: p.contact,
+    work_history: p.work_history,
+    education: p.education,
+    skills: p.skills,
+  })
+  const { education, experience, skills, fieldNotes: _notes, ...scalars } = parsed
+  const filled: Record<string, unknown> = {}
+  const current = info as unknown as Record<string, unknown>
+  for (const [key, value] of Object.entries(scalars)) {
+    // Never overwrite something the row already has (the seeded account email, for example).
+    if (value && !current[key]) filled[key] = value
+  }
+  return {
+    ...info,
+    ...filled,
+    experience: (experience ?? []).map((e) => ({ ...e, id: nextId() })),
+    education: (education ?? []).map((e) => ({ ...e, id: nextId() })),
+    skills: skills ?? [],
   }
 }
 

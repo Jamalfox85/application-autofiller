@@ -12,6 +12,7 @@ import {
   applicationUrlPatterns,
   getSiteLabel,
 } from '../utils/jobSitePatterns.ts'
+import { FIELD_POLL_MS, FIELD_WAIT_MS, waitForFieldCount } from '../utils/detectionRetry.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
@@ -79,15 +80,23 @@ function onRuntimeMessage(request, _sender, sendResponse) {
   }
 
   if (request.action === 'detectApplication') {
+    // The popup asks each frame and keeps the one with the most controls. Answer
+    // for this frame only. Waiting out an empty sibling here used to lose to a
+    // shell that replied "not found" before this form had rendered.
+    const countFields = () => document.querySelectorAll('input:not([type="hidden"]), textarea, select').length
     const detected = isLikelyJobApplicationPage()
-    sendResponse({
-      detected,
-      siteLabel: detected ? getSiteLabel(window.location.hostname) : null,
-      fieldCount: detected
-        ? document.querySelectorAll('input, textarea, select').length
-        : 0,
-    })
-    return false
+    const timeoutMs = detected ? FIELD_WAIT_MS : 0
+    waitForFieldCount(countFields, (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs, FIELD_POLL_MS).then(
+      (fieldCount) => {
+        const found = detected && fieldCount > 0
+        sendResponse({
+          detected: found,
+          siteLabel: found ? getSiteLabel(window.location.hostname) : null,
+          fieldCount: found ? fieldCount : 0,
+        })
+      },
+    )
+    return true
   }
 }
 

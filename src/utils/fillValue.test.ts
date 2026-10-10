@@ -43,3 +43,17 @@ test('a partial profile with one real field is fillable', () => {
   )
   assert.equal(profileHasAutofillData({ education: [], eeoAnswersEnabled: true }), false)
 })
+
+test('a profile holding only app defaults is empty', () => {
+  assert.equal(
+    profileHasAutofillData({
+      firstName: '',
+      phoneCountryCode: '+1',
+      eeoAnswersEnabled: true,
+      salaryNegotiable: false,
+      education: [],
+    }),
+    false,
+  )
+  assert.equal(profileHasAutofillData({ phoneCountryCode: '+1', firstName: 'Ada' }), true)
+})

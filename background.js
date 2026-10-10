@@ -20,8 +20,30 @@ import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdow
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
+import {
+  calendarWeekKey,
+  decideQuotaClaim,
+  forgetQuotaClaim,
+  quotaPageKey,
+} from './src/services/billing/quotaPage.js'
 
 startExtensionPay()
+
+const FILL_QUOTA_CLAIMS_KEY = 'fillQuotaClaims'
+const quotaClaimQueues = new Map()
+
+function enqueueQuotaClaim(pageKey, task) {
+  const previous = quotaClaimQueues.get(pageKey) || Promise.resolve()
+  const run = previous.then(task, task)
+  quotaClaimQueues.set(
+    pageKey,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  )
+  return run
+}
 
 // The pre-release local profile roster stored full profiles, including portal passwords.
 // Profiles now live in Supabase; drop the key on every worker start.
@@ -437,6 +459,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  // One Free fill per tab URL per week. Claims for the same page run one at a
+  // time, so an embed and its shell cannot both increment the counter.
+  if (request.action === 'claimFillQuota' || request.action === 'releaseFillQuota') {
+    const pageKey = quotaPageKey(sender?.tab?.url || request.pageKey || '')
+    if (!pageKey) {
+      sendResponse({ claimed: false, ok: false })
+      return true
+    }
+    const releasing = request.action === 'releaseFillQuota'
+    enqueueQuotaClaim(pageKey, async () => {
+      const stored = await chrome.storage.session.get(FILL_QUOTA_CLAIMS_KEY)
+      const claims = stored[FILL_QUOTA_CLAIMS_KEY] || {}
+      if (releasing) {
+        await chrome.storage.session.set({
+          [FILL_QUOTA_CLAIMS_KEY]: forgetQuotaClaim(claims, pageKey),
+        })
+        sendResponse({ ok: true })
+        return
+      }
+      const decision = decideQuotaClaim(claims, pageKey, calendarWeekKey(new Date()))
+      if (!decision.claimed) {
+        sendResponse({ claimed: false })
+        return
+      }
+      await chrome.storage.session.set({ [FILL_QUOTA_CLAIMS_KEY]: decision.claims })
+      sendResponse({ claimed: true })
+    }).catch(() => {
+      sendResponse(releasing ? { ok: false } : { claimed: false, error: true })
+    })
+    return true
+  }
+
   if (request.action === 'captureInstallAttribution') {
     enqueueInstallSource(() => enrichInstallSourceFromTab(sender?.tab?.url, request.referrer))
       .then((record) => sendResponse({ ok: !!record }))
@@ -494,6 +548,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       updateBadge('!', '#b05454')
     }
     sendResponse({ ok: true })
+    return true
+  }
+
+  if (request.action === 'ensureContentScript') {
+    // The popup found no live content script (tab opened before install or
+    // update, or a frame loaded late). Inject into every frame; the install
+    // guard in content.js makes this safe to repeat.
+    const tabId = request.tabId
+    if (typeof tabId !== 'number') {
+      sendResponse({ success: false })
+      return true
+    }
+    Promise.allSettled([
+      chrome.scripting.insertCSS({ target: { tabId, allFrames: true }, files: ['content.css'] }),
+      chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }),
+    ]).then(() => sendResponse({ success: true }))
     return true
   }
 
