@@ -29,6 +29,7 @@ import { commitSuccessfulFill, evaluateFillAccess } from '@/services/billing/fil
 import { rememberFillBlock } from '@/services/billing/proUnlock'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
+import { getSiteLabel } from '../utils/jobSitePatterns.ts'
 import { quotaPageKey } from '@/services/billing/quotaPage'
 import {
   captureFieldSnapshot,
@@ -146,7 +147,17 @@ function isSkippableField(input: FormField, includeFilled?: (input: FormField) =
   return false
 }
 
-export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user_clicked_button') {
+// Set once the user has clicked fill on this page. Only then may a form that grows
+// (Greenhouse education rows) be topped up without another click.
+let userStartedFillOnPage = false
+
+export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_clicked_button') {
+  // No fill without a user click. A detection-triggered call must not write, count or
+  // record history; a resync is only a continuation of a fill the user already started.
+  if (triggerSource === 'auto_on_detect' || (triggerSource === 'resync' && !userStartedFillOnPage)) {
+    return { success: false, code: 'needs_click', message: 'Click Auto-fill to fill this form.' }
+  }
+  if (triggerSource === 'user_clicked_button') userStartedFillOnPage = true
   let filledCount = 0
   let attemptedCount = 0
   let reportedAttempt = false
@@ -232,7 +243,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     let embeddedInputs: FormField[] = []
     if (
       fillableInputs.length === 0 &&
-      _triggerSource === 'user_clicked_button' &&
+      triggerSource === 'user_clicked_button' &&
       window.location.hostname.toLowerCase().includes('icims.com')
     ) {
       embeddedInputs = embeddedIcimsFillableFields(document, (input) =>
@@ -328,6 +339,9 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       try {
         const charged = await chargeFillQuota(ats || 'other')
         if (charged) {
+          // One counted fill is one History row, recorded here so every path (popup, toast,
+          // shortcut, resync) agrees with the counter.
+          void recordFillHistory(filledCount, attemptedCount)
           paywall = charged.nudge
           fillCount = charged.fillCount
           fillsRemaining = charged.fillsRemaining
@@ -399,6 +413,24 @@ async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof c
     quotaCountedPages.delete(pageKey)
     void chrome.runtime.sendMessage({ action: 'releaseFillQuota', pageKey }).catch(() => {})
     throw error
+  }
+}
+
+async function recordFillHistory(filledCount: number, totalCount: number) {
+  try {
+    const host = window.location.hostname
+    await chrome.runtime.sendMessage({
+      action: 'trackAutofill',
+      entry: {
+        role: guessJobTitle(),
+        site: `${getSiteLabel(host)} · ${host}`,
+        filledCount,
+        totalCount,
+        timestamp: Date.now(),
+      },
+    })
+  } catch (error) {
+    console.error('[history] could not record fill', error)
   }
 }
 
@@ -567,7 +599,8 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
   }
 
   autofillDebounceTimer = setTimeout(async () => {
-    if (autoDetectEnabled) {
+    if (userStartedFillOnPage) {
+      // The user already clicked fill here; top up the rows the form just revealed.
       const result = await autofillPage('resync')
       if (result.code === 'hard_cap' || result.paywall === 'hard') {
         void showFillPaywall('hard', result)
@@ -577,11 +610,10 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
       } else if (result.code === 'empty_profile') {
         showErrorNotification(result.message)
       }
-    } else {
-      if (!hasShownPopup) {
-        showAutofillPrompt()
-        hasShownPopup = true
-      }
+    } else if (autoDetectEnabled && !hasShownPopup) {
+      // Detect ON offers the fill; Detect OFF stays silent.
+      showAutofillPrompt()
+      hasShownPopup = true
     }
   }, 800)
 }

@@ -14,7 +14,6 @@ import { migrateLocalDataToSupabase } from './lib/sync/migrateLocal'
 import { useNotification } from './composables/useNotification'
 import { useFillHistory } from './composables/useFillHistory'
 import { useAuth } from './composables/useAuth'
-import { getSiteLabel } from '@/utils/jobSitePatterns.ts'
 import { trackFillContract } from '@/services/fillTelemetry'
 import { supabaseConfigError } from '@/lib/supabase'
 import DataVault from './components/DataVault.vue'
@@ -317,17 +316,8 @@ const autofillCurrentPage = async () => {
       lastFillCount.value = { filled: response.fieldsCount, total: response.totalCount ?? response.fieldsCount }
       autofillState.value = 'done'
 
-      const site = tab.url ? `${getSiteLabel(new URL(tab.url).hostname)} · ${new URL(tab.url).hostname}` : 'Unknown site'
-      await chrome.runtime.sendMessage({
-        action: 'trackAutofill',
-        entry: {
-          role: response.roleGuess || 'Untitled application',
-          site,
-          filledCount: response.fieldsCount,
-          totalCount: response.totalCount ?? response.fieldsCount,
-          timestamp: Date.now(),
-        },
-      })
+      // The content script records the History row at the moment the fill is counted, so
+      // History and the counter always agree. Just reload it.
       await loadFillHistory()
       await refreshBilling()
       if (response.paywall === 'soft') openPaywall('soft', response)

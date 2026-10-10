@@ -159,21 +159,11 @@ async function initialize() {
   // Match Score waits for a form, then scores without awaiting autofill.
   void startMatchScore()
 
+  // Auto-detect ON only offers the fill: a toast the user must click. It never writes to the
+  // page on its own (the product promise is "review before fill", and a silent fill bypassed
+  // the Free cap and History). Auto-detect OFF shows nothing at all; the popup and shortcut
+  // still work.
   if (autoDetectEnabled) {
-    // Auto-detect is ON - auto-fill after delay
-    setTimeout(async () => {
-      const result = await autofillPage('auto_on_detect')
-      if (result.code === 'hard_cap' || result.paywall === 'hard') {
-        void showFillPaywall('hard', result)
-      } else if (result.success) {
-        showAutofillNotification(result)
-        if (result.paywall === 'soft') void showFillPaywall('soft', result)
-      } else if (result.code === 'empty_profile') {
-        showErrorNotification(result.message)
-      }
-    }, 1000)
-  } else {
-    // Auto-detect is OFF - show popup prompt to user
     setTimeout(() => {
       if (!hasShownPopup) {
         showAutofillPrompt()
@@ -211,19 +201,9 @@ async function initialize() {
       lastUrl = currentUrl
       hasShownPopup = false
 
-      setTimeout(async () => {
+      setTimeout(() => {
         void startMatchScore()
         if (autoDetectEnabled) {
-          const result = await autofillPage('auto_on_detect')
-          if (result.code === 'hard_cap' || result.paywall === 'hard') {
-            void showFillPaywall('hard', result)
-          } else if (result.success) {
-            showAutofillNotification(result)
-            if (result.paywall === 'soft') void showFillPaywall('soft', result)
-          } else if (result.code === 'empty_profile') {
-            showErrorNotification(result.message)
-          }
-        } else {
           showAutofillPrompt()
           hasShownPopup = true
         }
