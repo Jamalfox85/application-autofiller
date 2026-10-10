@@ -18,7 +18,6 @@ import { siteRules } from '../utils/siteRules/index.ts'
 import { trackEvent } from '../services/mixpanelHttp'
 import { showFillPaywall } from './fillPaywall'
 import { installProUnlock } from '../services/billing/proUnlock.ts'
-import { captureEvent } from '../services/posthog'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
 import { detectAts } from '../utils/ats.ts'
@@ -275,7 +274,6 @@ async function trackApplicationSubmitted(submitMethod) {
     submission_success: true,
   }
   trackEvent('application_submitted', properties)
-  captureEvent('application_submitted', properties)
 }
 
 function detectJobApplicationPage() {
