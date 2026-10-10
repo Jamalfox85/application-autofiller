@@ -39,6 +39,7 @@ import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
 import {
   gateCanFinish,
   healProfileSetupCompletion,
+  resumeReviewPending,
   signedInPopupScreen,
 } from '@/services/profileSetupGate'
 import { completeProfileSetupSession, getProfileSetupCompletedAt } from '@/services/profileSetupSession'
@@ -528,9 +529,12 @@ function popupRoster() {
 
 // Publish the gate as soon as local evidence can prove main. Welcome is published only
 // after personal info has loaded, so Step 1 never flashes during get_profile.
+const resumeReviewOwed = ref(false)
+
 function publishPopupGate(setupCompletedAt: number | null, personalInfoLoaded: boolean) {
   const { profileCount, rosterHasSavedWork } = popupRoster()
   const decision = gateCanFinish({
+    pendingResumeReview: resumeReviewOwed.value,
     personalInfo: personalInfo.value,
     profileCount,
     rosterHasSavedWork,
@@ -560,6 +564,12 @@ const loadAppState = async () => {
     await profilesStore.loadMirror()
   } catch (error) {
     console.error('Failed to load active profile mirror', error)
+  }
+  try {
+    const stored = await chrome.storage.local.get('resumeUploadJob')
+    resumeReviewOwed.value = resumeReviewPending(stored.resumeUploadJob)
+  } catch {
+    resumeReviewOwed.value = false
   }
   let setupCompletedAt: number | null = null
   try {
@@ -596,6 +606,7 @@ const loadAppState = async () => {
   publishPopupGate(setupCompletedAt, true)
   try {
     await healProfileSetupCompletion(chrome.storage.local, {
+      pendingResumeReview: resumeReviewOwed.value,
       personalInfo: personalInfo.value,
       profileCount,
       rosterHasSavedWork,
