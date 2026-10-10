@@ -121,7 +121,7 @@ export const BAND_LABEL: Record<MatchBand, string> = {
 }
 
 export const STRONG_MATCH_COPY = "You're a strong match"
-export const INSUFFICIENT_COPY = 'Complete your profile to get a Match Score'
+export const INSUFFICIENT_COPY = 'Complete your profile to get a job match score'
 export const MATCH_SCORE_FOOTNOTE = 'Scored against your GoFillr profile, not your resume file'
 export const MATCH_SCORE_LOADING = 'Checking match…'
 export const MATCH_SCORE_HOW_LABEL = 'How is this score calculated'

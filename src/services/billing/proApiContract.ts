@@ -57,7 +57,7 @@ export function summarizeProData(data: unknown): string {
   if (!data || typeof data !== 'object') return 'Done.'
   const record = data as Record<string, unknown>
   const score = record.score ?? record.ats_score
-  if (typeof score === 'number') return `ATS score: ${score}`
+  if (typeof score === 'number') return `Job match score: ${score}`
   for (const key of ['summary', 'text', 'content', 'tailored_resume']) {
     const value = record[key]
     if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 600)

@@ -65,6 +65,7 @@ test('a strong match shows the server phrase and no quick answers', () => {
     }),
   })
   assert.equal(card.id, 'match-score')
+  assert.match(card.textContent ?? '', /Job match/)
   assert.match(card.textContent ?? '', new RegExp(STRONG_MATCH_COPY))
   assert.equal(card.textContent?.includes('Yes'), false)
   assert.match(card.textContent ?? '', new RegExp(MATCH_SCORE_FOOTNOTE))
@@ -155,10 +156,14 @@ test('loading, locked, and insufficient states hide the number', () => {
   assert.equal(/\d/.test(loading.textContent ?? ''), false)
 
   const locked = render({ kind: 'locked' })
-  assert.match(locked.textContent ?? '', /Match Score/)
+  assert.match(locked.textContent ?? '', /Job match · Pro/)
+  assert.equal(locked.textContent?.includes('Match Score'), false)
+  assert.equal(locked.querySelector('[aria-label="Dismiss job match"]') != null, true)
   assert.equal(locked.textContent?.includes('88'), false)
 
   const insufficient = render({ kind: 'insufficient' })
+  assert.match(insufficient.textContent ?? '', /Job match/)
   assert.match(insufficient.textContent ?? '', new RegExp(INSUFFICIENT_COPY))
+  assert.equal(insufficient.textContent?.includes('Match Score'), false)
   assert.equal(/\d/.test(insufficient.textContent ?? ''), false)
 })
