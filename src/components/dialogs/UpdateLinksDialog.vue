@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { mergeParsedResumeIntoProfile } from '@/utils/resumeParsing'
+import { mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
 import type { PersonalInfo, OtherLink } from '../../types/index.ts'
 import SectionSheet from './SectionSheet.vue'
@@ -35,18 +35,8 @@ const editableProfile = ref<PersonalInfo>({
 // data yet. Once the user has real data (entered manually or from a previous parse), an upload
 // just swaps the stored file and leaves their fields — experience, education, skills, contact
 // details — untouched, since they may have edited those by hand.
-const hasExistingProfileData = computed(() => {
-  const p = props.personalInfo
-  return !!(
-    p.firstName ||
-    p.lastName ||
-    p.email ||
-    p.phone ||
-    (p.experience?.length ?? 0) > 0 ||
-    (p.education?.length ?? 0) > 0 ||
-    (p.skills?.length ?? 0) > 0
-  )
-})
+const hasExistingProfileData = computed(() => profileHasUserData(props.personalInfo))
+const prefilledFromResume = ref(false)
 const saved = ref(false)
 const resumeError = ref('')
 const resumeInput = ref<HTMLInputElement | null>(null)
@@ -72,6 +62,10 @@ watch(
           ),
           resumeFilePath: savedPath,
         }
+        // Persist the prefill now so Personal details / Work / Education show it, and tell
+        // the user to review it. Waiting for a separate Save click lost the parse.
+        prefilledFromResume.value = true
+        emit('save', editableProfile.value)
       } else {
         // Repeat upload, or the profile already has data — keep their fields and
         // show the resume that was just saved on the account.
@@ -225,6 +219,10 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
           </button>
         </div>
 
+        <p v-if="prefilledFromResume" class="file-hint">
+          We filled in your profile from your resume. Review Personal details, Work and
+          Education and edit anything that looks off.
+        </p>
         <p v-if="resumeError" class="file-error">{{ resumeError }}</p>
 
         <input
@@ -388,6 +386,13 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
 .file-card-action:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.file-hint {
+  font-size: 11px;
+  color: #9fd4a8;
+  margin: 0;
+  line-height: 1.45;
 }
 
 .file-error {
