@@ -315,12 +315,27 @@ test('the content script offers the toast only after application detection', () 
   assert.match(notifications, /renderAutofillPrompt\(document\)/)
   assert.match(notifications, /scheduleAutofillPromptRestore/)
   assert.match(notifications, /await autofillPage\(\)/)
+  // Login/create-account and Workday Apply Manually install before the toast
+  // decision, including on a frame that does not itself offer the prompt.
+  const sync = index.slice(index.indexOf('async function syncApplicationPage'))
+  const installAt = sync.indexOf('installApplicationHooks(')
+  const offerAt = sync.indexOf('shouldOfferAutofillToast')
+  assert.ok(installAt >= 0 && offerAt > installAt)
+  const icims = readFileSync(new URL('../utils/siteRules/icims.ts', import.meta.url), 'utf8')
+  assert.match(icims, /syncIcimsLogin\(personalInfo\)/)
+  assert.match(icims, /return watchIcimsLogin\(personalInfo\)/)
+  const workday = readFileSync(new URL('../utils/siteRules/workday.ts', import.meta.url), 'utf8')
+  assert.match(workday, /applyManually/)
+  assert.match(workday, /onMount:/)
 })
 
 const HE_JOB = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job'
 const HE_LOGIN = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/login'
+const PS_JOB = 'https://careers-powerschool.icims.com/jobs/53014/senior-software-engineer-i/job'
 const PS_LOGIN = 'https://careers-powerschool.icims.com/jobs/53014/senior-software-engineer-i/login'
+const PE_JOB = 'https://careers-peraton.icims.com/jobs/168754/iam-software-engineer/job'
 const PE_LOGIN = 'https://careers-peraton.icims.com/jobs/168754/iam-software-engineer/login'
+const ERAC_JOB = 'https://us-erac.icims.com/jobs/555885'
 
 test('Greenhouse department and office filters stay quiet', async () => {
   const html = fixture('greenhouse-board-listing.html')
@@ -378,17 +393,22 @@ test('a Greenhouse prompt removed by hydration is put back, and a dismissed one 
   resetAutofillPromptSession()
 })
 
-test('iCIMS job and login pages offer one toast on the top document', async () => {
+test('iCIMS job and login pages toast on the top document only', async () => {
   const cases = [
     { href: HE_JOB, shell: 'icims-job-shell.html', frame: 'icims-job-frame.html' },
     { href: HE_LOGIN, shell: 'icims-login-shell.html', frame: 'icims-login-frame.html' },
+    { href: PS_JOB, shell: 'icims-job-shell.html', frame: 'icims-job-frame.html' },
     { href: PS_LOGIN, shell: 'icims-login-shell.html', frame: 'icims-login-frame.html' },
+    { href: PE_JOB, shell: 'icims-job-shell.html', frame: 'icims-job-frame.html' },
     { href: PE_LOGIN, shell: 'icims-login-shell.html', frame: 'icims-login-frame.html' },
+    { href: ERAC_JOB, shell: 'icims-job-shell.html', frame: 'icims-job-frame.html' },
   ]
   for (const page of cases) {
     const shell = await offer(page.href, fixture(page.shell))
     assert.equal(shell.detection.detected, true, page.href)
-    assert.ok(shell.prompt, page.href)
+    assert.equal(shell.detection.method, 'url_pattern', page.href)
+    assert.ok(shell.prompt?.textContent?.includes('Job application detected'), page.href)
+    assert.equal(shell.document.querySelectorAll(PROMPT).length, 1, page.href)
     const frameHref = `${page.href}?in_iframe=1`
     const frame = await offer(frameHref, fixture(page.frame), { embedded: true })
     assert.equal(frame.detection.detected, true, frameHref)
@@ -397,13 +417,51 @@ test('iCIMS job and login pages offer one toast on the top document', async () =
   }
 })
 
-test('HealthEdge login does not stack a second toast from the iframe', async () => {
+test('HealthEdge login shows one toast, from the top document', async () => {
   const shell = await offer(HE_LOGIN, fixture('icims-login-shell.html'))
   const frame = await offer(`${HE_LOGIN}?in_iframe=1`, fixture('icims-login-frame.html'), { embedded: true })
   assert.equal(shell.prompt?.textContent?.includes('Job application detected'), true)
+  assert.equal(shell.document.querySelectorAll(PROMPT).length, 1)
   assert.equal(frame.prompt, null)
   assert.ok(frame.detection.fieldCount >= 1)
   assert.ok(frame.detection.fieldCount < 4)
+})
+
+test('iCIMS password step and candidate profile toast, and the iframe does not stack a second one', async () => {
+  const password = 'https://careers-powerschool.icims.com/jobs/53014/senior-software-engineer-i/login'
+  const passwordTop = await offer(password, fixture('icims-password-frame.html'))
+  assert.equal(passwordTop.detection.detected, true)
+  assert.ok(passwordTop.detection.fieldCount >= 3)
+  assert.ok(passwordTop.prompt)
+  const passwordFrame = await offer(`${password}?in_iframe=1`, fixture('icims-password-frame.html'), { embedded: true })
+  assert.equal(passwordFrame.detection.detected, true)
+  assert.equal(passwordFrame.prompt, null)
+
+  const candidate = 'https://careers-peraton.icims.com/jobs/168754/iam-software-engineer/candidate'
+  const candidateTop = await offer(candidate, fixture('icims-candidate-frame.html'))
+  assert.equal(candidateTop.detection.detected, true)
+  assert.ok(candidateTop.detection.fieldCount >= 4)
+  assert.ok(candidateTop.prompt)
+  const candidateFrame = await offer(`${candidate}?in_iframe=1`, fixture('icims-candidate-frame.html'), { embedded: true })
+  assert.equal(candidateFrame.detection.detected, true)
+  assert.equal(candidateFrame.prompt, null)
+
+  const shortCandidate = 'https://careers-jobyaviation.icims.com/jobs/5424/candidate?from=login'
+  const shortPage = await offer(shortCandidate, fixture('icims-candidate-frame.html'))
+  assert.equal(shortPage.detection.detected, true)
+  assert.ok(shortPage.prompt)
+
+  const createAccount = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/create-account'
+  const accountPage = await offer(createAccount, fixture('icims-password-frame.html'))
+  assert.equal(accountPage.detection.detected, true)
+  assert.ok(accountPage.prompt)
+
+  const candidateShell = await offer(candidate, fixture('icims-job-shell.html'))
+  assert.equal(candidateShell.detection.detected, true)
+  assert.ok(candidateShell.prompt)
+  const accountShell = await offer(createAccount, fixture('icims-login-shell.html'))
+  assert.equal(accountShell.detection.detected, true)
+  assert.ok(accountShell.prompt)
 })
 
 test('a Jobvite apply shell waits, then toasts once the fields mount', async () => {

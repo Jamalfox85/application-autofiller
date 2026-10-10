@@ -6,9 +6,15 @@
 //
 // job-boards.greenhouse.io/…/jobs/{id} already has form#application-form in the
 // server HTML (including react-select comboboxes). Remix then hydrateRoot(document)
-// drops the prompt node; applicationPrompt puts that node back. iCIMS /jobs/{id}/…/job
-// and /login are apply entries even when this document's fields live in the
-// ?in_iframe=1 frame — the frame itself does not offer a second toast.
+// drops the prompt node; applicationPrompt puts that node back.
+//
+// Before #121, detectJobApplicationPage toasted every careers-*.icims.com URL in
+// every frame (cdd3ffd). The job description (/jobs/{id} and /jobs/{id}/{slug}/job),
+// the /login email gate, the password step on that same URL, and /candidate were
+// all in that set. Search and the jobs index stay quiet. The outer document's
+// prompt is position:fixed above the content iframe, which is the toast that
+// stays on screen. The ?in_iframe=1 frame does not offer a second one
+// (HealthEdge /login used to stack two). A frame opened on its own still offers.
 
 import { hrefHasGreenhouseJobId, isWorkableApplyHost } from '../utils/ats.ts'
 import { FIELD_POLL_MS, FIELD_WAIT_MS } from '../utils/detectionRetry.ts'
@@ -151,21 +157,25 @@ function isBambooHost(hostname: string): boolean {
   return hostEnds(hostname, 'bamboohr.com')
 }
 
-// careers-acme.icims.com/jobs/{id}/{slug}/job is the description the Apply button
-// sits on. /login is the "Enter Your Information" gate. The candidate form is
-// /candidate. Search and the jobs index are not.
+// Pre-#121 treated the whole career host as an application. These are the pages
+// that toast was on: the posting (/jobs/555885 and /jobs/{id}/{slug}/job), the
+// email gate and password step (/login, /create-account), and the profile
+// (/candidate, /form). Search and the jobs index are not.
 export function isIcimsApplySurface(url: URL): boolean {
   if (!isIcimsCandidateHost(url.hostname)) return false
   const parts = segments(url)
   if (parts.includes('search') || parts.includes('intro')) return false
-  if (isIcimsLoginPath(url.pathname, url.search)) {
-    return parts.includes('jobs') || parts.some((part) => /^\d+$/.test(part))
-  }
-  if (parts.includes('candidate') || parts.includes('apply') || parts.includes('form')) return true
+  if (parts.length === 0) return false
+  if (parts.length === 1 && parts[0] === 'jobs') return false
+  if (parts[parts.length - 1] === 'jobs' && !parts.some((part) => /^\d+$/.test(part))) return false
+  if (isIcimsLoginPath(url.pathname, url.search)) return true
+  if (parts.some((part) => part === 'candidate' || part === 'apply' || part === 'form')) return true
+  const mode = (url.searchParams.get('mode') || '').toLowerCase()
+  const apply = (url.searchParams.get('apply') || '').toLowerCase()
+  if (mode === 'apply' || apply === 'yes' || apply === '1' || apply === 'true') return true
   const jobsAt = parts.indexOf('jobs')
   if (jobsAt < 0) return false
-  const rest = parts.slice(jobsAt + 1)
-  return rest.some((part) => /^\d+$/.test(part)) && rest[rest.length - 1] === 'job'
+  return parts.slice(jobsAt + 1).some((part) => /^\d+$/.test(part))
 }
 
 export function isIcimsInFrameUrl(href: string): boolean {
@@ -188,13 +198,14 @@ function promptOnUrlWithoutFields(href: string): boolean {
 }
 
 // The content iframe (?in_iframe=1) and the career-portal shell are the same
-// host, and both used to toast. Only the top document offers the fill, so
-// HealthEdge /login does not stack two prompts. A frame opened on its own
+// page, and both used to toast. Only the top document offers the fill, so
+// HealthEdge /login does not stack two prompts. The top prompt is position:fixed
+// on the window, above the iframe. A frame opened on its own
 // (window.top === window) still offers.
 export function shouldOfferAutofillToast(
   href: string,
   detection: ApplicationPageDetection,
-  inEmbeddedFrame: boolean,
+  inEmbeddedFrame = false,
 ): boolean {
   if (!detection.detected) return false
   if (inEmbeddedFrame && isIcimsInFrameUrl(href)) return false
@@ -257,7 +268,7 @@ export function isListingOrBoardUrl(href: string): boolean {
     if (parts.includes('search') || parts.includes('intro')) return true
     if (parts.length === 1 && parts[0] === 'jobs') return true
     if (parts[parts.length - 1] === 'jobs') return true
-    // /jobs/{id}/{slug}/job and /login are the apply entry, not a board index.
+    // A job id, /login, and /candidate are the apply entry, not a board index.
     if (isIcimsApplySurface(url)) return false
     return true
   }

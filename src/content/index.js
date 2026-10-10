@@ -279,7 +279,11 @@ function installApplicationHooks(personalInfo) {
     const siteSpecificChangeDetected =
       activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
     if (!siteSpecificChangeDetected) return
-    if (!detectApplicationPage({ href: window.location.href, document }).detected) return
+    const href = window.location.href
+    const now = detectApplicationPage({ href, document })
+    // iCIMS onMount already ran. The content iframe must not offer a second
+    // toast when the password step replaces the email gate.
+    if (!shouldOfferAutofillToast(href, now, !isTopFrame())) return
     hasShownPopup = false
     debounceAutofill(autoDetectEnabled)
   })
