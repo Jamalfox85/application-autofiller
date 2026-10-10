@@ -385,6 +385,9 @@ async function handleResumeUpload({ url, token, profileId, fileName, fileType, f
     form.append('file', new Blob([bytes], { type: fileType || 'application/octet-stream' }), fileName)
     // The upload targets one candidate profile (resume-api multi-profiles contract).
     form.append('profile_id', profileId)
+    // Ask for a parse even when this profile already has one. The API only returns it (it never
+    // rewrites the profile); the popup uses it to fill blank fields.
+    form.append('reparse', 'true')
 
     const res = await fetch(url, {
       method: 'POST',

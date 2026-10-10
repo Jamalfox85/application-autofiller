@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
+import { fillEmptyFromParsedResume, mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
 import type { PersonalInfo, OtherLink } from '../../types/index.ts'
 import { isToolbarPopup, openResumeUploadTab } from '@/utils/uploadTab'
@@ -67,12 +67,24 @@ watch(
         prefilledFromResume.value = true
         emit('save', editableProfile.value)
       } else {
-        // Repeat upload, or the profile already has data — keep their fields and
-        // show the resume that was just saved on the account.
+        // Repeat upload, or the profile already has data. Keep what the user has and
+        // show the resume that was just saved. When the API returned a parse, use it only
+        // to complete blank fields (phone, GitHub, degree...), never to overwrite.
+        const base = resumeUpload.parsedResume.value
+          ? fillEmptyFromParsedResume(
+              editableProfile.value,
+              resumeUpload.parsedResume.value,
+              resumeUpload.fileName.value,
+            )
+          : editableProfile.value
         editableProfile.value = {
-          ...editableProfile.value,
+          ...base,
           resumeFileName: resumeUpload.fileName.value,
           resumeFilePath: savedPath,
+        }
+        if (resumeUpload.parsedResume.value) {
+          prefilledFromResume.value = true
+          emit('save', editableProfile.value)
         }
       }
       saved.value = false
