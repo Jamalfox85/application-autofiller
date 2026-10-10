@@ -141,6 +141,14 @@ describe('location option preference', () => {
     )
   })
 
+  it('finds Blue Bell, PA when the profile state is spelled out and the country is unknown', () => {
+    const profile = { city: 'Blue Bell', state: 'Pennsylvania', country: '' }
+    assert.equal(
+      pickLocationOption(['Blue Bell, Cebu, Philippines', 'Blue Bell, PA, USA'], profile),
+      'Blue Bell, PA, USA',
+    )
+  })
+
   it('accepts a USA abbreviation and still rejects the Philippines result listed first', () => {
     const picked = pickLocationOption(
       ['San Francisco, Cebu, Philippines', 'San Francisco, CA, USA'],

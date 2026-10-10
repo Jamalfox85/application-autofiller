@@ -175,6 +175,7 @@ const fieldHandlers: Array<{
         queries,
         '[id^=react-select-candidate-location-option-]',
         (options) => pickLocationOption(options, personalInfo),
+        'greenhouse',
       )
       return true
     },
