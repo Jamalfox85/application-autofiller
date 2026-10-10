@@ -12,8 +12,8 @@ export const PAYWALL_COPY = {
   hard: {
     title: 'You\u2019ve hit your free fill limit',
     body: 'Unlock unlimited fills, Application Match Score, and up to 5 profiles with Pro.',
-    // Visible primary CTA. Clicking it starts the default (monthly) checkout.
-    primary: 'Get Pro \u2014 $5.99/mo or $49/yr',
+    // Visible primary CTA. Clicking it starts the monthly checkout.
+    primary: 'Get Pro \u2014 $5.99/mo',
     // Annual purchase. Not a continue-filling action.
     annual: 'Get Pro \u2014 $49/yr',
   },

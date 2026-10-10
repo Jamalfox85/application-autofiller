@@ -360,8 +360,9 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       const charge = (async () => {
         const charged = await chargeFillQuota(ats || 'other')
         if (charged) {
-          // One counted fill is one History row, recorded here so every path (popup, toast,
-          // shortcut, resync) agrees with the counter.
+          // One counted fill is one History row. Popup, toast ("Auto-fill Form"), shortcut,
+          // and resync all come through here, including a partial fill. Quota sync must
+          // not delay this: the free counter is the local write inside chargeFillQuota.
           await recordFillHistory(filledCount, attemptedCount)
         }
         return charged

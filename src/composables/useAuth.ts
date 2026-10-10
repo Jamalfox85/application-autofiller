@@ -5,6 +5,7 @@ import { isSupabaseAuthStorageKey } from '@/lib/googleAuth'
 import { USER_ID_KEY } from '@/services/billing/entitlementStore'
 import { flushPendingProfilePlan } from '@/services/billing/profilePlan'
 import { withFillHistoryLock } from '@/lib/sync/fillHistory'
+import { noteMirrorUser } from '@/lib/sync/mirrorEpoch'
 
 export type AuthStatus = 'loading' | 'signed-in' | 'signed-out'
 
@@ -19,9 +20,12 @@ const signInError = ref('')
 let unsubscribe: (() => void) | null = null
 
 function applySession(next: Session | null) {
+  const previousId = user.value?.id ?? null
+  const nextId = next?.user?.id ?? null
   session.value = next
   user.value = next?.user ?? null
   status.value = next ? 'signed-in' : 'signed-out'
+  if (previousId !== nextId) noteMirrorUser(nextId)
   try {
     if (next?.user?.id) {
       void chrome.storage.local.set({ [USER_ID_KEY]: next.user.id })
@@ -85,6 +89,9 @@ export function useAuth() {
   }
 
   const signOut = async () => {
+    // Drop in-memory mirrors before the awaits. A reconcile that already read the old
+    // list is waiting on the network; the epoch bump makes it skip the write.
+    noteMirrorUser(null)
     await signOutOfSupabase()
     // Drop the local mirrors so the next person to sign in on this browser never sees the
     // previous account's data, even for a frame. Supabase is the source of truth; these are

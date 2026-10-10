@@ -442,6 +442,13 @@ async function handleResumeUpload({ url, token, profileId, fileName, fileType, f
 // Chrome closes the popup when the Google account window takes focus, so the
 // user never sees the signed-in state. Reopen it on the browser window the
 // auth window returned focus to, unless the popup somehow survived.
+// The toolbar popup has no tab. popup.html opened as a tab (upload, or the signed-in
+// page the user already has) does, and its URL is this extension's popup.html.
+function signInStartedFromPopupTab(sender) {
+  const url = sender && typeof sender.url === 'string' ? sender.url : ''
+  return Boolean(sender && sender.tab) && url.includes('popup.html')
+}
+
 async function reopenPopupAfterSignIn() {
   try {
     const popups = await chrome.runtime.getContexts({ contextTypes: ['POPUP'] })
@@ -630,7 +637,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     signInWithGoogleInWorker()
       .then((result) => {
         reply(result)
-        if (result?.ok) reopenPopupAfterSignIn()
+        // The popup.html tab is still open. Opening the toolbar popup beside it
+        // stacks two copies of the same page after sign-in.
+        if (result?.ok && !signInStartedFromPopupTab(sender)) reopenPopupAfterSignIn()
       })
       .catch((error) =>
         reply({

@@ -74,5 +74,5 @@ async function migrateFillHistory(userId: string): Promise<void> {
   if (!local?.length) return
   // reconcileFillHistory only inserts entries missing from the remote set, so this is safe to
   // run even if some rows already made it up.
-  await reconcileFillHistory(userId, local)
+  await reconcileFillHistory(userId)
 }
