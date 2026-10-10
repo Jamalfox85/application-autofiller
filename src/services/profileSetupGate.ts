@@ -24,13 +24,31 @@ export interface PopupLoadState {
   // A roster row already has a resume or hint, even when the active mirror's names are empty.
   rosterHasSavedWork?: boolean
   setupCompletedAt?: number | null
+  // A resume was just uploaded and the user has not yet reviewed what it filled in.
+  pendingResumeReview?: boolean
+}
+
+const RESUME_JOB_STALE_MS = 5 * 60 * 1000
+
+// resumeUploadJob (chrome.storage.local) is written by the service worker. A job that is
+// uploading, or finished within the last few minutes, still owes the user the review step.
+export function resumeReviewPending(job: unknown, now: number = Date.now()): boolean {
+  if (!job || typeof job !== 'object') return false
+  const { phase, updatedAt } = job as { phase?: unknown; updatedAt?: unknown }
+  if (phase !== 'uploading' && phase !== 'done') return false
+  return typeof updatedAt === 'number' && now - updatedAt <= RESUME_JOB_STALE_MS
 }
 
 export function accountSetupEstablished(input: {
   personalInfo?: PersonalInfo | null
   profileCount: number
   rosterHasSavedWork?: boolean
+  pendingResumeReview?: boolean
 }): boolean {
+  // The upload saves the resume on the account before the user sees the parsed result. A
+  // resume on file is therefore not proof of setup: it used to send the popup straight to
+  // the dashboard and skip the review steps.
+  if (input.pendingResumeReview) return false
   if (input.profileCount > 1) return true
   if (input.rosterHasSavedWork) return true
   return profileHasSubstance(input.personalInfo, { ignoreEmail: true })
@@ -83,6 +101,7 @@ export async function healProfileSetupCompletion(
     personalInfo?: PersonalInfo | null
     profileCount: number
     rosterHasSavedWork?: boolean
+    pendingResumeReview?: boolean
   },
 ): Promise<void> {
   if (!accountSetupEstablished(input)) return

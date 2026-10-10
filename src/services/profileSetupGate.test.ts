@@ -230,3 +230,19 @@ test('Welcome Skip and loadAppState both go through the setup-completion gate', 
   assert.match(matchScore, /matchScoreSetupReady\(/)
   assert.doesNotMatch(matchScore, /if \(!completedAt\) return/)
 })
+
+import { resumeReviewPending } from './profileSetupGate.ts'
+
+test('a resume on file does not skip the review step while an upload is pending', () => {
+  const now = Date.now()
+  assert.equal(resumeReviewPending({ phase: 'done', updatedAt: now - 1000 }, now), true)
+  assert.equal(resumeReviewPending({ phase: 'uploading', updatedAt: now }, now), true)
+  assert.equal(resumeReviewPending({ phase: 'done', updatedAt: now - 10 * 60 * 1000 }, now), false)
+  assert.equal(resumeReviewPending({ phase: 'error', updatedAt: now }, now), false)
+  assert.equal(resumeReviewPending(undefined, now), false)
+  const savedResume = { ...cloneDefaultPersonalInfo(), resumeFileName: 'r.pdf', resumeFilePath: 'u/p/resume.pdf' }
+  assert.equal(
+    resolvePopupView({ personalInfo: savedResume, profileCount: 1, rosterHasSavedWork: true, pendingResumeReview: true }),
+    'welcome',
+  )
+})

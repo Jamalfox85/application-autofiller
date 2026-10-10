@@ -81,9 +81,9 @@ export function commitWorkdayTextValue(input: HTMLInputElement | HTMLTextAreaEle
 // substring hit (for example "San Francisco, Cebu, Philippines").
 export type ReactSelectOptionPicker = (optionTexts: string[]) => string | null
 
-// 'greenhouse' opens the job-board menu (mouseup / ArrowDown). Employment month,
-// education, and work-auth pass that mode. Location, EEO, Ashby, and Lever stay
-// on the default path.
+// 'greenhouse' opens the job-board menu (mouseup / ArrowDown). Employment month
+// and year, education, work-auth, location, dialing code, and state questions pass
+// that mode. Ashby and Lever stay on the default path.
 export type ReactSelectOpenMode = 'default' | 'greenhouse'
 
 export const fillReactSelect = async (

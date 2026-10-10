@@ -90,6 +90,7 @@ export function pickLocationOption(optionTexts: string[], info: LocationProfile)
   const residence = residenceKey(info.country)
   const cityNorm = normalizePlace(city)
   const stateNorm = normalizePlace(state)
+  const stateSet = stateSpellings(info.state, info.country)
 
   let best: { text: string; score: number } | null = null
 
@@ -109,14 +110,63 @@ export function pickLocationOption(optionTexts: string[], info: LocationProfile)
     if (countryClass === 'match') score += 100
     if (cityNorm && first === cityNorm) score += 40
     else if (cityNorm) score += 5
-    if (stateNorm && parts.some((part) => normalizePlace(part) === stateNorm)) score += 20
+    if (stateSet.length && parts.slice(1).some((part) => stateSet.includes(normalizePlace(part)))) score += 20
     if (!residence && score === 0) continue
     if (residence && countryClass !== 'match' && score < 40) continue
 
     if (!best || score > best.score) best = { text, score }
   }
 
-  return best?.text ?? null
+  if (best) return best.text
+  return pickLocationFallback(optionTexts, city, info.state, info.country)
+}
+
+// Strict matching rejects an option when its trailing country segment is not recognized
+// ("Blue Bell, PA, USA" with an empty profile country, or a label whose state is the
+// abbreviation). Both queries then failed and the field ended empty. Accept an option whose
+// first segment is exactly the city and that names the profile state, in either spelling.
+function pickLocationFallback(
+  optionTexts: string[],
+  city: string,
+  state: string | null | undefined,
+  country: string | null | undefined,
+): string | null {
+  const cityNorm = normalizePlace(city)
+  if (!cityNorm) return null
+  const stateNorms = stateSpellings(state, country)
+  for (const raw of optionTexts) {
+    const text = collapseWhitespace(raw)
+    const parts = text.split(',').map((part) => normalizePlace(part)).filter(Boolean)
+    if (parts.length === 0 || parts[0] !== cityNorm) continue
+    if (parts.slice(1).some((part) => stateNorms.includes(part))) {
+      return text
+    }
+  }
+  return null
+}
+
+const US_ABBREVIATIONS: Record<string, string> = Object.fromEntries(
+  `alabama AL,alaska AK,arizona AZ,arkansas AR,california CA,colorado CO,connecticut CT,delaware DE,florida FL,georgia GA,hawaii HI,idaho ID,illinois IL,indiana IN,iowa IA,kansas KS,kentucky KY,louisiana LA,maine ME,maryland MD,massachusetts MA,michigan MI,minnesota MN,mississippi MS,missouri MO,montana MT,nebraska NE,nevada NV,new hampshire NH,new jersey NJ,new mexico NM,new york NY,north carolina NC,north dakota ND,ohio OH,oklahoma OK,oregon OR,pennsylvania PA,rhode island RI,south carolina SC,south dakota SD,tennessee TN,texas TX,utah UT,vermont VT,virginia VA,washington WA,west virginia WV,wisconsin WI,wyoming WY,district of columbia DC`
+    .split(',')
+    .map((pair) => {
+      const i = pair.lastIndexOf(' ')
+      return [pair.slice(0, i), pair.slice(i + 1)]
+    }),
+)
+
+function stateSpellings(state: string | null | undefined, country: string | null | undefined) {
+  const trimmed = (state || '').trim()
+  if (!trimmed) return []
+  const lists = [...usStates, ...canadaProvinces, ...ukRegions]
+  const hit = lists.find(
+    (option) =>
+      option.value.toLowerCase() === trimmed.toLowerCase() ||
+      option.label.toLowerCase() === trimmed.toLowerCase(),
+  )
+  void country
+  const abbr = US_ABBREVIATIONS[(hit?.label || trimmed).toLowerCase()]
+  const names = [trimmed, hit?.label, hit?.value, abbr].filter((v): v is string => !!v)
+  return [...new Set(names.map((n) => normalizePlace(n.replace(/_/g, ' '))))]
 }
 
 function classifyOptionCountry(

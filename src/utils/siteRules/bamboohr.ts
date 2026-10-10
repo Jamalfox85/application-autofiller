@@ -32,6 +32,15 @@ export function setBambooResumeLoader(loader: ResumeLoader | null) {
   resumeTask = null
 }
 
+function isReactSelectControl(input: Element): boolean {
+  return (
+    input.classList.contains('select__input') ||
+    input.getAttribute('role') === 'combobox' ||
+    input.getAttribute('aria-autocomplete') === 'list' ||
+    !!input.closest('.select, .select__control')
+  )
+}
+
 function sameBambooLabel(current: string, wanted: string): boolean {
   const norm = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase()
   return norm(current) === norm(wanted) && norm(wanted) !== ''
@@ -149,7 +158,12 @@ export default function bambooHrConfig(): SiteRule {
 
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {
-          return handle(input, fieldText, personalInfo, '')
+          const result = await handle(input, fieldText, personalInfo, '')
+          // A react-select the rule owns but could not answer (nothing in the vault) stays
+          // empty. Returning false let the generic matcher type a job title or the field id
+          // into its search box.
+          if (result === false && isReactSelectControl(input)) return 'skip'
+          return result
         }
       }
       return false

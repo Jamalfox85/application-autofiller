@@ -14,7 +14,6 @@ import { migrateLocalDataToSupabase } from './lib/sync/migrateLocal'
 import { useNotification } from './composables/useNotification'
 import { useFillHistory } from './composables/useFillHistory'
 import { useAuth } from './composables/useAuth'
-import { getSiteLabel } from '@/utils/jobSitePatterns.ts'
 import { trackFillContract } from '@/services/fillTelemetry'
 import { supabaseConfigError } from '@/lib/supabase'
 import DataVault from './components/DataVault.vue'
@@ -40,6 +39,7 @@ import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
 import {
   gateCanFinish,
   healProfileSetupCompletion,
+  resumeReviewPending,
   signedInPopupScreen,
 } from '@/services/profileSetupGate'
 import { completeProfileSetupSession, getProfileSetupCompletedAt } from '@/services/profileSetupSession'
@@ -317,17 +317,8 @@ const autofillCurrentPage = async () => {
       lastFillCount.value = { filled: response.fieldsCount, total: response.totalCount ?? response.fieldsCount }
       autofillState.value = 'done'
 
-      const site = tab.url ? `${getSiteLabel(new URL(tab.url).hostname)} · ${new URL(tab.url).hostname}` : 'Unknown site'
-      await chrome.runtime.sendMessage({
-        action: 'trackAutofill',
-        entry: {
-          role: response.roleGuess || 'Untitled application',
-          site,
-          filledCount: response.fieldsCount,
-          totalCount: response.totalCount ?? response.fieldsCount,
-          timestamp: Date.now(),
-        },
-      })
+      // The content script records the History row at the moment the fill is counted, so
+      // History and the counter always agree. Just reload it.
       await loadFillHistory()
       await refreshBilling()
       if (response.paywall === 'soft') openPaywall('soft', response)
@@ -538,9 +529,12 @@ function popupRoster() {
 
 // Publish the gate as soon as local evidence can prove main. Welcome is published only
 // after personal info has loaded, so Step 1 never flashes during get_profile.
+const resumeReviewOwed = ref(false)
+
 function publishPopupGate(setupCompletedAt: number | null, personalInfoLoaded: boolean) {
   const { profileCount, rosterHasSavedWork } = popupRoster()
   const decision = gateCanFinish({
+    pendingResumeReview: resumeReviewOwed.value,
     personalInfo: personalInfo.value,
     profileCount,
     rosterHasSavedWork,
@@ -570,6 +564,12 @@ const loadAppState = async () => {
     await profilesStore.loadMirror()
   } catch (error) {
     console.error('Failed to load active profile mirror', error)
+  }
+  try {
+    const stored = await chrome.storage.local.get('resumeUploadJob')
+    resumeReviewOwed.value = resumeReviewPending(stored.resumeUploadJob)
+  } catch {
+    resumeReviewOwed.value = false
   }
   let setupCompletedAt: number | null = null
   try {
@@ -606,6 +606,7 @@ const loadAppState = async () => {
   publishPopupGate(setupCompletedAt, true)
   try {
     await healProfileSetupCompletion(chrome.storage.local, {
+      pendingResumeReview: resumeReviewOwed.value,
       personalInfo: personalInfo.value,
       profileCount,
       rosterHasSavedWork,

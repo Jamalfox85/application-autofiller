@@ -1,6 +1,6 @@
 // Runs on all pages on load
 
-import { autofillPage, debounceAutofill, consumeAutofillTriggerForSubmission } from './autofill.ts'
+import { autofillPage, debounceAutofill, consumeAutofillTriggerForSubmission, pageNavigated } from './autofill.ts'
 import {
   showAutofillNotification,
   showAutofillPrompt,
@@ -159,21 +159,11 @@ async function initialize() {
   // Match Score waits for a form, then scores without awaiting autofill.
   void startMatchScore()
 
+  // Auto-detect ON only offers the fill: a toast the user must click. It never writes to the
+  // page on its own (the product promise is "review before fill", and a silent fill bypassed
+  // the Free cap and History). Auto-detect OFF shows nothing at all; the popup and shortcut
+  // still work.
   if (autoDetectEnabled) {
-    // Auto-detect is ON - auto-fill after delay
-    setTimeout(async () => {
-      const result = await autofillPage('auto_on_detect')
-      if (result.code === 'hard_cap' || result.paywall === 'hard') {
-        void showFillPaywall('hard', result)
-      } else if (result.success) {
-        showAutofillNotification(result)
-        if (result.paywall === 'soft') void showFillPaywall('soft', result)
-      } else if (result.code === 'empty_profile') {
-        showErrorNotification(result.message)
-      }
-    }, 1000)
-  } else {
-    // Auto-detect is OFF - show popup prompt to user
     setTimeout(() => {
       if (!hasShownPopup) {
         showAutofillPrompt()
@@ -203,32 +193,23 @@ async function initialize() {
     subtree: true,
   })
 
-  // Watch for URL changes (SPA navigation)
+  // Watch for URL changes (SPA navigation). lastUrl has to live outside the tick;
+  // declaring it inside made currentUrl === lastUrl on every pass, so this never ran.
+  let lastUrl = window.location.href
   setInterval(() => {
-    let lastUrl = window.location.href
     const currentUrl = window.location.href
-    if (currentUrl !== lastUrl) {
-      lastUrl = currentUrl
-      hasShownPopup = false
+    if (currentUrl === lastUrl) return
+    lastUrl = currentUrl
+    pageNavigated()
+    hasShownPopup = false
 
-      setTimeout(async () => {
-        void startMatchScore()
-        if (autoDetectEnabled) {
-          const result = await autofillPage('auto_on_detect')
-          if (result.code === 'hard_cap' || result.paywall === 'hard') {
-            void showFillPaywall('hard', result)
-          } else if (result.success) {
-            showAutofillNotification(result)
-            if (result.paywall === 'soft') void showFillPaywall('soft', result)
-          } else if (result.code === 'empty_profile') {
-            showErrorNotification(result.message)
-          }
-        } else {
-          showAutofillPrompt()
-          hasShownPopup = true
-        }
-      }, 1000)
-    }
+    setTimeout(() => {
+      void startMatchScore()
+      if (autoDetectEnabled) {
+        showAutofillPrompt()
+        hasShownPopup = true
+      }
+    }, 1000)
   }, 500)
 
   // Best-effort application_submitted detection: only fires on forms the extension actually

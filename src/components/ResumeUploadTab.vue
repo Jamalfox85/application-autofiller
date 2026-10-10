@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useResumeUpload } from '@/composables/useResumeUpload'
 
 const ACCEPTED = ['.pdf', '.docx']
@@ -22,6 +22,10 @@ watch(
   { immediate: true },
 )
 
+
+onMounted(() => document.body.classList.add('gofillr-upload-tab'))
+onBeforeUnmount(() => document.body.classList.remove('gofillr-upload-tab'))
+
 const choose = () => {
   error.value = ''
   input.value?.click()
@@ -31,7 +35,15 @@ const onChange = (event: Event) => {
   const el = event.target as HTMLInputElement
   const file = el.files?.[0]
   el.value = ''
-  if (!file) return
+  if (file) accept(file)
+}
+
+const onDrop = (event: DragEvent) => {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) accept(file)
+}
+
+const accept = (file: File) => {
   const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
   if (!ACCEPTED.includes(ext)) {
     error.value = 'Please upload a PDF or DOCX file.'
@@ -46,7 +58,7 @@ const onChange = (event: Event) => {
 </script>
 
 <template>
-  <main class="upload-tab">
+  <main class="upload-tab" @dragover.prevent @drop.prevent="onDrop">
     <h1>Upload your resume</h1>
     <p v-if="!finished && resumeUpload.phase.value !== 'uploading'">
       Choose a PDF or DOCX. GoFillr reads it and fills in your profile.
@@ -69,24 +81,44 @@ const onChange = (event: Event) => {
   </main>
 </template>
 
+<style>
+/* The tab is a normal page, not the dark popup shell: without a background the light text
+   sat on the browser's white. Colors below are checked against #121216 for WCAG AA. */
+body.gofillr-upload-tab {
+  background: #121216;
+  min-height: 100vh;
+}
+body.gofillr-upload-tab #app {
+  width: auto;
+}
+</style>
+
 <style scoped>
 .upload-tab {
   max-width: 420px;
   margin: 12vh auto;
   padding: 24px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: #ebebee;
+  color: #ebebee; /* 15.6:1 on #121216 */
   text-align: center;
+}
+.upload-tab p {
+  color: #c4c4cc; /* 10.6:1 on #121216 */
+  line-height: 1.5;
 }
 .upload-tab-btn {
   border: none;
   border-radius: 9px;
-  background: #7c3aed;
+  background: #6d28d9; /* white text 7.1:1 */
   color: #fff;
   font-weight: 600;
   padding: 11px 18px;
   cursor: pointer;
 }
-.ok { color: #9fd4a8; }
-.err { color: #e08a8a; }
+.upload-tab-btn:focus-visible {
+  outline: 2px solid #c4b5fd;
+  outline-offset: 2px;
+}
+.upload-tab .ok { color: #86efac; } /* 13.4:1 */
+.upload-tab .err { color: #fca5a5; } /* 10.2:1 */
 </style>

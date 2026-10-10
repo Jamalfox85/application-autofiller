@@ -43,6 +43,7 @@ import {
   type GreenhouseEducationField,
   type NativeSelectChoice,
 } from './greenhouseValues.ts'
+import { isCurrentLocationQuestion } from './greenhouseValues.ts'
 import {
   applyGreenhouseResumeFile,
   resetGreenhouseSavedResumeRequest,
@@ -75,9 +76,16 @@ export default function greenhouseConfig(): SiteRule {
       if (resume !== false) return resume
       for (const { match, handle } of fieldHandlers) {
         if (match(input, fieldText)) {
-          return handle(input, fieldText, personalInfo, '')
+          const result = await handle(input, fieldText, personalInfo, '')
+          // A react-select the rule owns but could not answer (nothing in the vault) stays
+          // empty. Returning false let the generic matcher type a job title or the field id
+          // into its search box.
+          if (result === false && isReactSelectControl(input)) return 'skip'
+          return result
         }
       }
+      // A dropdown with no handler stays empty: typing into its search box never selects.
+      if (isReactSelectControl(input)) return 'skip'
       return false
     },
     formChanged: () => {
@@ -89,6 +97,15 @@ export default function greenhouseConfig(): SiteRule {
       return false
     },
   }
+}
+
+function isReactSelectControl(input: Element): boolean {
+  return (
+    input.classList.contains('select__input') ||
+    input.getAttribute('role') === 'combobox' ||
+    input.getAttribute('aria-autocomplete') === 'list' ||
+    !!input.closest('.select, .select__control')
+  )
 }
 
 function countGreenhouseFillableFields(): number {
@@ -145,6 +162,24 @@ const fieldHandlers: Array<{
         dialingCodeSearchValues(target),
         '[id^=react-select-country-option-]',
         (options) => pickDialingCodeOption(options, target),
+        'greenhouse',
+      )
+      return true
+    },
+  },
+  {
+    // job-boards custom "Current Location" / "City, State" question (question_N combobox).
+    // Not the #candidate-location widget, and not "Location Cost Tier" style internal fields.
+    match: (input, fieldText) => isCurrentLocationQuestion(input.id, fieldText),
+    handle: async (input, _, personalInfo) => {
+      const queries = locationSearchQueries(personalInfo)
+      if (queries.length === 0) return 'skip'
+      await fillReactSelect(
+        input,
+        queries,
+        `[id^=react-select-${input.id}-option-]`,
+        (options) => pickLocationOption(options, personalInfo),
+        'greenhouse',
       )
       return true
     },
@@ -159,6 +194,7 @@ const fieldHandlers: Array<{
         queries,
         '[id^=react-select-candidate-location-option-]',
         (options) => pickLocationOption(options, personalInfo),
+        'greenhouse',
       )
       return true
     },
@@ -291,6 +327,21 @@ const fieldHandlers: Array<{
           if (value != null) commitNativeSelect(input, value)
           return true
         }
+        // Job-board embeds (Dropbox and other gh_jid hosts) render the end-date year
+        // as a react-select, same as the month. Typing the year and blurring leaves
+        // the search text and never selects the option.
+        if (input.getAttribute('role') === 'combobox' || input.closest('.select')) {
+          const current = selectedComboboxLabel(input)
+          if (current === year) return true
+          await fillReactSelect(
+            input,
+            year,
+            `[id^=react-select-${input.id}-option-]`,
+            (options) => pickMonthOption(options, year),
+            'greenhouse',
+          )
+          return true
+        }
         await fillNativeInput(input, year)
         return true
       }
@@ -319,7 +370,7 @@ const fieldHandlers: Array<{
       const optionSelector = questionId
         ? `[id^=react-select-question_${questionId}-option-]`
         : undefined
-      await fillReactSelect(input, queries, optionSelector)
+      await fillReactSelect(input, queries, optionSelector, undefined, 'greenhouse')
       return true
     },
   },

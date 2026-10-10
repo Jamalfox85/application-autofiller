@@ -29,6 +29,7 @@ import { commitSuccessfulFill, evaluateFillAccess } from '@/services/billing/fil
 import { rememberFillBlock } from '@/services/billing/proUnlock'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
+import { getSiteLabel } from '../utils/jobSitePatterns.ts'
 import { quotaPageKey } from '@/services/billing/quotaPage'
 import {
   captureFieldSnapshot,
@@ -146,7 +147,27 @@ function isSkippableField(input: FormField, includeFilled?: (input: FormField) =
   return false
 }
 
-export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user_clicked_button') {
+// Set once the user has clicked fill on this page. Only then may a form that grows
+// (Greenhouse education rows) be topped up without another click.
+let userStartedFillOnPage = false
+
+// A client-side navigation is a new page. The click that filled the previous URL
+// must not top up the next one, and a resync already queued for the old form must not fire.
+export function pageNavigated() {
+  userStartedFillOnPage = false
+  hasShownPopup = false
+  if (autofillDebounceTimer) {
+    clearTimeout(autofillDebounceTimer)
+    autofillDebounceTimer = null
+  }
+}
+
+export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_clicked_button') {
+  // No fill without a user click. A detection-triggered call must not write, count or
+  // record history; a resync is only a continuation of a fill the user already started.
+  if (triggerSource === 'auto_on_detect' || (triggerSource === 'resync' && !userStartedFillOnPage)) {
+    return { success: false, code: 'needs_click', message: 'Click Auto-fill to fill this form.' }
+  }
   let filledCount = 0
   let attemptedCount = 0
   let reportedAttempt = false
@@ -212,6 +233,10 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       }
     }
 
+    // Arm resync only after the click is allowed to write. A hard-cap or empty-profile
+    // click must not fill a later mutation on its own.
+    if (triggerSource === 'user_clicked_button') userStartedFillOnPage = true
+
     const activeSiteRule = siteRules.find((rule) => rule.detect())
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
     const fillableInputs = inputs.filter(
@@ -232,7 +257,7 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
     let embeddedInputs: FormField[] = []
     if (
       fillableInputs.length === 0 &&
-      _triggerSource === 'user_clicked_button' &&
+      triggerSource === 'user_clicked_button' &&
       window.location.hostname.toLowerCase().includes('icims.com')
     ) {
       embeddedInputs = embeddedIcimsFillableFields(document, (input) =>
@@ -265,7 +290,6 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       const fieldText = constructFieldText(input)
       const snapshot = captureFieldSnapshot(input)
 
-      console.log('Processing field:', fieldText, input)
       // Try site-specific handling first. 'skip' means the rule recognized the
       // field and left it blank (custom screening questions, resume file, an
       // unmatched radio). Do not count or highlight those, and do not fall
@@ -279,7 +303,6 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       // Site rules return true for fields they own even when they had nothing to
       // write. Only a field whose value or visible selection changed is a fill.
       if (handled) {
-        console.log('Filled by site rule:', fieldText, input)
         filledCount++
         fillRecords.push({ input, ...snapshot })
         if (reviewHighlightEnabled) highlightFilledField(input)
@@ -300,7 +323,6 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
 
       handled = await fillByDefault(input, matchedValue, relativeMatchKey)
       if (handled) {
-        console.log('Filled by default logic:', fieldText, input)
         filledCount++
         fillRecords.push({ input, ...snapshot })
         if (reviewHighlightEnabled) highlightFilledField(input)
@@ -328,6 +350,10 @@ export async function autofillPage(_triggerSource: AutofillTriggerSource = 'user
       try {
         const charged = await chargeFillQuota(ats || 'other')
         if (charged) {
+          // One counted fill is one History row, recorded here so every path (popup, toast,
+          // shortcut, resync) agrees with the counter. Await the write: the popup reloads
+          // History as soon as this returns, and the free counter is already committed.
+          await recordFillHistory(filledCount, attemptedCount)
           paywall = charged.nudge
           fillCount = charged.fillCount
           fillsRemaining = charged.fillsRemaining
@@ -399,6 +425,24 @@ async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof c
     quotaCountedPages.delete(pageKey)
     void chrome.runtime.sendMessage({ action: 'releaseFillQuota', pageKey }).catch(() => {})
     throw error
+  }
+}
+
+async function recordFillHistory(filledCount: number, totalCount: number) {
+  try {
+    const host = window.location.hostname
+    await chrome.runtime.sendMessage({
+      action: 'trackAutofill',
+      entry: {
+        role: guessJobTitle(),
+        site: `${getSiteLabel(host)} · ${host}`,
+        filledCount,
+        totalCount,
+        timestamp: Date.now(),
+      },
+    })
+  } catch (error) {
+    console.error('[history] could not record fill', error)
   }
 }
 
@@ -567,7 +611,8 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
   }
 
   autofillDebounceTimer = setTimeout(async () => {
-    if (autoDetectEnabled) {
+    if (userStartedFillOnPage) {
+      // The user already clicked fill here; top up the rows the form just revealed.
       const result = await autofillPage('resync')
       if (result.code === 'hard_cap' || result.paywall === 'hard') {
         void showFillPaywall('hard', result)
@@ -577,11 +622,10 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
       } else if (result.code === 'empty_profile') {
         showErrorNotification(result.message)
       }
-    } else {
-      if (!hasShownPopup) {
-        showAutofillPrompt()
-        hasShownPopup = true
-      }
+    } else if (autoDetectEnabled && !hasShownPopup) {
+      // Detect ON offers the fill; Detect OFF stays silent.
+      showAutofillPrompt()
+      hasShownPopup = true
     }
   }, 800)
 }
