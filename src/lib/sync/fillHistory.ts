@@ -91,7 +91,14 @@ export function reconcileFillHistory(
   local: FillHistoryEntry[],
   knownProfileIds?: ReadonlySet<string> | null,
 ): Promise<FillHistoryEntry[]> {
-  const run = reconcileQueue.then(() => reconcileOnce(userId, local, knownProfileIds))
+  // The toolbar popup and a popup.html tab are separate pages, so an in-memory queue alone is not
+  // enough: take a Web Lock shared by every page of the extension when it is available.
+  const locks = typeof navigator !== 'undefined' ? (navigator as Navigator & { locks?: LockManager }).locks : undefined
+  const run = reconcileQueue.then(() =>
+    locks
+      ? locks.request('gofillr-fill-history-reconcile', () => reconcileOnce(userId, local, knownProfileIds))
+      : reconcileOnce(userId, local, knownProfileIds),
+  )
   reconcileQueue = run.catch(() => undefined)
   return run
 }

@@ -13,4 +13,7 @@ where a.ctid > b.ctid
 
 -- 2. One row per user, moment and site.
 create unique index if not exists fill_history_user_occurred_site_key
-  on public.fill_history (user_id, occurred_at, coalesce(site, ''));
+  on public.fill_history (user_id, occurred_at, site);
+-- The extension inserts rows and ignores the 23505 this index raises for a row that is already
+-- stored (two extension pages reconciling at once). It does not need an upsert, so it works the
+-- same before and after this migration.

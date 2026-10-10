@@ -8,4 +8,5 @@ test('reconcile runs serialized and tolerates duplicate-key rows', () => {
   assert.match(src, /reconcileQueue/)
   assert.match(src, /reconcileQueue\.then\(/)
   assert.match(src, /23505/)
+  assert.match(src, /gofillr-fill-history-reconcile/)
 })
