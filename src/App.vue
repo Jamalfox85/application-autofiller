@@ -366,6 +366,15 @@ const autofillCurrentPage = async () => {
   }
 }
 
+// "ProfileError" alone does not say what was wrong. Include the code and the database detail.
+const describeSyncError = (error: unknown) => {
+  const original = (error as { original?: { details?: string; message?: string } } | null)?.original
+  return {
+    code: (error as { code?: string } | null)?.code ?? 'unknown',
+    detail: original?.details ?? original?.message ?? (error as Error | null)?.message,
+  }
+}
+
 const handleOnboardingFinish = async (profile?: any) => {
   // Every Welcome exit lands here, including Skip and the parse-wait fallback. Those paths
   // used to skip completeProfileSetupSession, which left Match Score gated off.
@@ -381,7 +390,7 @@ const handleOnboardingFinish = async (profile?: any) => {
       await savePersonalInfo(profile)
     } catch (error) {
       // Saved to the local mirror already — Supabase sync will retry on the next save/open.
-      console.error('Profile sync to Supabase failed during onboarding', error)
+      console.error('Profile sync to Supabase failed during onboarding', describeSyncError(error))
     }
     showNotification('We pre-filled your profile from your resume — please review it', 'success')
   } else {
@@ -399,7 +408,7 @@ const saveProfile = async (profile: any) => {
     await savePersonalInfo(profile)
     showNotification('Profile saved successfully', 'success')
   } catch (error) {
-    console.error('Profile sync to Supabase failed', error)
+    console.error('Profile sync to Supabase failed', describeSyncError(error))
     showNotification("Saved on this device — we'll sync it when you're back online", 'warning')
   }
 }

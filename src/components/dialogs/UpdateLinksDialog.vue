@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
@@ -28,9 +29,7 @@ const LINK_TYPES = [
 const urlPattern = /^[a-z0-9.-]+\.[a-z]{2,}(\/\S*)?$/i
 const stripProtocol = (value: string) => value.replace(/^https?:\/\//i, '')
 
-const editableProfile = ref<PersonalInfo>({
-  ...props.personalInfo,
-})
+const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
 
 // A resume upload only prefills the profile the first time — when there's no saved profile
 // data yet. Once the user has real data (entered manually or from a previous parse), an upload
@@ -170,9 +169,7 @@ watch(
   () => props.show,
   (isShowing) => {
     if (isShowing) {
-      editableProfile.value = {
-        ...props.personalInfo,
-      }
+      editableProfile.value = completePersonalInfo(props.personalInfo)
       saved.value = false
       resumeError.value = ''
     }

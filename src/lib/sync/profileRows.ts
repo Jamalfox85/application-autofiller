@@ -35,7 +35,10 @@ function dateToMonth(date?: string | null): string {
 function gpaToNumeric(gpa?: string | null): number | null {
   if (gpa == null || gpa === '') return null
   const n = Number(gpa)
-  return Number.isFinite(n) ? n : null
+  // The column is numeric(3,2): anything of 10 or more ("95" on a percent scale, "10" on a ten
+  // point scale) made save_profile reject the whole profile as invalid_payload. Negative and
+  // non-numeric values ("3.8/4.0") are dropped too.
+  return Number.isFinite(n) && n >= 0 && n < 10 ? Math.round(n * 100) / 100 : null
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v))

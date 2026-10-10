@@ -93,3 +93,17 @@ test('get_profile rows map back to PersonalInfo and custom responses', () => {
   assert.equal(back[0].text, 'Because.')
   assert.deepEqual(back[0].tags, ['why'])
 })
+
+test('a GPA the numeric(3,2) column cannot hold is dropped instead of failing the save', async () => {
+  const { profileToDbRows } = await import('./profileRows.ts')
+  const { cloneDefaultPersonalInfo } = await import('../personalInfoDefaults.ts')
+  const gpaOf = (gpa: string) => {
+    const info = { ...cloneDefaultPersonalInfo(), education: [{ id: 1, schoolName: 'X', degreeType: '', major: '', gpa, startYear: '', graduationYear: '', current: false, locationCity: '', locationState: '' }] }
+    return profileToDbRows(info as never, 'p').children.education[0].gpa
+  }
+  assert.equal(gpaOf('3.85'), 3.85)
+  assert.equal(gpaOf('4.0'), 4)
+  assert.equal(gpaOf('95'), null)
+  assert.equal(gpaOf('10'), null)
+  assert.equal(gpaOf('3.8/4.0'), null)
+})

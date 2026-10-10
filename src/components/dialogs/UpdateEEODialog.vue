@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import type { PersonalInfo } from '../../types/index.ts'
 import SectionSheet from './SectionSheet.vue'
@@ -76,9 +77,7 @@ const DEMO_QUESTIONS: {
   },
 ]
 
-const editableProfile = ref<PersonalInfo>({
-  ...props.personalInfo,
-})
+const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
 const saved = ref(false)
 let savedTimeout: ReturnType<typeof setTimeout> | undefined
 
@@ -110,9 +109,7 @@ watch(
   () => props.show,
   (isShowing) => {
     if (isShowing) {
-      editableProfile.value = {
-        ...props.personalInfo,
-      }
+      editableProfile.value = completePersonalInfo(props.personalInfo)
       saved.value = false
     }
   },
