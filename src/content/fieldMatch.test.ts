@@ -89,3 +89,37 @@ test('greenhouse-style name and email labels map a real profile', () => {
   assert.equal(matchFieldToData('email', info, [])?.matchedValue, 'ada@example.com')
   assert.equal(matchFieldToData('phonenumber', info, [])?.matchedValue, '5551234567')
 })
+
+test('screening questions never get a job title or the field id', () => {
+  const info = profile({
+    firstName: 'Alex',
+    lastName: 'Rivera',
+    experience: [
+      { id: 1, companyName: 'Acme', jobTitle: 'Full Stack Developer', startDate: '2020-01', endDate: '', present: true, description: '' },
+    ],
+  })
+  const authorized =
+    'question68839955legallyauthorizedtoworkinthecountryinwhichthisroleislocated?'
+  assert.equal(matchFieldToData(authorized, info, []), null)
+  const hybrid = 'question123456789thispositionishybrid4daysinoffice.areyouokwiththat?'
+  assert.equal(matchFieldToData(hybrid, info, []), null)
+  const sponsor = 'question68839955willyounoworinthefuturerequiresponsorship?'
+  assert.equal(matchFieldToData(sponsor, info, []), null)
+})
+
+test('work authorization answers come from the vault, not the field text', () => {
+  const info = profile({ workAuthorization: 'citizen', sponsorshipRequired: 'no' })
+  const auth = matchFieldToData('yourworkauthorizationstatus?', info, [])
+  assert.equal(auth?.matchedValue, 'citizen')
+  const spons = matchFieldToData('willyourequiresponsorship?', info, [])
+  assert.equal(spons?.matchedValue, 'no')
+})
+
+test('a short job title field still maps to the current title', () => {
+  const info = profile({
+    experience: [
+      { id: 1, companyName: 'Acme', jobTitle: 'Engineer', startDate: '', endDate: '', present: true, description: '' },
+    ],
+  })
+  assert.equal(matchFieldToData('jobtitle', info, [])?.matchedValue, 'Engineer')
+})

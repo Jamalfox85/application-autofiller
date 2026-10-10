@@ -8,11 +8,36 @@ function matchesPattern(fieldText: string, pattern: string): boolean {
   return fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, ''))
 }
 
+// Screening questions ("Legally authorized to work?", "Are you comfortable with hybrid 4 days in
+// office?") carry the whole question in the label and an opaque id such as question68839955.
+// Generic substring patterns ("role", "position", "contact") hit these by accident and used to
+// type a job title or the id itself into them.
+export function isQuestionLikeField(fieldText: string): boolean {
+  const withoutIds = fieldText.replace(/question_?\d{4,}/g, '')
+  return withoutIds.includes('?') || withoutIds.length > 70
+}
+
+// Keys that may still be matched generically on a question-style field.
+const QUESTION_SAFE_KEYS = new Set([
+  'linkedin',
+  'github',
+  'website',
+  'twitter',
+  'gender',
+  'raceEthnicity',
+  'disabilityStatus',
+  'veteranStatus',
+  'age18OrOlder',
+  'desiredSalary',
+  'workAuthorization',
+])
+
 export function matchFieldToData(
   fieldText: string,
   personalInfo: PersonalInfo,
   customResponses: CustomResponse[],
 ) {
+  const questionLike = isQuestionLikeField(fieldText)
   // Special exclusion checks  i.e. - Don't match "city" if field contains these
   const exclusions: { [key: string]: string[] } = {
     address: ['city', 'postal', 'zip', 'state', 'country', 'province'], // Exclude these from address match
@@ -24,7 +49,7 @@ export function matchFieldToData(
     jobTitle: ['salary'],
   }
 
-  const response = matchFullNameField(fieldText, personalInfo)
+  const response = questionLike ? undefined : matchFullNameField(fieldText, personalInfo)
   if (response)
     return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
 
@@ -37,13 +62,13 @@ export function matchFieldToData(
     return { matchedValue: location, relativeMatchKey: 'location' }
   }
 
-  if (personalInfo.education && personalInfo.education.length > 0) {
+  if (!questionLike && personalInfo.education && personalInfo.education.length > 0) {
     const response = matchEducationField(fieldText, personalInfo)
     if (response)
       return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
   }
 
-  if (personalInfo.experience && personalInfo.experience.length > 0) {
+  if (!questionLike && personalInfo.experience && personalInfo.experience.length > 0) {
     const response = matchExperienceField(fieldText, personalInfo)
     if (response)
       return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
@@ -51,6 +76,7 @@ export function matchFieldToData(
 
   // Check standard fields
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
+    if (questionLike && !QUESTION_SAFE_KEYS.has(key)) continue
     for (const pattern of patterns) {
       if (matchesPattern(fieldText, pattern)) {
         if (exclusions[key]) {
@@ -76,10 +102,14 @@ export function matchFieldToData(
 
         // console.log(`Matched pattern "${pattern}" for key "${key}" in fieldText "${fieldText}"`)
         if (key === 'workAuthorization') {
-          return {
-            matchedValue: fieldText,
-            relativeMatchKey: key,
-          }
+          // Answer from the vault, never from the field's own text. Sponsorship has its own
+          // value; with nothing saved the question stays empty.
+          const sponsorship = pattern.includes('sponsorship') || fieldText.includes('sponsor')
+          const answer = coerceFillText(
+            sponsorship ? personalInfo.sponsorshipRequired : personalInfo.workAuthorization,
+          )
+          if (!answer) continue
+          return { matchedValue: answer, relativeMatchKey: key }
         }
         const text = coerceFillText(personalInfo[key as keyof PersonalInfo])
         if (!text) continue
