@@ -14,6 +14,7 @@ import { ref } from 'vue'
 import { resumeApiBaseUrl } from '../services/billing/proApiContract'
 import { getValidAccessToken, normalizeParsedResume } from '../lib/api'
 import { readActiveProfileId } from '../lib/sync/activeProfile'
+import { onMirrorReset } from '../lib/sync/mirrorEpoch'
 import type { ParsedResumeData } from '../types'
 
 const STORAGE_KEY = 'resumeUploadJob'
@@ -58,8 +59,28 @@ const errorCode = ref('')
 let subscribed = false
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let deadline = 0
+// Bumped on sign-out / account change so an in-flight poll cannot write the old job back
+// after chrome.storage.local dropped it.
+let writeGeneration = 0
 
-async function writeJob(state: Omit<JobState, 'updatedAt'>) {
+function dropResumeUploadMemory() {
+  writeGeneration += 1
+  stopPolling()
+  phase.value = 'idle'
+  fileName.value = ''
+  storagePath.value = null
+  firstUpload.value = null
+  parsedResume.value = null
+  errorMessage.value = ''
+  errorCode.value = ''
+}
+
+onMirrorReset(dropResumeUploadMemory)
+
+async function writeJob(state: Omit<JobState, 'updatedAt'>, generation: number) {
+  // `generation` is captured when the upload started. Sign-out and a storage clear
+  // bump writeGeneration so this cannot put the old job back.
+  if (generation !== writeGeneration) return
   await chrome.storage.local.set({ [STORAGE_KEY]: { ...state, updatedAt: Date.now() } })
 }
 
@@ -103,17 +124,26 @@ function apply(state: JobState | undefined | null) {
 
 function startPolling() {
   if (pollTimer) return
+  const generation = writeGeneration
   deadline = Date.now() + UPLOAD_TIMEOUT_MS
   pollTimer = setInterval(async () => {
+    if (generation !== writeGeneration) {
+      stopPolling()
+      return
+    }
     const d = await chrome.storage.local.get(STORAGE_KEY)
+    if (generation !== writeGeneration) return
     apply(d[STORAGE_KEY] as JobState)
     if (phase.value === 'uploading' && Date.now() > deadline) {
       console.warn('[resume-upload] timed out waiting for the worker')
-      await writeJob({
-        phase: 'error',
-        code: 'timeout',
-        message: "The resume service didn't finish in time. Please try again.",
-      })
+      await writeJob(
+        {
+          phase: 'error',
+          code: 'timeout',
+          message: "The resume service didn't finish in time. Please try again.",
+        },
+        generation,
+      )
     }
   }, POLL_MS)
 }
@@ -148,14 +178,15 @@ export function useResumeUpload() {
   if (!subscribed) {
     subscribed = true
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes[STORAGE_KEY]) {
-        apply(changes[STORAGE_KEY].newValue as JobState)
-      }
+      if (area !== 'local' || !changes[STORAGE_KEY]) return
+      if (changes[STORAGE_KEY].newValue == null) writeGeneration += 1
+      apply(changes[STORAGE_KEY].newValue as JobState)
     })
     void chrome.storage.local.get(STORAGE_KEY).then((d) => apply(d[STORAGE_KEY] as JobState))
   }
 
   const start = async (file: File) => {
+    const generation = writeGeneration
     console.log('[resume-upload] start', file.name, file.type, file.size)
     errorMessage.value = ''
     errorCode.value = ''
@@ -165,17 +196,20 @@ export function useResumeUpload() {
     fileName.value = file.name
     phase.value = 'uploading'
     startPolling()
-    await writeJob({ phase: 'uploading', fileName: file.name })
+    await writeJob({ phase: 'uploading', fileName: file.name }, generation)
 
     let token: string
     try {
       token = await getValidAccessToken()
     } catch {
-      await writeJob({
-        phase: 'error',
-        code: 'no_session',
-        message: 'Please sign in again before uploading your resume.',
-      })
+      await writeJob(
+        {
+          phase: 'error',
+          code: 'no_session',
+          message: 'Please sign in again before uploading your resume.',
+        },
+        generation,
+      )
       return
     }
 
@@ -183,11 +217,14 @@ export function useResumeUpload() {
     // <user_id>/<profile_id>/resume.<ext> and the parse writes that profile only.
     const profileId = await readActiveProfileId(chrome.storage.local)
     if (!profileId) {
-      await writeJob({
-        phase: 'error',
-        code: 'no_profile',
-        message: 'Please close and reopen GoFillr, then upload your resume again.',
-      })
+      await writeJob(
+        {
+          phase: 'error',
+          code: 'no_profile',
+          message: 'Please close and reopen GoFillr, then upload your resume again.',
+        },
+        generation,
+      )
       return
     }
 
@@ -195,11 +232,14 @@ export function useResumeUpload() {
     try {
       fileBytesBase64 = await fileToBase64(file)
     } catch {
-      await writeJob({
-        phase: 'error',
-        code: 'read_failed',
-        message: "Couldn't read that file. Please choose another.",
-      })
+      await writeJob(
+        {
+          phase: 'error',
+          code: 'read_failed',
+          message: "Couldn't read that file. Please choose another.",
+        },
+        generation,
+      )
       return
     }
 
@@ -221,11 +261,14 @@ export function useResumeUpload() {
       console.log('[resume-upload] handed off to service worker')
     } catch (err) {
       console.error('[resume-upload] could not reach the service worker', err)
-      await writeJob({
-        phase: 'error',
-        code: 'worker_unreachable',
-        message: 'Something went wrong starting the upload. Please try again.',
-      })
+      await writeJob(
+        {
+          phase: 'error',
+          code: 'worker_unreachable',
+          message: 'Something went wrong starting the upload. Please try again.',
+        },
+        generation,
+      )
     }
   }
 

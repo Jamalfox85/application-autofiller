@@ -18,9 +18,8 @@ export async function readFillQuota(now = new Date()): Promise<FillQuotaRecord> 
 
 export async function writeFillQuota(record: FillQuotaRecord): Promise<void> {
   await chrome.storage.local.set({ [FILL_QUOTA_KEY]: record })
-  try {
-    await chrome.storage.sync.set({ [FILL_QUOTA_KEY]: record })
-  } catch {
-    // Sync is optional (quota exceeded, disabled, or unsigned-in).
-  }
+  // The free counter is this local write. Awaiting sync here held History back: the
+  // counter moved to 1 of 25 while trackAutofill was still waiting, and a hung sync
+  // never recorded the row. Sync stays best-effort.
+  void Promise.resolve(chrome.storage.sync.set({ [FILL_QUOTA_KEY]: record })).catch(() => {})
 }

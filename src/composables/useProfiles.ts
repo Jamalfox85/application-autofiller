@@ -7,6 +7,7 @@ import { profilesApi } from '../lib/sync/profile'
 import { createProfileAfterPlanRefresh } from '../lib/sync/profileCreateGate'
 import { MAX_PROFILES, profileErrorCode, type ProfileSummary } from '../lib/sync/profiles'
 import {
+  ACTIVE_PROFILE_KEY,
   activeMirrorFromList,
   readActiveProfile,
   writeProfileMirrors,
@@ -19,11 +20,13 @@ import {
 } from '../lib/sync/profileResume'
 import { postPlanRefresh, readExtPayApiKey } from '../services/billing/planRefresh'
 import { resumeApiBaseUrl } from '../services/billing/proApiContract'
+import { mirrorEpoch, onMirrorReset } from '../lib/sync/mirrorEpoch'
 
 const profiles = ref<ProfileSummary[]>([])
 const loaded = ref(false)
 // Last-known mirror; used before list_profiles answers and when offline.
 const mirror = ref<ActiveProfileMirror | null>(null)
+let generation = 0
 
 const activeProfile = computed<ProfileSummary | null>(
   () => profiles.value.find((p) => p.is_active) ?? null,
@@ -79,13 +82,18 @@ async function loadMirror(): Promise<ActiveProfileMirror | null> {
 // list_profiles → state + activeProfile mirror. `verifyPlan` re-checks Pro first (modal open,
 // before a swap). Throws ProfileError on failure.
 async function refresh(opts: { verifyPlan?: boolean } = {}): Promise<ProfileSummary[]> {
+  const epoch = mirrorEpoch()
+  const gen = generation
   if (opts.verifyPlan) await refreshServerPlan()
+  if (epoch !== mirrorEpoch() || gen !== generation) return profiles.value
   const list = await profilesApi().listProfiles()
+  if (epoch !== mirrorEpoch() || gen !== generation) return profiles.value
   profiles.value = list
   loaded.value = true
   const active = activeMirrorFromList(list)
   if (active) {
     mirror.value = active
+    if (epoch !== mirrorEpoch() || gen !== generation) return profiles.value
     await writeProfileMirrors(chrome.storage.local, { activeProfile: active })
   }
   return list
@@ -148,9 +156,19 @@ async function remove(id: string): Promise<{ wasActive: boolean }> {
 }
 
 function reset() {
+  generation += 1
   profiles.value = []
   loaded.value = false
   mirror.value = null
+}
+
+onMirrorReset(reset)
+
+if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, ACTIVE_PROFILE_KEY)) return
+    if (changes[ACTIVE_PROFILE_KEY].newValue == null) reset()
+  })
 }
 
 export function useProfiles() {

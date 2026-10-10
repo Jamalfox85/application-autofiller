@@ -153,12 +153,16 @@ test('locked paywall copy and mixpanel names', () => {
     PAYWALL_COPY.hard.body,
     'Unlock unlimited fills, Application Match Score, and up to 5 profiles with Pro.',
   )
-  assert.equal(PAYWALL_COPY.hard.primary, 'Get Pro \u2014 $5.99/mo or $49/yr')
+  assert.equal(PAYWALL_COPY.hard.primary, 'Get Pro \u2014 $5.99/mo')
+  assert.equal(PAYWALL_COPY.hard.annual, 'Get Pro \u2014 $49/yr')
   assert.equal(PAYWALL_COPY.resumeAi.title, 'Application Match Score is a Pro feature.')
   assert.equal(PAYWALL_COPY.resumeAi.cta, 'Upgrade to Pro')
   assert.equal(PAYWALL_COPY.multiProfile.title, 'Up to 5 profiles, each with its own resume, are a Pro feature.')
   assert.equal(PAYWALL_COPY.lockedProfile.title, 'Resubscribe to use this profile again.')
-  assert.equal(JSON.stringify(PAYWALL_COPY).toLowerCase().includes('workday'), false)
+  const paywallText = JSON.stringify(PAYWALL_COPY).toLowerCase()
+  for (const ats of ['workday', 'greenhouse', 'lever', 'ashby', 'icims', 'bamboohr', 'jobvite', 'workable']) {
+    assert.equal(paywallText.includes(ats), false)
+  }
 
   assert.equal(PAID_EVENT.softShown, 'soft_paywall_shown')
   assert.equal(PAID_EVENT.softCta, 'soft_paywall_cta_clicked')
