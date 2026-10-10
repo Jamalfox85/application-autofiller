@@ -4,6 +4,7 @@ import { captureEvent } from '@/services/posthog'
 import { trackEvent } from '@/services/mixpanel'
 import { startProfileSetupSession } from '@/services/profileSetupSession'
 import { CORE_SECTIONS } from '@/utils/infocards.ts'
+import { isToolbarPopup, openResumeUploadTab } from '@/utils/uploadTab'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
@@ -18,7 +19,10 @@ const emit = defineEmits<{
 
 const fileInput = ref<HTMLInputElement | null>(null)
 
-const triggerFilePicker = () => {
+const triggerFilePicker = async () => {
+  // The toolbar popup closes when the native file dialog opens and the file is lost, so
+  // pick it in a tab instead. The worker finishes the upload; reopening the popup shows it.
+  if (isToolbarPopup() && (await openResumeUploadTab())) return
   fileInput.value?.click()
 }
 
