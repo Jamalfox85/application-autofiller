@@ -639,18 +639,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'trackAutofill') {
-    // Track usage statistics
-    chrome.storage.local.get('stats', (data) => {
+    // Answer only after the History row is stored. The popup reloads History as soon as
+    // the fill returns; responding before set() left the counter ahead of the list.
+    const entry = request.entry
+    chrome.storage.local.get(['stats', 'fillHistory', 'activeProfile'], (data) => {
       const stats = data.stats || { totalAutofills: 0, totalResponsesUsed: 0 }
       stats.totalAutofills = (stats.totalAutofills || 0) + 1
-      chrome.storage.local.set({ stats })
-    })
-
-    // Append a fill-history entry, pruning anything older than 90 days. The entry is stamped
-    // with the profile whose mirror the fill used (the popup syncs profile_id + profile_name).
-    const entry = request.entry
-    if (entry) {
-      chrome.storage.local.get(['fillHistory', 'activeProfile'], (data) => {
+      const patch = { stats }
+      if (entry) {
         const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000
         const fillHistory = (data.fillHistory || []).filter((e) => e.timestamp >= ninetyDaysAgo)
         const active = data.activeProfile && typeof data.activeProfile.id === 'string' ? data.activeProfile : null
@@ -660,11 +656,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           profileName: active ? active.name || null : null,
           ...entry,
         })
-        chrome.storage.local.set({ fillHistory })
-      })
-    }
-
-    sendResponse({ success: true })
+        patch.fillHistory = fillHistory
+      }
+      chrome.storage.local.set(patch, () => sendResponse({ success: true }))
+    })
+    return true
   }
 
   if (request.action === 'clearFillHistory') {

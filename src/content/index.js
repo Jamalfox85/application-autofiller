@@ -1,6 +1,6 @@
 // Runs on all pages on load
 
-import { autofillPage, debounceAutofill, consumeAutofillTriggerForSubmission } from './autofill.ts'
+import { autofillPage, debounceAutofill, consumeAutofillTriggerForSubmission, pageNavigated } from './autofill.ts'
 import {
   showAutofillNotification,
   showAutofillPrompt,
@@ -193,22 +193,23 @@ async function initialize() {
     subtree: true,
   })
 
-  // Watch for URL changes (SPA navigation)
+  // Watch for URL changes (SPA navigation). lastUrl has to live outside the tick;
+  // declaring it inside made currentUrl === lastUrl on every pass, so this never ran.
+  let lastUrl = window.location.href
   setInterval(() => {
-    let lastUrl = window.location.href
     const currentUrl = window.location.href
-    if (currentUrl !== lastUrl) {
-      lastUrl = currentUrl
-      hasShownPopup = false
+    if (currentUrl === lastUrl) return
+    lastUrl = currentUrl
+    pageNavigated()
+    hasShownPopup = false
 
-      setTimeout(() => {
-        void startMatchScore()
-        if (autoDetectEnabled) {
-          showAutofillPrompt()
-          hasShownPopup = true
-        }
-      }, 1000)
-    }
+    setTimeout(() => {
+      void startMatchScore()
+      if (autoDetectEnabled) {
+        showAutofillPrompt()
+        hasShownPopup = true
+      }
+    }, 1000)
   }, 500)
 
   // Best-effort application_submitted detection: only fires on forms the extension actually

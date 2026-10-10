@@ -122,4 +122,51 @@ test('a short job title field still maps to the current title', () => {
     ],
   })
   assert.equal(matchFieldToData('jobtitle', info, [])?.matchedValue, 'Engineer')
+  assert.equal(matchFieldToData('position', info, [])?.matchedValue, 'Engineer')
+  assert.equal(matchFieldToData('role', info, [])?.matchedValue, 'Engineer')
+})
+
+test('address, email, and long labels still map when the signature exceeds 70 characters', () => {
+  const info = profile({
+    firstName: 'Ada',
+    lastName: 'Lovelace',
+    email: 'ada@example.com',
+    phone: '5551234567',
+    address: '1 Main St',
+  })
+  assert.equal(matchFieldToData('address', info, [])?.matchedValue, '1 Main St')
+  const longAddress =
+    'jobapplication[address]addressstreetaddress(includeapartmentsuiteunitbuildingflooretc.)streetaddress(includeapartmentsuiteunitbuildingflooretc.)addressline1text'
+  assert.ok(longAddress.replace(/question_?\d{4,}/g, '').length > 70)
+  assert.equal(matchFieldToData(longAddress, info, [])?.matchedValue, '1 Main St')
+  assert.equal(matchFieldToData('whatisyourcurrenthomeaddress?', info, [])?.matchedValue, '1 Main St')
+  const longEmail =
+    'emailemailemailaddressweshouldusetocontactyouaboutthisapplicationemailemail'
+  assert.ok(longEmail.length > 70)
+  assert.equal(matchFieldToData(longEmail, info, [])?.matchedValue, 'ada@example.com')
+  const longFirst =
+    'firstnamefirstnamelegalfirstnameasitappearsonyourgovernmentissuedidentificationgivennametext'
+  assert.ok(longFirst.length > 70)
+  assert.equal(matchFieldToData(longFirst, info, [])?.matchedValue, 'Ada')
+  assert.equal(matchFieldToData('contact', info, [])?.matchedValue, '5551234567')
+})
+
+test('a sentence that merely contains role or position does not become the job title', () => {
+  const info = profile({
+    experience: [
+      { id: 1, companyName: 'Acme', jobTitle: 'Engineer', startDate: '', endDate: '', present: true, description: 'Built things' },
+    ],
+  })
+  assert.equal(
+    matchFieldToData('thispositionishybrid4daysinoffice.areyouokwiththat', info, []),
+    null,
+  )
+  assert.equal(
+    matchFieldToData('legallyauthorizedtoworkinthecountryinwhichthisroleislocated', info, []),
+    null,
+  )
+  assert.equal(
+    matchFieldToData('explainhowyouwouldapproachthisroleonourplatform', info, []),
+    null,
+  )
 })

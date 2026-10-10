@@ -327,6 +327,21 @@ const fieldHandlers: Array<{
           if (value != null) commitNativeSelect(input, value)
           return true
         }
+        // Job-board embeds (Dropbox and other gh_jid hosts) render the end-date year
+        // as a react-select, same as the month. Typing the year and blurring leaves
+        // the search text and never selects the option.
+        if (input.getAttribute('role') === 'combobox' || input.closest('.select')) {
+          const current = selectedComboboxLabel(input)
+          if (current === year) return true
+          await fillReactSelect(
+            input,
+            year,
+            `[id^=react-select-${input.id}-option-]`,
+            (options) => pickMonthOption(options, year),
+            'greenhouse',
+          )
+          return true
+        }
         await fillNativeInput(input, year)
         return true
       }

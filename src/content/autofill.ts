@@ -151,13 +151,23 @@ function isSkippableField(input: FormField, includeFilled?: (input: FormField) =
 // (Greenhouse education rows) be topped up without another click.
 let userStartedFillOnPage = false
 
+// A client-side navigation is a new page. The click that filled the previous URL
+// must not top up the next one, and a resync already queued for the old form must not fire.
+export function pageNavigated() {
+  userStartedFillOnPage = false
+  hasShownPopup = false
+  if (autofillDebounceTimer) {
+    clearTimeout(autofillDebounceTimer)
+    autofillDebounceTimer = null
+  }
+}
+
 export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_clicked_button') {
   // No fill without a user click. A detection-triggered call must not write, count or
   // record history; a resync is only a continuation of a fill the user already started.
   if (triggerSource === 'auto_on_detect' || (triggerSource === 'resync' && !userStartedFillOnPage)) {
     return { success: false, code: 'needs_click', message: 'Click Auto-fill to fill this form.' }
   }
-  if (triggerSource === 'user_clicked_button') userStartedFillOnPage = true
   let filledCount = 0
   let attemptedCount = 0
   let reportedAttempt = false
@@ -222,6 +232,10 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
         message: PAYWALL_COPY.hard.title,
       }
     }
+
+    // Arm resync only after the click is allowed to write. A hard-cap or empty-profile
+    // click must not fill a later mutation on its own.
+    if (triggerSource === 'user_clicked_button') userStartedFillOnPage = true
 
     const activeSiteRule = siteRules.find((rule) => rule.detect())
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
@@ -337,8 +351,9 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
         const charged = await chargeFillQuota(ats || 'other')
         if (charged) {
           // One counted fill is one History row, recorded here so every path (popup, toast,
-          // shortcut, resync) agrees with the counter.
-          void recordFillHistory(filledCount, attemptedCount)
+          // shortcut, resync) agrees with the counter. Await the write: the popup reloads
+          // History as soon as this returns, and the free counter is already committed.
+          await recordFillHistory(filledCount, attemptedCount)
           paywall = charged.nudge
           fillCount = charged.fillCount
           fillsRemaining = charged.fillsRemaining

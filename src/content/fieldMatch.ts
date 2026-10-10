@@ -5,8 +5,53 @@ import { coerceFillText } from '../utils/fillValue.ts'
 import type { PersonalInfo, CustomResponse, Education, Experience } from '../types/index.ts'
 
 function matchesPattern(fieldText: string, pattern: string): boolean {
-  return fieldText.includes(pattern.toLowerCase().replace(/[\s_-]/g, ''))
+  const normalized = pattern.toLowerCase().replace(/[\s_-]/g, '')
+  if (!normalized || !fieldText.includes(normalized)) return false
+  // "role" / "position" / "contact" / "site" are real field names and also ordinary words
+  // inside screening questions. Suppress only those generic tokens on question prose.
+  // Specific tokens ("address", "email", "jobtitle", "firstname") still match, including
+  // when the label is long or phrased as a question ("What is your address?").
+  if (isQuestionLikeField(fieldText) && GENERIC_QUESTION_PATTERNS.has(normalized)) return false
+  return true
 }
+
+// Words that are both field patterns and ordinary English. They must not fire just because
+// a screening question mentions them.
+const GENERIC_QUESTION_PATTERNS = new Set([
+  'role',
+  'position',
+  'contact',
+  'site',
+  'mail',
+  'cell',
+  'average',
+  'grade',
+  'description',
+  'duties',
+  'responsibilities',
+  'residence',
+  'citizenship',
+  'notice',
+  'availability',
+])
+
+// Sentence cues. A long Address / email label has none of these; "this role" and
+// "are you" do. Length of the raw signature is not a cue: name + id + label + aria
+// repeat, and a legitimate label ("Street address, including apartment...") crosses
+// 70 characters without being a screening question.
+const QUESTION_CUES = [
+  'areyou',
+  'doyou',
+  'willyou',
+  'haveyou',
+  'didyou',
+  'canyou',
+  'legallyauthorized',
+  'authorizedtowork',
+  'requiresponsor',
+  'thisrole',
+  'thisposition',
+]
 
 // Screening questions ("Legally authorized to work?", "Are you comfortable with hybrid 4 days in
 // office?") carry the whole question in the label and an opaque id such as question68839955.
@@ -14,30 +59,39 @@ function matchesPattern(fieldText: string, pattern: string): boolean {
 // type a job title or the id itself into them.
 export function isQuestionLikeField(fieldText: string): boolean {
   const withoutIds = fieldText.replace(/question_?\d{4,}/g, '')
-  return withoutIds.includes('?') || withoutIds.length > 70
+  if (withoutIds.includes('?')) return true
+  if (QUESTION_CUES.some((cue) => withoutIds.includes(cue))) return true
+  // Prose that doesn't use those cues. Collapse name/id/label/aria copies first so a
+  // repeated short label is not treated as a 70-character question.
+  return collapsedLength(withoutIds) > 70
 }
 
-// Keys that may still be matched generically on a question-style field.
-const QUESTION_SAFE_KEYS = new Set([
-  'linkedin',
-  'github',
-  'website',
-  'twitter',
-  'gender',
-  'raceEthnicity',
-  'disabilityStatus',
-  'veteranStatus',
-  'age18OrOlder',
-  'desiredSalary',
-  'workAuthorization',
-])
+function collapsedLength(text: string): number {
+  let out = text
+  for (let guard = 0; guard < 8; guard++) {
+    const next = stripOneRepeat(out)
+    if (next === out) break
+    out = next
+  }
+  return out.length
+}
+
+function stripOneRepeat(out: string): string {
+  for (let len = Math.floor(out.length / 2); len >= 12; len--) {
+    for (let i = 0; i + len <= out.length; i++) {
+      const chunk = out.slice(i, i + len)
+      const second = out.indexOf(chunk, i + len)
+      if (second !== -1) return out.slice(0, second) + out.slice(second + len)
+    }
+  }
+  return out
+}
 
 export function matchFieldToData(
   fieldText: string,
   personalInfo: PersonalInfo,
   customResponses: CustomResponse[],
 ) {
-  const questionLike = isQuestionLikeField(fieldText)
   // Special exclusion checks  i.e. - Don't match "city" if field contains these
   const exclusions: { [key: string]: string[] } = {
     address: ['city', 'postal', 'zip', 'state', 'country', 'province'], // Exclude these from address match
@@ -49,7 +103,7 @@ export function matchFieldToData(
     jobTitle: ['salary'],
   }
 
-  const response = questionLike ? undefined : matchFullNameField(fieldText, personalInfo)
+  const response = matchFullNameField(fieldText, personalInfo)
   if (response)
     return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
 
@@ -62,13 +116,13 @@ export function matchFieldToData(
     return { matchedValue: location, relativeMatchKey: 'location' }
   }
 
-  if (!questionLike && personalInfo.education && personalInfo.education.length > 0) {
+  if (personalInfo.education && personalInfo.education.length > 0) {
     const response = matchEducationField(fieldText, personalInfo)
     if (response)
       return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
   }
 
-  if (!questionLike && personalInfo.experience && personalInfo.experience.length > 0) {
+  if (personalInfo.experience && personalInfo.experience.length > 0) {
     const response = matchExperienceField(fieldText, personalInfo)
     if (response)
       return { matchedValue: response.matchedValue, relativeMatchKey: response.relativeMatchKey }
@@ -76,7 +130,6 @@ export function matchFieldToData(
 
   // Check standard fields
   for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
-    if (questionLike && !QUESTION_SAFE_KEYS.has(key)) continue
     for (const pattern of patterns) {
       if (matchesPattern(fieldText, pattern)) {
         if (exclusions[key]) {
@@ -218,10 +271,15 @@ function matchFullNameField(fieldText: string, personalInfo: PersonalInfo) {
   // Must contain "name" but not be a partial or non-person name field
   const containsName = fieldText.includes('name')
 
-  if (
-    isExplicitFullName ||
-    (containsName && !isPartialNameField && !isNonPersonName && !isCommonMalPattern)
-  ) {
+  // Bare "name" inside a screening question ("name of your manager?") is not the
+  // applicant. Explicit labels (full name, your name, first name) still match.
+  const looseName =
+    !isQuestionLikeField(fieldText) &&
+    containsName &&
+    !isPartialNameField &&
+    !isNonPersonName &&
+    !isCommonMalPattern
+  if (isExplicitFullName || looseName) {
     const firstName = coerceFillText(personalInfo.firstName) || ''
     const lastName = coerceFillText(personalInfo.lastName) || ''
     const fullName = `${firstName} ${lastName}`.trim()
