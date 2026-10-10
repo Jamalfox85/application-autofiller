@@ -127,7 +127,6 @@ test('manifest content script and the command fallback target content.js', () =>
     'https://api.mixpanel.com/*',
     'https://api-js.mixpanel.com/*',
     'https://*.supabase.co/*',
-    'http://localhost:8080/*',
     'https://api-production-5aca1.up.railway.app/*',
     'https://api.eu.lever.co/*',
     'https://www.workable.com/*',

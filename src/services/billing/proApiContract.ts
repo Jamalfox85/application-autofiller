@@ -25,9 +25,14 @@ export function configuredResumeApiKey(apiKey: string | null | undefined): strin
   return key
 }
 
+// Production resume API. Release builds must set VITE_RESUME_API_URL (scripts/check-release-env.mjs
+// fails the build otherwise); this is only the runtime fallback when it is empty. There is no
+// localhost fallback: the manifest does not grant localhost, so dev builds opt in via `npm run build:dev`.
+export const PROD_RESUME_API_URL = 'https://api-production-5aca1.up.railway.app/api/v1'
+
 export function resumeApiBaseUrl(configured: string | null | undefined): string {
   const value = (configured ?? '').trim().replace(/\/$/, '')
-  return value || 'http://localhost:8080/api/v1'
+  return value || PROD_RESUME_API_URL
 }
 
 // Bearer is the Supabase user access token. X-API-Key is included only when the
