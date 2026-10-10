@@ -9,6 +9,7 @@ import {
   hrefHasGreenhouseJobId,
   isWorkableApplyHost,
 } from './ats.ts'
+import { getSiteLabel } from './jobSitePatterns.ts'
 
 test('maps Greenhouse job-board hosts', () => {
   assert.equal(atsFromHostname('job-boards.greenhouse.io'), 'greenhouse')
@@ -24,6 +25,25 @@ test('maps other known ATS hosts and ignores everyone else', () => {
   assert.equal(atsFromHostname('www.workday.com'), 'workday')
   assert.equal(atsFromHostname('jobs.ashbyhq.com'), 'ashby')
   assert.equal(atsFromHostname('careers.example.com'), null)
+  assert.equal(atsFromHostname('jobs.smartrecruiters.com'), null)
+  assert.equal(atsFromHostname('recruiting2.ultipro.com'), null)
+  assert.equal(atsFromHostname('acme.breezy.hr'), null)
+  assert.equal(atsFromHostname('acme.recruitee.com'), null)
+  assert.equal(atsFromHostname('acme.jazz.co'), null)
+  assert.equal(atsFromHostname('acme.applytojob.com'), null)
+})
+
+test('removed ATS hosts are not treated as known job platforms', () => {
+  assert.equal(getSiteLabel('jobs.smartrecruiters.com'), 'jobs.smartrecruiters.com')
+  assert.equal(getSiteLabel('recruiting2.ultipro.com'), 'recruiting2.ultipro.com')
+  assert.equal(getSiteLabel('acme.breezy.hr'), 'acme.breezy.hr')
+  assert.equal(getSiteLabel('acme.recruitee.com'), 'acme.recruitee.com')
+  assert.equal(getSiteLabel('acme.jazz.co'), 'acme.jazz.co')
+  assert.equal(getSiteLabel('acme.applytojob.com'), 'acme.applytojob.com')
+  assert.equal(getSiteLabel('jobs.lever.co'), 'Lever')
+  assert.equal(getSiteLabel('boards.greenhouse.io'), 'Greenhouse')
+  assert.equal(getSiteLabel('jobs.jobvite.com'), 'Jobvite')
+  assert.equal(getSiteLabel('apply.workable.com'), 'Workable')
 })
 
 test('hosted Lever stays lever even when the form id matches Greenhouse and gh_jid is present', () => {

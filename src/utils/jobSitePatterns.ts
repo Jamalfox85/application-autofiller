@@ -5,17 +5,11 @@ export const jobPlatforms = [
   'myworkdayjobs.com',
   'icims.com',
   'taleo',
-  'smartrecruiters.com',
   'bamboohr.com',
   'ashbyhq.com',
   'jobvite.com',
   // Hosted apply only. www.workable.com is the marketing site.
   'apply.workable.com',
-  'ultipro.com',
-  'breezy.hr',
-  'recruitee.com',
-  'jazz.co',
-  'applytojob.com',
   'dayforcehcm',
 ]
 
