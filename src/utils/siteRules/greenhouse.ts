@@ -86,8 +86,9 @@ export default function greenhouseConfig(): SiteRule {
           return result
         }
       }
-      // A dropdown with no handler stays empty: typing into its search box never selects.
-      if (isReactSelectControl(input)) return 'skip'
+      // A dropdown with no handler goes to the generic matcher, which now selects an option only
+      // when an answer (vault value or saved response) matches one exactly, and otherwise
+      // leaves it empty and closed.
       return false
     },
     formChanged: () => {

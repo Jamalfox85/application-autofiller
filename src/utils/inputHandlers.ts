@@ -34,6 +34,9 @@ export async function fillNativeInput(
   input.focus()
   input.dispatchEvent(new Event('focus', { bubbles: true }))
 
+  // Per-character events are what the page's handlers see, but 20ms each made a long answer
+  // (a cover note, a URL) take seconds. Keep full fidelity for short values, go faster on long.
+  const perCharDelayMs = text.length > 40 ? 2 : text.length > 15 ? 8 : 20
   let current = ''
   for (const char of text) {
     current += char
@@ -41,7 +44,7 @@ export async function fillNativeInput(
     input.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
     setReactInputValue(input, current)
     input.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => setTimeout(resolve, perCharDelayMs))
   }
 
   input.dispatchEvent(new Event('change', { bubbles: true }))
@@ -771,4 +774,31 @@ const waitForBambooHROption = (
     // country (Uganda, when the list is windowed next to United States).
     retryLater()
   })
+}
+
+// Picks the option that IS the answer: an exact label, or a label that starts with the answer as
+// whole words ("Yes" -> "Yes, I am"). Never a substring, so "No" cannot land on "Not applicable"
+// and a stray value cannot select an unrelated row.
+export function pickExactAnswerOption(optionTexts: string[], answer: string): string | null {
+  const q = answer.toLowerCase().replace(/\s+/g, ' ').trim()
+  if (!q) return null
+  const norm = optionTexts.map((text) => (text || '').toLowerCase().replace(/\s+/g, ' ').trim())
+  const exact = norm.indexOf(q)
+  if (exact >= 0) return optionTexts[exact]
+  const prefixed = norm.findIndex((text) => text.startsWith(q) && /^[\s,.:;)\-–—]/.test(text.slice(q.length)))
+  return prefixed >= 0 ? optionTexts[prefixed] : null
+}
+
+// A react-select search box is not a text field: typing into it selects nothing. Open the
+// menu, take the option that matches the answer, and close the menu if none does.
+export async function fillReactSelectAnswer(input: HTMLInputElement, answer: string): Promise<boolean> {
+  const text = answer.trim()
+  if (!text) return false
+  return fillReactSelect(
+    input,
+    text,
+    `[id^=react-select-${input.id}-option-]`,
+    (options) => pickExactAnswerOption(options, text),
+    'greenhouse',
+  )
 }

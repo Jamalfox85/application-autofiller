@@ -21,6 +21,7 @@ import {
   setSelectValue,
   setCheckboxValue,
   setRadioValue,
+  fillReactSelectAnswer,
 } from '@/utils/inputHandlers.ts'
 import { normalizeText } from '@/utils/helpers.ts'
 import { trackFillContract, type TrackFillContractContext } from '@/services/fillTelemetry'
@@ -592,6 +593,11 @@ async function fillByDefault(
   const text = coerceFillText(matchedValue)
   if (!text) return false
 
+  if (input instanceof HTMLInputElement && input.classList.contains('select__input')) {
+    // Greenhouse react-select question with a vault or saved-response answer. Select the
+    // matching option; leave it empty and closed when the list has no such answer.
+    return fillReactSelectAnswer(input, text)
+  }
   if (input instanceof HTMLSelectElement && relativeMatchKey) {
     const handled = setSelectValue(input, text, relativeMatchKey)
     if (handled) {
