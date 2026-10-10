@@ -30,6 +30,7 @@ import { rememberFillBlock } from '@/services/billing/proUnlock'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
+import { withTimeout } from '../utils/withTimeout.ts'
 import { quotaPageKey } from '@/services/billing/quotaPage'
 import {
   captureFieldSnapshot,
@@ -342,18 +343,29 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     const ats = access?.ats
 
     if (filledCount > 0) {
-      await trackFillContract('autofill_succeeded', {
-        ...fillContext,
-        eeo: readLeverEeoTelemetry(),
-        telemetry,
-      })
-      try {
+      // Analytics and billing are network calls. Bound the wait so a slow one cannot hold back
+      // the "Autofill completed" toast; the work still finishes in the background.
+      await withTimeout(
+        trackFillContract('autofill_succeeded', {
+          ...fillContext,
+          eeo: readLeverEeoTelemetry(),
+          telemetry,
+        }),
+        2500,
+        undefined,
+      )
+      const charge = (async () => {
         const charged = await chargeFillQuota(ats || 'other')
         if (charged) {
           // One counted fill is one History row, recorded here so every path (popup, toast,
-          // shortcut, resync) agrees with the counter. Await the write: the popup reloads
-          // History as soon as this returns, and the free counter is already committed.
+          // shortcut, resync) agrees with the counter.
           await recordFillHistory(filledCount, attemptedCount)
+        }
+        return charged
+      })()
+      try {
+        const charged = await withTimeout(charge, 6000, null)
+        if (charged) {
           paywall = charged.nudge
           fillCount = charged.fillCount
           fillsRemaining = charged.fillsRemaining

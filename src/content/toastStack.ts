@@ -27,6 +27,9 @@ export function toastStack(doc: Document = document): HTMLElement {
     `
     ;(doc.body ?? doc.documentElement).appendChild(stack)
   }
+  // Some job pages (Remix/React hydration) rebuild <body> after the script has run and drop
+  // nodes we added. A stack that is no longer attached would swallow the toast silently.
+  if (!stack.isConnected) (doc.body ?? doc.documentElement).appendChild(stack)
   return stack
 }
 

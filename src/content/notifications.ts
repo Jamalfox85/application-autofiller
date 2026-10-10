@@ -104,6 +104,12 @@ export function showAutofillNotification(_summary?: { fieldsCount?: number; tota
   `
 
   mountInToastStack(card)
+  // If the page rebuilds the body right after the fill (hydration), put the toast back.
+  for (const delayMs of [300, 1200]) {
+    setTimeout(() => {
+      if (!card.isConnected && card.style.opacity !== '0') mountInToastStack(card)
+    }, delayMs)
+  }
 
   // "Filled with {name}" for accounts with 2+ profiles. Read from the activeProfile mirror the
   // popup keeps next to personalInfo, so it names the profile this fill actually used.
