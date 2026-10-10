@@ -53,6 +53,7 @@ import {
   parseIcimsAccountNotice,
 } from '@/utils/siteRules/icimsAccountNotice.ts'
 import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
+import { EMPTY_PROFILE_FILL_MESSAGE, profileHasAutofillData } from '@/utils/fillValue.ts'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -257,6 +258,18 @@ const scanCurrentPageManually = async () => {
 
 const autofillCurrentPage = async () => {
   if (autofillState.value !== 'idle') return
+
+  // An empty profile cannot fill anything. Say so now instead of scanning the
+  // page and returning with no explanation.
+  try {
+    const stored = await chrome.storage.local.get('personalInfo')
+    if (!profileHasAutofillData(stored.personalInfo)) {
+      showNotification(EMPTY_PROFILE_FILL_MESSAGE, 'error')
+      return
+    }
+  } catch {
+    // Storage unreadable: let the content script make the call.
+  }
 
   autofillState.value = 'filling'
   try {
