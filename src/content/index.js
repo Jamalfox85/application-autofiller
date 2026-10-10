@@ -6,13 +6,15 @@ import {
   showAutofillPrompt,
   showErrorNotification,
 } from './notifications.ts'
+import { jobPlatforms, getSiteLabel } from '../utils/jobSitePatterns.ts'
+import { FIELD_POLL_MS, FIELD_WAIT_MS } from '../utils/detectionRetry.ts'
 import {
-  jobPlatforms,
-  excludePatterns,
-  applicationUrlPatterns,
-  getSiteLabel,
-} from '../utils/jobSitePatterns.ts'
-import { FIELD_POLL_MS, FIELD_WAIT_MS, waitForFieldCount } from '../utils/detectionRetry.ts'
+  detectApplicationPage,
+  detectApplicationPageWhenReady,
+  isKnownApplicationUrl,
+  isListingOrBoardUrl,
+} from './applicationDetect.ts'
+import { dismissAutofillPrompt } from './applicationPrompt.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 
 import { trackEvent } from '../services/mixpanelHttp'
@@ -81,21 +83,19 @@ function onRuntimeMessage(request, _sender, sendResponse) {
 
   if (request.action === 'detectApplication') {
     // The popup asks each frame and keeps the one with the most controls. Answer
-    // for this frame only. Waiting out an empty sibling here used to lose to a
-    // shell that replied "not found" before this form had rendered.
-    const countFields = () => document.querySelectorAll('input:not([type="hidden"]), textarea, select').length
-    const detected = isLikelyJobApplicationPage()
-    const timeoutMs = detected ? FIELD_WAIT_MS : 0
-    waitForFieldCount(countFields, (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs, FIELD_POLL_MS).then(
-      (fieldCount) => {
-        const found = detected && fieldCount > 0
-        sendResponse({
-          detected: found,
-          siteLabel: found ? getSiteLabel(window.location.hostname) : null,
-          fieldCount: found ? fieldCount : 0,
-        })
-      },
-    )
+    // for this frame only. A known apply URL retries until the form mounts; a
+    // board or listing URL answers immediately so filters are not a form.
+    const read = () => detectApplicationPage({ href: window.location.href, document })
+    detectApplicationPageWhenReady(read, (ms) => new Promise((r) => setTimeout(r, ms)), {
+      timeoutMs: FIELD_WAIT_MS,
+      stepMs: FIELD_POLL_MS,
+    }).then((result) => {
+      sendResponse({
+        detected: result.detected,
+        siteLabel: result.detected ? getSiteLabel(window.location.hostname) : null,
+        fieldCount: result.detected ? result.fieldCount : 0,
+      })
+    })
     return true
   }
 }
@@ -127,6 +127,12 @@ if (!globalThis[CONTENT_SCRIPT_INSTALLED]) {
 }
 
 let hasShownPopup = false
+let autoDetectEnabled = true
+let applicationHooksInstalled = false
+let lateFormWatchInstalled = false
+let claimedUrl = ''
+let syncGen = 0
+
 async function initialize() {
   // gofillr.com is not a job page, so this has to run before the early return below.
   // Only the top frame: iframes would report the parent as the referrer.
@@ -136,62 +142,10 @@ async function initialize() {
 
   await maybeTrackConfirmationPage()
 
-  // Check if this is a job application page
-  const detection = detectJobApplicationPage()
-  if (!detection.detected) {
-    return
-  }
-
-  const personalInfoData = await chrome.storage.local.get('personalInfo')
-  const personalInfo = personalInfoData.personalInfo
-
-  // job_site_visit_detected only makes sense once the user actually has a profile to fill
-  // with — before that there's no meaningful "time since profile completed" to report.
-  const profileCompletedAt = await getProfileSetupCompletedAt()
-  if (profileCompletedAt) {
-    await trackJobSiteVisit(detection.method, profileCompletedAt)
-  }
-
-  // Get user's auto-detect preference
-  const settings = await chrome.storage.local.get('autoDetectEnabled')
-  const autoDetectEnabled = settings.autoDetectEnabled ?? true
-
-  // Match Score waits for a form, then scores without awaiting autofill.
-  void startMatchScore()
-
-  // Auto-detect ON only offers the fill: a toast the user must click. It never writes to the
-  // page on its own (the product promise is "review before fill", and a silent fill bypassed
-  // the Free cap and History). Auto-detect OFF shows nothing at all; the popup and shortcut
-  // still work.
-  if (autoDetectEnabled) {
-    setTimeout(() => {
-      if (!hasShownPopup) {
-        showAutofillPrompt()
-        hasShownPopup = true
-      }
-    }, 1000)
-  }
-
-  const activeSiteRule = siteRules.find((rule) => rule.detect())
-  if (activeSiteRule && activeSiteRule.onMount) {
-    activeSiteRule.onMount(personalInfo)
-  }
-
-  // Watch for form changes (multi-step forms)
-  const observer = new MutationObserver((mutations) => {
-    const siteSpecificChangeDetected =
-      activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
-
-    if (siteSpecificChangeDetected) {
-      hasShownPopup = false
-      debounceAutofill(autoDetectEnabled)
-    }
-  })
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  })
+  // A board index is not an application, but Greenhouse (and the other ATS hosts)
+  // navigate to the apply form without a new document. Watch the URL either way,
+  // and watch the DOM for a form that mounts after the first paint.
+  installLateFormWatch()
 
   // Watch for URL changes (SPA navigation). lastUrl has to live outside the tick;
   // declaring it inside made currentUrl === lastUrl on every pass, so this never ran.
@@ -202,15 +156,113 @@ async function initialize() {
     lastUrl = currentUrl
     pageNavigated()
     hasShownPopup = false
-
-    setTimeout(() => {
-      void startMatchScore()
-      if (autoDetectEnabled) {
-        showAutofillPrompt()
-        hasShownPopup = true
-      }
-    }, 1000)
+    claimedUrl = ''
+    dismissAutofillPrompt()
+    void syncApplicationPage()
   }, 500)
+
+  void syncApplicationPage()
+}
+
+function installLateFormWatch() {
+  if (lateFormWatchInstalled || !document.body) return
+  lateFormWatchInstalled = true
+  let timer = 0
+  const observer = new MutationObserver(() => {
+    if (isListingOrBoardUrl(window.location.href)) return
+    if (hasShownPopup && claimedUrl === window.location.href) return
+    window.clearTimeout(timer)
+    timer = window.setTimeout(() => {
+      const now = detectApplicationPage({ href: window.location.href, document })
+      if (now.detected) void syncApplicationPage()
+    }, FIELD_POLL_MS)
+  })
+  observer.observe(document.body, { childList: true, subtree: true })
+}
+
+function readApplicationPage() {
+  return detectApplicationPage({ href: window.location.href, document })
+}
+
+async function syncApplicationPage() {
+  const gen = ++syncGen
+  const hrefAtStart = window.location.href
+  const first = readApplicationPage()
+  if (gen !== syncGen || window.location.href !== hrefAtStart) return
+
+  // Site rules mount immediately (Workday's Apply click, iCIMS login, Greenhouse
+  // education rows), including on a board that must not toast. Waiting for a late
+  // form here used to delay that setup.
+  const siteRuleMatches = siteRules.some((rule) => rule.detect())
+  const worthWatching = first.detected || first.pending || siteRuleMatches || isKnownApplicationUrl(hrefAtStart)
+  if (worthWatching) {
+    const stored = await chrome.storage.local.get(['personalInfo', 'autoDetectEnabled'])
+    if (gen !== syncGen || window.location.href !== hrefAtStart) return
+    autoDetectEnabled = stored.autoDetectEnabled ?? true
+    installApplicationHooks(stored.personalInfo)
+    if (first.detected || isKnownApplicationUrl(hrefAtStart)) void startMatchScore()
+  }
+
+  const detection = first.pending
+    ? await detectApplicationPageWhenReady(readApplicationPage, (ms) => new Promise((resolve) => setTimeout(resolve, ms)), {
+        timeoutMs: FIELD_WAIT_MS,
+        stepMs: FIELD_POLL_MS,
+      })
+    : first
+  if (gen !== syncGen || window.location.href !== hrefAtStart) return
+
+  if (!detection.detected) {
+    if (claimedUrl === hrefAtStart) return
+    dismissAutofillPrompt()
+    return
+  }
+  if (claimedUrl === hrefAtStart) return
+  claimedUrl = hrefAtStart
+
+  // job_site_visit_detected only makes sense once the user actually has a profile to fill
+  // with — before that there's no meaningful "time since profile completed" to report.
+  const profileCompletedAt = await getProfileSetupCompletedAt()
+  if (gen !== syncGen || window.location.href !== hrefAtStart) return
+  if (profileCompletedAt) {
+    await trackJobSiteVisit(detection.method, profileCompletedAt)
+  }
+
+  // Auto-detect ON only offers the fill: a toast the user must click. It never writes to the
+  // page on its own (the product promise is "review before fill", and a silent fill bypassed
+  // the Free cap and History). Auto-detect OFF shows nothing at all; the popup and shortcut
+  // still work.
+  if (autoDetectEnabled) {
+    if (!hasShownPopup) {
+      showAutofillPrompt()
+      hasShownPopup = true
+    }
+  }
+}
+
+function installApplicationHooks(personalInfo) {
+  if (applicationHooksInstalled) return
+  applicationHooksInstalled = true
+
+  const activeSiteRule = siteRules.find((rule) => rule.detect())
+  if (activeSiteRule && activeSiteRule.onMount) {
+    activeSiteRule.onMount(personalInfo)
+  }
+
+  // Watch for form changes (multi-step forms). A listing the SPA navigates back
+  // to must not re-offer just because filter inputs appeared.
+  const observer = new MutationObserver((mutations) => {
+    const siteSpecificChangeDetected =
+      activeSiteRule && activeSiteRule.formChanged && activeSiteRule.formChanged(mutations)
+    if (!siteSpecificChangeDetected) return
+    if (!detectApplicationPage({ href: window.location.href, document }).detected) return
+    hasShownPopup = false
+    debounceAutofill(autoDetectEnabled)
+  })
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+  })
 
   // Best-effort application_submitted detection: only fires on forms the extension actually
   // engaged with (autofill was triggered this session). clicked_submit is the form submit
@@ -278,28 +330,3 @@ async function trackApplicationSubmitted(submitMethod) {
   captureEvent('application_submitted', properties)
 }
 
-function detectJobApplicationPage() {
-  const url = window.location.href.toLowerCase()
-
-  const isJobPlatform = jobPlatforms.some((platform) => url.includes(platform))
-  if (isJobPlatform) {
-    return { detected: true, method: 'url_pattern' }
-  }
-
-  if (excludePatterns.some((pattern) => url.includes(pattern))) {
-    return { detected: false, method: null }
-  }
-
-  const hasApplicationUrl = applicationUrlPatterns.some((pattern) => url.includes(pattern))
-
-  // It's likely a job application if:
-  // 1. URL suggests application page AND has basic form fields, OR
-  // 2. Page has job-specific fields (resume, cover letter, etc.)
-  const hasForm = document.querySelectorAll('form').length > 0
-
-  return { detected: hasApplicationUrl && hasForm, method: 'dom_detection' }
-}
-
-function isLikelyJobApplicationPage() {
-  return detectJobApplicationPage().detected
-}
