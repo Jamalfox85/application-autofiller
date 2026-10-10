@@ -1,5 +1,7 @@
 // src/services/posthog.ts
 import { getInstallSourceProperties } from './installSource'
+import { extensionBuildChannel } from './buildChannel'
+import { finalizeTrackedProperties } from './mixpanelConfig'
 
 const POSTHOG_API_KEY = import.meta.env.VITE_POSTHOG_API_KEY as string
 const POSTHOG_API_HOST = import.meta.env.VITE_POSTHOG_API_HOST as string
@@ -9,11 +11,14 @@ export const captureEvent = async (
   properties?: Record<string, any>,
   options?: { keepalive?: boolean },
 ) => {
-  const installProps = await getInstallSourceProperties()
+  const [installProps, channel] = await Promise.all([
+    getInstallSourceProperties(),
+    extensionBuildChannel(),
+  ])
   const payload = {
     api_key: POSTHOG_API_KEY,
     event: eventName,
-    properties: { ...installProps, ...(properties || {}) },
+    properties: finalizeTrackedProperties({ ...installProps, ...(properties || {}) }, channel),
     distinct_id: 'extension-user', // Required
     timestamp: new Date().toISOString(),
   }
@@ -36,11 +41,12 @@ export const captureEvent = async (
 }
 
 export const identifyUser = async (userId: string, properties?: Record<string, any>) => {
+  const channel = await extensionBuildChannel()
   const payload = {
     api_key: POSTHOG_API_KEY,
     event: '$identify',
     distinct_id: userId,
-    properties: properties || {},
+    properties: finalizeTrackedProperties(properties, channel),
     timestamp: new Date().toISOString(),
   }
 

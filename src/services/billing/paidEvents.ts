@@ -36,6 +36,8 @@ export function sharedPaidProps(ctx: PaidEventContext): Record<string, unknown> 
     distinct_id: ctx.distinctId || undefined,
     user_id: ctx.userId || undefined,
     extension_version: ctx.extensionVersion || undefined,
+    // Install label (draft | cws). Mixpanel and PostHog senders replace
+    // build_channel with the build stamp, test or production.
     build_channel: ctx.buildChannel || undefined,
   }
 }

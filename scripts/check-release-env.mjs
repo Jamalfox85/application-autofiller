@@ -1,7 +1,11 @@
-// Release guard: the shipped extension must talk to the production resume API.
-// Fails the build if VITE_RESUME_API_URL is unset or points at localhost / a loopback address.
-// Dev opt-in: `npm run build:dev` (sets GOFILLR_ALLOW_LOCAL_API=1 and adds localhost to dist/manifest.json).
+// Release guard: the shipped extension must talk to the production resume API,
+// and must not be stamped as the test analytics channel.
+// Fails the build if VITE_RESUME_API_URL is unset or points at localhost / a loopback address,
+// or if VITE_BUILD_CHANNEL=test.
+// Dev opt-in for a local API: `npm run build:dev` (sets GOFILLR_ALLOW_LOCAL_API=1 and adds localhost to dist/manifest.json).
+// VITE_BUILD_CHANNEL=test is rejected for that build too. Unpacked installs report test without the variable.
 import { existsSync, readFileSync } from 'node:fs'
+import { viteBuildChannel } from './vite-build-channel.mjs'
 
 const env = { ...process.env }
 if (existsSync('.env')) {
@@ -31,10 +35,26 @@ export function checkResumeApiUrl(value, allowLocal = false) {
   return null
 }
 
+export function checkBuildChannel(value) {
+  const channel = (value ?? '').trim()
+  if (channel === 'test') return 'VITE_BUILD_CHANNEL=test is not allowed in a release build'
+  return null
+}
+
 const problem = checkResumeApiUrl(env.VITE_RESUME_API_URL, env.GOFILLR_ALLOW_LOCAL_API === '1')
 if (problem) {
   console.error(`\nRelease build blocked: ${problem}.`)
   console.error('Set VITE_RESUME_API_URL=https://api-production-5aca1.up.railway.app/api/v1')
   console.error('For local API development use: npm run build:dev\n')
+  process.exit(1)
+}
+
+// Same value Vite will inline, including .env.production. A test stamp only in
+// that file must still fail the release build.
+const channelProblem = checkBuildChannel(viteBuildChannel())
+if (channelProblem) {
+  console.error(`\nRelease build blocked: ${channelProblem}.`)
+  console.error('Unset VITE_BUILD_CHANNEL, or set VITE_BUILD_CHANNEL=production.')
+  console.error('An unpacked install is reported as test without this variable.\n')
   process.exit(1)
 }

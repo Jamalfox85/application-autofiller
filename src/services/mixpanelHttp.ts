@@ -10,14 +10,14 @@
 //
 // See src/services/mixpanel.ts for the SDK-based path used by the popup, and
 // src/services/mixpanelIdentity.ts for the shared distinct_id this reads. background.js
-// mirrors this same HTTP approach inline (it isn't bundled by Vite, so it can't import
-// either module).
+// posts to the same HTTP API. It isn't bundled by Vite; copy-files emits
+// mixpanelConfig.js so the worker can share build_channel and the first-fill rule.
 import { getOrCreateDistinctId } from './mixpanelIdentity.ts'
 import {
   MIXPANEL_HTTP_TRACK_URL,
   MIXPANEL_TOKEN,
   extensionSuperProperties,
-  stripEmpty,
+  finalizeTrackedProperties,
 } from './mixpanelConfig.ts'
 import { getInstallSourceProperties } from './installSource.ts'
 
@@ -26,7 +26,8 @@ export async function trackEvent(
   properties?: Record<string, unknown>,
   options?: { keepalive?: boolean },
 ) {
-  const clean = stripEmpty(properties)
+  const superProps = await extensionSuperProperties()
+  const clean = finalizeTrackedProperties(properties, superProps.build_channel)
   // The service worker must not relay to itself: Chrome does not deliver
   // runtime.sendMessage back to the sender, so the promise would never settle.
   const inServiceWorker = typeof document === 'undefined'
@@ -50,6 +51,10 @@ export async function trackEvent(
   try {
     const distinctId = await getOrCreateDistinctId()
     const installProps = await getInstallSourceProperties()
+    const eventProps = finalizeTrackedProperties(
+      { ...superProps, ...installProps, ...clean },
+      superProps.build_channel,
+    )
 
     await fetch(MIXPANEL_HTTP_TRACK_URL, {
       method: 'POST',
@@ -63,9 +68,7 @@ export async function trackEvent(
             distinct_id: distinctId,
             time: Math.floor(Date.now() / 1000),
             $insert_id: crypto.randomUUID(),
-            ...extensionSuperProperties(),
-            ...installProps,
-            ...clean,
+            ...eventProps,
           },
         },
       ]),
