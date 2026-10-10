@@ -8,7 +8,8 @@ export type AutofillFailureReason =
 
 export type AutofillContractProps = {
   ats: string
-  time_to_first_fill_ms: number
+  /** Present only when is_first_fill is true. */
+  time_to_first_fill_ms?: number
   is_first_fill: boolean
   minutes_since_install: number
   failure_reason?: AutofillFailureReason
@@ -25,9 +26,10 @@ export type AutofillContractProps = {
   eeo_skipped?: boolean | number
 }
 
-// time_to_first_fill_ms is the install → first successful fill duration once that
-// success exists. Until then it is the elapsed time since install, and is_first_fill
-// stays true so attempted/failed events before that success are still the first-fill path.
+// time_to_first_fill_ms is the install → first successful fill duration. It is
+// attached only while is_first_fill is true: the attempt/failure path before the
+// first success, and that first success itself. Later events omit it. Until the
+// first success, the value is the elapsed time since install.
 export function buildAutofillContractProps(input: {
   hostname: string
   href?: string | null
@@ -55,9 +57,11 @@ export function buildAutofillContractProps(input: {
         href: input.href,
         document: input.document,
       }) ?? 'other',
-    time_to_first_fill_ms: Math.max(0, anchor - input.installedAt),
     is_first_fill: isFirstFill,
     minutes_since_install: Math.round((elapsedMs / 60000) * 100) / 100,
+  }
+  if (isFirstFill) {
+    props.time_to_first_fill_ms = Math.max(0, anchor - input.installedAt)
   }
 
   if (input.failureReason) {

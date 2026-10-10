@@ -16,7 +16,7 @@ import {
   MIXPANEL_JS_API_HOST,
   MIXPANEL_TOKEN,
   extensionSuperProperties,
-  stripEmpty,
+  finalizeTrackedProperties,
 } from './mixpanelConfig'
 import { getInstallSourceProperties } from './installSource'
 
@@ -34,7 +34,7 @@ function ensureReady(): Promise<void> {
       })
       const distinctId = await getOrCreateDistinctId()
       mixpanel.identify(distinctId)
-      mixpanel.register(extensionSuperProperties())
+      mixpanel.register(await extensionSuperProperties())
     })()
   }
   return readyPromise
@@ -46,11 +46,20 @@ export function initMixpanel() {
 
 export async function trackEvent(eventName: string, properties?: Record<string, unknown>) {
   await ensureReady()
-  const installProps = await getInstallSourceProperties()
+  const [installProps, superProps] = await Promise.all([
+    getInstallSourceProperties(),
+    extensionSuperProperties(),
+  ])
   if (Object.keys(installProps).length > 0) {
     // Same super-property path as platform / app_version, so later popup events
     // keep the install stamp without each call site threading it through.
     mixpanel.register(installProps)
   }
-  mixpanel.track(eventName, stripEmpty({ ...installProps, ...properties }))
+  mixpanel.track(
+    eventName,
+    finalizeTrackedProperties(
+      { ...superProps, ...installProps, ...properties },
+      superProps.build_channel,
+    ),
+  )
 }
