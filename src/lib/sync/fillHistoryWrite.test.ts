@@ -100,6 +100,7 @@ test('sign-out and an account switch drop mirrors; the first sign-in does not', 
 test('counted fills record one history row and History follows storage', () => {
   const autofill = readFileSync(new URL('../../content/autofill.ts', import.meta.url), 'utf8')
   const notifications = readFileSync(new URL('../../content/notifications.ts', import.meta.url), 'utf8')
+  const prompt = readFileSync(new URL('../../content/applicationPrompt.ts', import.meta.url), 'utf8')
   const quota = readFileSync(new URL('../../services/billing/quotaStore.ts', import.meta.url), 'utf8')
   const history = readFileSync(new URL('./fillHistory.ts', import.meta.url), 'utf8')
   const composable = readFileSync(new URL('../../composables/useFillHistory.ts', import.meta.url), 'utf8')
@@ -110,7 +111,8 @@ test('counted fills record one history row and History follows storage', () => {
   const resume = readFileSync(new URL('../../composables/useResumeUpload.ts', import.meta.url), 'utf8')
   const background = readFileSync(new URL('../../../background.js', import.meta.url), 'utf8')
 
-  assert.match(notifications, /Auto-fill Form/)
+  assert.match(prompt, /Auto-fill Form/)
+  assert.match(notifications, /renderAutofillPrompt\(document\)/)
   assert.match(notifications, /await autofillPage\(\)/)
   assert.match(autofill, /if \(charged\) \{[\s\S]*await recordFillHistory\(filledCount, attemptedCount\)/)
   const writeQuota = quota.slice(quota.indexOf('export async function writeFillQuota'))
