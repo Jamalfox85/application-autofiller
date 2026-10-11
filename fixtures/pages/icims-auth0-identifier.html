@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Log in to Enterprise Mobility</title>
+  </head>
+  <body>
+    <!-- Reduced from login.icims.com/u/login/identifier (Auth0 Universal Login,
+         captured 2026-10-11 via us-erac.icims.com/jobs/login?loginOnly=1).
+         One visible field. The password input is Auth0's hidden decoy. -->
+    <main class="_widget login-id">
+      <header>
+        <h1>Welcome</h1>
+        <p>Log in to Enterprise Mobility to continue to iCIMS.</p>
+      </header>
+      <form method="POST" data-form-primary="true" novalidate>
+        <input type="hidden" name="state" value="fixture-state" />
+        <div class="ulp-field">
+          <label id="username-label" for="username">
+            Username or email address
+            <span class="required" aria-hidden="true">*</span>
+          </label>
+          <input
+            class="input"
+            inputmode="text"
+            id="username"
+            type="text"
+            aria-labelledby="username-label"
+            aria-required="true"
+            required
+            autocomplete="email"
+            autocapitalize="none"
+            spellcheck="false"
+            name="username"
+            value=""
+          />
+        </div>
+        <input class="hide" hidden type="password" autocomplete="off" tabindex="-1" aria-hidden="true" />
+        <div>
+          <button type="submit" name="action" value="default" data-action-button-primary="true" class="_button-login-id">
+            Continue
+          </button>
+        </div>
+      </form>
+      <form method="POST">
+        <button type="submit" data-provider="samlp">Continue with Corporate Login</button>
+      </form>
+    </main>
+  </body>
+</html>

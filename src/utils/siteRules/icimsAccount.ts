@@ -10,13 +10,31 @@ import {
 export const ICIMS_ACCOUNT_PORTAL = 'icims'
 
 // ats.ts and jobSitePatterns list every icims.com host for telemetry, including the
-// corporate site (www.icims.com) and the recruiter platform (login.icims.com). Candidate
-// apply/login lives on a career-portal subdomain such as careers-acme.icims.com.
+// corporate site (www.icims.com). Career-portal apply/login lives on a subdomain such
+// as careers-acme.icims.com. login.icims.com is Auth0 Universal Login for those
+// career sign-in links (identifier, then password). It is not a candidate application
+// host: there is no profile form there, only the saved account.
 export function isIcimsCandidateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, '')
+  const host = normalizeIcimsHost(hostname)
   if (host !== 'icims.com' && !host.endsWith('.icims.com')) return false
   if (host === 'icims.com' || host === 'www.icims.com' || host === 'login.icims.com') return false
   return true
+}
+
+function normalizeIcimsHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.$/, '')
+}
+
+// Careers sign-in (for example us-erac.icims.com/jobs/login?loginOnly=1) sends the
+// browser to login.icims.com/authorize, which lands on /u/login/identifier and then
+// /u/login/password. Those two documents are in scope. /authorize itself has no form.
+export function isIcimsAuth0LoginHost(hostname: string): boolean {
+  return normalizeIcimsHost(hostname) === 'login.icims.com'
+}
+
+export function isIcimsAuth0LoginPath(pathname: string): boolean {
+  const path = pathname.toLowerCase()
+  return path === '/u/login' || path.startsWith('/u/login/')
 }
 
 // iCIMS career sites use one host for job search, the job description, and the login
@@ -62,6 +80,7 @@ export type IcimsPageSignals = {
 // - a password field
 // Application fields sit behind this gate, so they are not part of the check.
 export function isIcimsLoginSurface(page: IcimsPageSignals): boolean {
+  if (isIcimsAuth0LoginHost(page.hostname) && isIcimsAuth0LoginPath(page.pathname)) return true
   if (!isIcimsCandidateHost(page.hostname)) return false
   if (page.hasEmailGate === true || page.hasPasswordField === true) return true
   return isIcimsLoginPath(page.pathname, page.search ?? '')
@@ -137,14 +156,62 @@ export function pageHasEmailGate(doc: GateDocument | null | undefined): boolean 
   return false
 }
 
+type PasswordLike = {
+  hidden?: boolean
+  type?: string
+  getAttribute?: (name: string) => string | null
+}
+
+function passwordInputType(element: PasswordLike): string {
+  try {
+    return (element.getAttribute?.('type') || element.type || '').toLowerCase()
+  } catch {
+    return (element.type || '').toLowerCase()
+  }
+}
+
 type PasswordQueryRoot = {
   querySelector?: (selector: string) => unknown
+  querySelectorAll?: (selector: string) => ArrayLike<PasswordLike>
+}
+
+// Auth0's identifier step keeps a decoy `input[type=password]` in the DOM
+// (`hidden`, `aria-hidden`, tabindex -1, autocomplete off). It is not a password
+// field. The real password step is a later document with a visible password input.
+export function isConcealedPasswordInput(element: PasswordLike | null | undefined): boolean {
+  if (!element) return true
+  if (element.hidden === true) return true
+  try {
+    if (element.getAttribute?.('hidden') != null) return true
+    if ((element.getAttribute?.('aria-hidden') || '').toLowerCase() === 'true') return true
+  } catch {
+    return false
+  }
+  return false
 }
 
 export function pageHasPasswordField(doc: PasswordQueryRoot | null | undefined): boolean {
-  if (!doc?.querySelector) return false
+  if (!doc) return false
+  if (typeof doc.querySelectorAll === 'function') {
+    try {
+      const nodes = doc.querySelectorAll('input[type="password"]')
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i]
+        if (!node) continue
+        const type = passwordInputType(node)
+        if (type && type !== 'password') continue
+        if (!isConcealedPasswordInput(node)) return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  }
+  if (!doc.querySelector) return false
   try {
-    return !!doc.querySelector('input[type="password"]')
+    const found = doc.querySelector('input[type="password"]')
+    if (!found || typeof found !== 'object') return !!found
+    return !isConcealedPasswordInput(found as PasswordLike)
   } catch {
     return false
   }

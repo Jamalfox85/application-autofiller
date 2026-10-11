@@ -397,6 +397,11 @@ const autofillCurrentPage = async () => {
       return
     }
 
+    if (response?.code === 'awaiting_password') {
+      autofillState.value = 'idle'
+      return
+    }
+
     if (response?.success && response.fieldsCount > 0) {
       lastFillCount.value = { filled: response.fieldsCount, total: response.totalCount ?? response.fieldsCount }
       autofillState.value = 'done'

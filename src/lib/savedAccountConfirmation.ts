@@ -20,6 +20,10 @@ export function isSavedPasswordFillConfirmed(): boolean {
   return confirmed
 }
 
+export function isSavedPasswordPromptOpen(): boolean {
+  return promptOpen
+}
+
 export function confirmSavedPasswordFill(): void {
   confirmed = true
   promptOpen = false

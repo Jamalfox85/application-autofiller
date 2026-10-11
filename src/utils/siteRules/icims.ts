@@ -148,6 +148,8 @@ export default function icimsConfig(): SiteRule {
     detect: () => window.location.hostname.includes('icims.com'),
     onMount: (personalInfo) => {
       const page = readIcimsPage()
+      // Auth0 identifier and password steps fill only after Auto-fill or the
+      // shortcut. Loading login.icims.com must not type the account or submit.
       if (!isIcimsCandidateHost(page.hostname)) return
       // Job search and the job description share the career-portal host. The gate
       // watcher stays quiet there. The email step fills the saved email once.
@@ -160,8 +162,10 @@ export default function icimsConfig(): SiteRule {
       const control = controlFromElement(input, fieldText)
       const contextText = icimsFieldRowText(input)
       if (contextText) control.contextText = contextText
+      // Auth0 on login.icims.com is a login surface and is not a career-portal host.
+      // Gating this on the candidate host made the identifier field a profile email.
       const plan = planIcimsFill(control, personalInfo, {
-        loginSurface: isIcimsCandidateHost(page.hostname) && isIcimsLoginSurface(page),
+        loginSurface: isIcimsLoginSurface(page),
       })
       if (plan.action === 'leave' && plan.reason === 'resume-autofill') return 'skip'
       if (
@@ -172,7 +176,10 @@ export default function icimsConfig(): SiteRule {
         noteSkippedAccountPassword()
         return 'skip'
       }
+      if (control.concealed) return 'skip'
       if (plan.action === 'leave' && plan.reason === 'confirm-password') {
+        // The identifier step's hidden password decoy is not a password field.
+        if (!page.hasPasswordField) return 'skip'
         const doc = input.ownerDocument
         requestSavedPasswordConfirmation(() => {
           fillIcimsLoginGate(doc, personalInfo, readIcimsPage())
