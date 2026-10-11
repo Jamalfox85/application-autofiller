@@ -52,6 +52,14 @@ await copyFile(
   'dist/src/utils/siteRules/icimsFrameAutofill.js',
 )
 await esbuild.build({
+  entryPoints: ['src/services/billing/syncRecordedFill.ts'],
+  outfile: 'dist/src/services/billing/syncRecordedFill.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})
+await esbuild.build({
   entryPoints: ['src/services/billing/quotaPage.ts'],
   outfile: 'dist/src/services/billing/quotaPage.js',
   format: 'esm',

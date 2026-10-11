@@ -26,7 +26,7 @@ import {
   type CheckoutSession,
 } from './billing/entitlementStore.ts'
 import { fillsRemaining } from './billing/quota.ts'
-import { readFillQuota } from './billing/quotaStore.ts'
+import { readAccountFillQuota } from './billing/accountFillQuota.ts'
 import { clearPendingProfilePlan, syncProPlanAfterPurchase } from './billing/profilePlan.ts'
 import { readExtPayApiKey } from './billing/planRefresh.ts'
 import {
@@ -165,7 +165,7 @@ async function trackPurchase(plan: BillingPlan, session: CheckoutSession | null)
   if (session && !session.completed) {
     await writeCheckoutSession({ ...session, completed: true })
   }
-  const quota = await readFillQuota().catch(() => null)
+  const quota = await readAccountFillQuota().catch(() => null)
   const ctx = await paidEventContext({
     atsSite: session?.atsSite,
     fillCount: session?.fillCount ?? quota?.successfulFills ?? null,
@@ -431,9 +431,14 @@ export async function handleBillingMessage(request: {
   fillCount?: number | null
   atsSite?: string | null
 }): Promise<Record<string, unknown>> {
+  if (request.billingAction === 'readFillQuota') {
+    const quota = await readAccountFillQuota()
+    return { ok: true, quota }
+  }
+
   if (request.billingAction === 'getState') {
     const entitlement = await refreshEntitlement()
-    const quota = await readFillQuota()
+    const quota = await readAccountFillQuota()
     return {
       ok: true,
       isPro: entitlement.isPro,

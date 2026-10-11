@@ -8,6 +8,7 @@ import { withFillHistoryLock } from '@/lib/sync/fillHistory'
 import { noteMirrorUser } from '@/lib/sync/mirrorEpoch'
 import { clearCachedAccountKey } from '@/lib/accountKeyCache'
 import { SIGN_OUT_LOCAL_KEYS } from '@/lib/signOutLocal'
+import { dropFillQuotaCounter, releaseFillQuotaOnAccountChange } from '@/services/billing/quotaStore'
 
 export type AuthStatus = 'loading' | 'signed-in' | 'signed-out'
 
@@ -29,18 +30,28 @@ function applySession(next: Session | null) {
   status.value = next ? 'signed-in' : 'signed-out'
   if (previousId !== nextId) {
     noteMirrorUser(nextId)
-    if (previousId) void clearCachedAccountKey()
-  }
-  try {
-    if (next?.user?.id) {
-      void chrome.storage.local.set({ [USER_ID_KEY]: next.user.id })
-      void flushPendingProfilePlan()
-    } else {
-      void chrome.storage.local.remove(USER_ID_KEY)
+    if (previousId) {
+      void clearCachedAccountKey()
+      void dropFillQuotaCounter(new Date(), previousId)
     }
-  } catch {
-    // Billing identity is popup bookkeeping. Auth itself already applied.
   }
+  void (async () => {
+    try {
+      if (nextId) await releaseFillQuotaOnAccountChange(nextId)
+    } catch {
+      // The next fill still ignores a counter stamped for someone else.
+    }
+    try {
+      if (nextId) {
+        await chrome.storage.local.set({ [USER_ID_KEY]: nextId })
+        void flushPendingProfilePlan()
+      } else {
+        await chrome.storage.local.remove(USER_ID_KEY)
+      }
+    } catch {
+      // Billing identity is popup bookkeeping. Auth itself already applied.
+    }
+  })()
 }
 
 // The worker writes the Supabase session after this popup may already have
@@ -97,6 +108,7 @@ export function useAuth() {
     // Drop in-memory mirrors before the awaits. A reconcile that already read the old
     // list is waiting on the network; the epoch bump makes it skip the write.
     noteMirrorUser(null)
+    await dropFillQuotaCounter()
     await clearCachedAccountKey()
     await signOutOfSupabase()
     // Drop the local mirrors so the next person to sign in on this browser never sees the
