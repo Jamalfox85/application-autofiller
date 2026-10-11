@@ -101,6 +101,7 @@ export function profileToDbRows(info: PersonalInfo, profileId: string): ProfileD
       sponsorship_required: nullIfEmpty(info.sponsorshipRequired),
       notice_period: nullIfEmpty(info.noticePeriod),
       account_email: nullIfEmpty(info.accountEmail),
+      // Legacy Workday password. Same ciphertext prefix as application_accounts.password.
       account_password: nullIfEmpty(info.accountPassword),
     },
     children: {
@@ -143,6 +144,8 @@ export function profileToDbRows(info: PersonalInfo, profileId: string): ProfileD
         profile_id: profileId,
         portal: nullIfEmpty(acct.portal),
         email: nullIfEmpty(acct.email),
+        // Already AES-GCM ciphertext when the account key is available. Legacy
+        // plaintext is encrypted on the next signed-in open, not here.
         password: nullIfEmpty(acct.password),
         require_confirmation: !!acct.requireConfirmation,
         display_order: index,

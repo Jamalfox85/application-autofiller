@@ -1,3 +1,5 @@
+import { openStoredPersonalInfo } from '../../lib/openStoredPersonalInfo.ts'
+
 export const WORKDAY_ACCOUNT_NOTICE_KEY = 'workdayAccountNotice'
 
 export const WORKDAY_ACCOUNT_MISSING_MESSAGE =
@@ -111,12 +113,13 @@ export async function publishMissingWorkdayAccountNotice(): Promise<boolean> {
 export async function readPersonalInfoForWorkday<T>(fallback: T): Promise<T> {
   try {
     const storage = transport.storage ?? defaultStorage()
-    if (!storage?.get) return fallback
-    const data = await storage.get('personalInfo')
-    const stored = data?.personalInfo
-    if (stored && typeof stored === 'object') return stored as T
+    if (storage?.get) {
+      const data = await storage.get('personalInfo')
+      const stored = data?.personalInfo
+      if (stored && typeof stored === 'object') return (await openStoredPersonalInfo(stored)) as T
+    }
   } catch (error) {
     console.error('Could not read profile for Workday account', error)
   }
-  return fallback
+  return (await openStoredPersonalInfo(fallback)) as T
 }

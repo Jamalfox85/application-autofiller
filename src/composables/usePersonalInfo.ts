@@ -4,6 +4,15 @@ import { DEFAULT_PERSONAL_INFO, cloneDefaultPersonalInfo } from '../lib/personal
 import { getUserIdOrNull, readMirror, writeMirror } from '../lib/sync/shared'
 import { mirrorEpoch, onMirrorReset } from '../lib/sync/mirrorEpoch'
 import { fetchProfileBundle, saveProfileToDb } from '../lib/sync/profile'
+import { ensureAccountKey } from '../lib/accountKey'
+import {
+  blankSealedPasswords,
+  hasSealedPassword,
+  lockSealedPasswords,
+  migrateAccountPasswords,
+  restoreLockedPasswords,
+  type LockedPasswords,
+} from '../lib/accountSecrets'
 import { shouldWriteProfileLoad } from '../lib/profileLoadGuard'
 import { noteCustomResponses } from './useCustomResponses'
 import {
@@ -26,10 +35,14 @@ const personalInfo = ref<PersonalInfo>(cloneDefaultPersonalInfo())
 const loadedProfileId = ref<string | null>(null)
 let memoryValid = true
 let memoryGeneration = 0
+// Ciphertext we could not open. A blank password field in the editor must not
+// overwrite these on the next save.
+let lockedPasswords: LockedPasswords | null = null
 
 function invalidatePersonalInfoMemory() {
   memoryGeneration += 1
   memoryValid = false
+  lockedPasswords = null
   personalInfo.value = cloneDefaultPersonalInfo()
   loadedProfileId.value = null
 }
@@ -92,16 +105,34 @@ export function usePersonalInfo() {
         if (!stillCurrent()) return abandon()
         if (!shouldWriteProfileLoad(intendedId, mirroredId)) return null
 
-        personalInfo.value = { ...cloneDefaultPersonalInfo(), ...bundle.personalInfo }
+        const key = await ensureAccountKey()
+        if (!stillCurrent()) return abandon()
+        const migrated = key ? await migrateAccountPasswords(bundle.personalInfo, key) : null
+        const opened =
+          migrated?.opened ??
+          (hasSealedPassword(bundle.personalInfo)
+            ? blankSealedPasswords(bundle.personalInfo)
+            : bundle.personalInfo)
+        const stored = migrated?.sealed ?? bundle.personalInfo
+        personalInfo.value = { ...cloneDefaultPersonalInfo(), ...opened }
+        lockedPasswords = migrated ? migrated.locked : lockSealedPasswords(bundle.personalInfo)
         loadedProfileId.value = bundle.id
         memoryValid = true
         noteCustomResponses(bundle.customResponses, bundle.id)
         if (!stillCurrent()) return abandon()
         await writeProfileMirrors(chrome.storage.local, {
-          personalInfo: personalInfo.value,
+          personalInfo: stored,
           customResponses: bundle.customResponses,
           activeProfile: active ?? { id: bundle.id, name: bundle.name, profileCount: 1 },
         })
+        if (!stillCurrent()) return abandon()
+        if (migrated?.changed && bundle.id) {
+          try {
+            await saveProfileToDb(stored, bundle.id)
+          } catch {
+            console.error('Could not encrypt saved account passwords')
+          }
+        }
         if (!stillCurrent()) return abandon()
         return personalInfo.value
       } catch (error) {
@@ -115,13 +146,27 @@ export function usePersonalInfo() {
     const mirroredId = await readActiveProfileId(chrome.storage.local)
     if (!stillCurrent()) return abandon()
     if (!shouldWriteProfileLoad(active?.id ?? mirroredId, mirroredId)) return null
-    if (local) {
-      personalInfo.value = { ...cloneDefaultPersonalInfo(), ...local }
+    const offlineKey = userId ? await ensureAccountKey() : null
+    if (!stillCurrent()) return abandon()
+    const migrated = offlineKey && local ? await migrateAccountPasswords(local, offlineKey) : null
+    const opened =
+      migrated?.opened ?? (local && hasSealedPassword(local) ? blankSealedPasswords(local) : local)
+    if (opened) {
+      personalInfo.value = { ...cloneDefaultPersonalInfo(), ...opened }
     } else if (!memoryValid) {
       personalInfo.value = cloneDefaultPersonalInfo()
     }
+    lockedPasswords = migrated ? migrated.locked : lockSealedPasswords(local)
     loadedProfileId.value = mirroredId
     memoryValid = true
+    if (migrated?.changed && mirroredId && stillCurrent()) {
+      try {
+        await writeMirror(PERSONAL_INFO_KEY, migrated.sealed)
+        if (userId) await saveProfileToDb(migrated.sealed, mirroredId)
+      } catch {
+        console.error('Could not encrypt saved account passwords')
+      }
+    }
     const localResponses = await readMirror<CustomResponse[]>(CUSTOM_RESPONSES_KEY)
     if (!stillCurrent()) return abandon()
     noteCustomResponses(localResponses ?? [], loadedProfileId.value)
@@ -139,20 +184,26 @@ export function usePersonalInfo() {
       personalInfo.value = { ...personalInfo.value, ...updatedInfo }
     }
 
-    const snapshot = JSON.parse(JSON.stringify(personalInfo.value)) as PersonalInfo
+    const snapshot = restoreLockedPasswords(
+      JSON.parse(JSON.stringify(personalInfo.value)) as PersonalInfo,
+      lockedPasswords,
+    )
     const profileId = loadedProfileId.value ?? (await readActiveProfileId(chrome.storage.local))
     if (!memoryValid || generation !== memoryGeneration || epoch !== mirrorEpoch()) return
+    const key = await ensureAccountKey()
+    if (!memoryValid || generation !== memoryGeneration || epoch !== mirrorEpoch()) return
+    const stored = key ? (await migrateAccountPasswords(snapshot, key)).sealed : snapshot
     const mirroredId = await readActiveProfileId(chrome.storage.local)
     if (!memoryValid || generation !== memoryGeneration || epoch !== mirrorEpoch()) return
     // Only touch the fill mirror when it still belongs to the profile being edited.
     if (!mirroredId || mirroredId === profileId) {
-      await writeMirror(PERSONAL_INFO_KEY, snapshot)
+      await writeMirror(PERSONAL_INFO_KEY, stored)
     }
 
     const userId = await getUserIdOrNull()
     if (!memoryValid || generation !== memoryGeneration || epoch !== mirrorEpoch() || !userId || !profileId) return
 
-    await saveProfileToDb(snapshot, profileId)
+    await saveProfileToDb(stored, profileId)
   }
 
   return {

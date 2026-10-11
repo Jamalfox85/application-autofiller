@@ -56,6 +56,7 @@ import { collectFrameDetections, detectWithRetry, NOT_DETECTED } from '@/utils/d
 import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
 import { EMPTY_PROFILE_FILL_MESSAGE, profileHasAutofillData } from '@/utils/fillValue.ts'
 import { completePersonalInfo } from '@/lib/personalInfoDefaults.ts'
+import { openStoredPersonalInfo } from '@/lib/openStoredPersonalInfo.ts'
 import type { PersonalInfo } from '@/types'
 import { useCustomResponses } from './composables/useCustomResponses'
 
@@ -702,6 +703,7 @@ const loadAppState = async () => {
 }
 
 // Lifecycle
+let personalInfoStoreGen = 0
 const onPersonalInfoStored = (
   changes: { [key: string]: chrome.storage.StorageChange },
   areaName: string,
@@ -716,7 +718,11 @@ const onPersonalInfoStored = (
   // A load for the previous profile can finish its storage write after a swap.
   // Applying it would put that profile back on the open form.
   if (storedActive && expectedId && storedActive.id !== expectedId) return
-  personalInfo.value = completePersonalInfo(next as PersonalInfo)
+  const gen = ++personalInfoStoreGen
+  void openStoredPersonalInfo(completePersonalInfo(next as PersonalInfo)).then((opened) => {
+    if (gen !== personalInfoStoreGen) return
+    personalInfo.value = opened
+  })
 }
 
 // Checkout closes this popup. When ExtensionPay marks the install Pro, apply
