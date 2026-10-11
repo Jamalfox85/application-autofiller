@@ -12,6 +12,7 @@ import {
   resumeMatchingEnabled,
 } from '../services/matchScore/setting.ts'
 import {
+  matchScoreLimitCopy,
   quickAnswerFor,
   type JdSource,
   type MatchAts,
@@ -38,6 +39,7 @@ interface RenderMessage {
   jdSource?: string
   requested?: boolean
   score?: ScoredMatch
+  retryAfterMs?: number | null
   missing?: Array<'skills' | 'experience_descriptions'>
   cached?: boolean
   latencyMs?: number
@@ -59,6 +61,7 @@ let activeAts: MatchAts | null = null
 let activeSource: JdSource | null = null
 let activeScore: ScoredMatch | null = null
 let activeMissing = false
+let activeLimit: string | null = null
 let lastJd = ''
 let profileWatchInstalled = false
 let suppressProfileWatch = 0
@@ -137,10 +140,11 @@ function handlers() {
 function paint() {
   if (!isTopFrame()) return
   let model: MatchScoreCardModel | null = null
-  if (pending && !activeScore && !activeMissing) model = { kind: 'loading' }
+  if (pending && !activeScore && !activeMissing && !activeLimit) model = { kind: 'loading' }
   else if (activeScore) {
     model = { kind: 'scored', score: activeScore, collapsed, pending, undoSkill }
   } else if (activeMissing) model = { kind: 'insufficient' }
+  else if (activeLimit) model = { kind: 'limited', message: activeLimit }
   else if (pending) model = { kind: 'loading' }
   if (!model) return
   renderMatchScoreCard(model, handlers())
@@ -173,6 +177,7 @@ export function onMatchScoreRender(message: RenderMessage) {
     pending = false
     activeScore = null
     activeMissing = false
+    activeLimit = null
     hideMatchScoreCard()
     if (message.reason && message.reason !== 'dismissed') {
       analytics('match_score_failed', { latency_ms: message.latencyMs, cached: false })
@@ -181,17 +186,26 @@ export function onMatchScoreRender(message: RenderMessage) {
   }
   if (message.view === 'loading') {
     pending = true
-    if (activeScore) paint()
+    if (activeScore || activeLimit) paint()
     else {
       activeMissing = false
       showModel({ kind: 'loading' })
     }
     return
   }
+  if (message.view === 'limited') {
+    pending = false
+    activeScore = null
+    activeMissing = false
+    activeLimit = matchScoreLimitCopy(message.retryAfterMs)
+    showModel({ kind: 'limited', message: activeLimit })
+    return
+  }
   if (message.view === 'locked') {
     pending = false
     activeScore = null
     activeMissing = false
+    activeLimit = null
     analytics('match_score_locked_viewed', { cached: false })
     showModel({ kind: 'locked' })
     return
@@ -200,6 +214,7 @@ export function onMatchScoreRender(message: RenderMessage) {
     pending = false
     activeScore = null
     activeMissing = true
+    activeLimit = null
     collapsed = false
     analytics('match_score_shown', {
       latency_ms: message.latencyMs ?? 0,
@@ -211,6 +226,7 @@ export function onMatchScoreRender(message: RenderMessage) {
   if (message.view === 'scored' && message.score && message.score.status === 'scored') {
     pending = false
     activeMissing = false
+    activeLimit = null
     activeScore = message.score
     analytics('match_score_shown', {
       latency_ms: message.latencyMs ?? 0,
@@ -367,6 +383,7 @@ export function resetMatchScoreForTests(): void {
   activeJobUrl = null
   activeScore = null
   activeMissing = false
+  activeLimit = null
   pending = false
   dismissedJob = null
   seenSeq = 0
@@ -465,6 +482,7 @@ function scoreCurrentPage() {
 function resetCardForNavigation() {
   activeScore = null
   activeMissing = false
+  activeLimit = null
   pending = false
   collapsed = false
   undoSkill = null
@@ -481,7 +499,7 @@ function restoreCardIfRemoved() {
   if (!sameMatchJob(activeJobUrl, window.location.href)) return
   if (dismissedJob && sameMatchJob(dismissedJob, window.location.href)) return
   if (document.getElementById(MATCH_SCORE_ID)) return
-  if (!activeScore && !activeMissing && !pending) return
+  if (!activeScore && !activeMissing && !activeLimit && !pending) return
   paint()
 }
 

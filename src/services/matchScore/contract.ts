@@ -142,14 +142,32 @@ function parseNotices(value: unknown): Notice[] {
   return items
 }
 
+const EXTRACTION_LIMIT_ERROR = 'match score extraction limit reached'
+
+function extractionLimitText(body: unknown): string {
+  if (!isRecord(body)) return ''
+  const error = body.error
+  if (typeof error === 'string') return error.trim().toLowerCase()
+  if (isRecord(error) && typeof error.message === 'string') return error.message.trim().toLowerCase()
+  return ''
+}
+
+function isExtractionLimitBody(body: unknown): boolean {
+  return extractionLimitText(body) === EXTRACTION_LIMIT_ERROR
+}
+
 export function parseMatchScoreBody(status: number, body: unknown): MatchScoreResult {
   // 401 is the global X-API-Key check (or a missing session). It is not a Match Score
   // body, even if the payload looks scored.
   if (status === 401) return { kind: 'unauthorized' }
   if (isPlanRequiredResponse(status, body)) return { kind: 'plan_required' }
   // 429 uses the shared error envelope. The signal is the HTTP status, not a
-  // body field status=rate_limited.
-  if (status === 429) return { kind: 'rate_limited' }
+  // body field status=rate_limited. The daily extraction cap is the one 429
+  // the card explains; every other 429 stays a silent cooldown.
+  if (status === 429) {
+    if (isExtractionLimitBody(body)) return { kind: 'extraction_limit', retrySpecified: false }
+    return { kind: 'rate_limited' }
+  }
   if (status >= 500 || status < 200) return { kind: 'hide' }
   if (status !== 200 || !isRecord(body)) return { kind: 'hide' }
 
@@ -240,8 +258,13 @@ export async function postMatchScore(input: {
     })
     const parsed = await readJson(response)
     const result = parseMatchScoreBody(response.status, parsed)
-    if (result.kind !== 'rate_limited') return result
-    return { kind: 'rate_limited', retryAfterMs: retryAfterDelayMs(response.headers.get('retry-after'), Date.now()) }
+    if (result.kind !== 'rate_limited' && result.kind !== 'extraction_limit') return result
+    const header = response.headers.get('retry-after')
+    const retryAfterMs = retryAfterDelayMs(header, Date.now())
+    if (result.kind === 'extraction_limit') {
+      return { kind: 'extraction_limit', retryAfterMs, retrySpecified: !!header?.trim() }
+    }
+    return { kind: 'rate_limited', retryAfterMs }
   } catch {
     return { kind: 'hide' }
   } finally {

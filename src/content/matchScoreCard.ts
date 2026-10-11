@@ -16,6 +16,7 @@ import {
 export type MatchScoreCardModel =
   | { kind: 'loading' }
   | { kind: 'locked' }
+  | { kind: 'limited'; message: string }
   | { kind: 'insufficient' }
   | {
       kind: 'scored'
@@ -252,6 +253,13 @@ export function renderMatchScoreCard(
     row.style.cursor = 'pointer'
     row.addEventListener('click', handlers.onUpgrade)
     card.append(row)
+    return card
+  }
+  if (model.kind === 'limited') {
+    card.append(headerRow(doc, 'Job match', null, handlers.onDismiss))
+    const body = el(doc, 'div', 'padding:0 12px 12px;')
+    body.append(el(doc, 'div', 'font-size:12.5px; line-height:1.4; color:#d7d7de;', model.message))
+    card.append(body)
     return card
   }
   if (model.kind === 'insufficient') {

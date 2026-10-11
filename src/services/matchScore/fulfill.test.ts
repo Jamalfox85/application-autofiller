@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
-import { MATCH_SCORE_RATE_LIMIT_DEFAULT_MS, rateLimitActive, rateLimitUntil, retryAfterDelayMs } from './cache.ts'
+import { extractionLimitRecord, MATCH_SCORE_RATE_LIMIT_DEFAULT_MS, rateLimitActive, rateLimitUntil, readRateLimit, retryAfterDelayMs } from './cache.ts'
 import { fulfillMatchScore, willRequestMatchScore } from './fulfill.ts'
 import { postMatchScoreDecline } from './contract.ts'
 import { matchScoreIntent } from './intent.ts'
@@ -119,6 +119,68 @@ test('a 429 hides the job until Retry-After, or one hour when that header is abs
   assert.match(worker, /rateLimitActive\(stored\[rateKey\], deps\.now\(\)\)/)
   assert.match(worker, /rateLimitUntil\(deps\.now\(\), outcome\.rateLimitMs\)/)
   assert.doesNotMatch(worker, /stored\[rateKey\] != null/)
+})
+
+test('the daily extraction limit explains itself and other failures stay hidden', async () => {
+  const body = JSON.stringify({ error: 'match score extraction limit reached' })
+  let calls = 0
+  const limited = await fulfillMatchScore(
+    input({
+      fetchImpl: async () => {
+        calls += 1
+        return new Response(body, { status: 429, headers: { 'Retry-After': '120' } })
+      },
+    }),
+  )
+  assert.equal(limited.relay.view, 'limited')
+  if (limited.relay.view === 'limited') assert.equal(limited.relay.retryAfterMs, 120_000)
+  assert.equal(limited.persistRateLimit, true)
+  assert.equal(limited.extractionLimit, true)
+  assert.equal(limited.retrySpecified, true)
+  assert.equal(limited.cacheValue, null)
+  const until = rateLimitUntil(1_000, limited.rateLimitMs)
+  const stored = extractionLimitRecord(until, true)
+  assert.equal(rateLimitActive(stored, until - 1), true)
+  assert.equal(readRateLimit(stored).extraction, true)
+  assert.deepEqual(
+    await fulfillMatchScore(input({ rateLimited: true, extractionLimit: true, extractionRetryMs: 90_000, fetchImpl: async () => {
+      calls += 1
+      throw new Error('should not request')
+    } })),
+    {
+      persistRateLimit: false,
+      rateLimitMs: null,
+      cacheValue: null,
+      requested: false,
+      relay: { view: 'limited', retryAfterMs: 90_000 },
+    },
+  )
+
+  const quiet = await fulfillMatchScore(
+    input({
+      fetchImpl: async () => new Response(body, { status: 429 }),
+    }),
+  )
+  assert.equal(quiet.relay.view, 'limited')
+  if (quiet.relay.view === 'limited') assert.equal(quiet.relay.retryAfterMs, null)
+  assert.equal(quiet.retrySpecified, false)
+  assert.equal(quiet.rateLimitMs, MATCH_SCORE_RATE_LIMIT_DEFAULT_MS)
+
+  const generic = await fulfillMatchScore(
+    input({
+      fetchImpl: async () => new Response(JSON.stringify({ error: 'Slow down' }), { status: 429 }),
+    }),
+  )
+  assert.equal(generic.relay.view, 'hide')
+  assert.equal(generic.extractionLimit, undefined)
+
+  const server = await fulfillMatchScore(
+    input({
+      fetchImpl: async () => new Response('nope', { status: 500 }),
+    }),
+  )
+  assert.equal(server.relay.view, 'hide')
+  assert.equal(calls, 1)
 })
 
 test('a 5xx is a single hide with no retry', async () => {
