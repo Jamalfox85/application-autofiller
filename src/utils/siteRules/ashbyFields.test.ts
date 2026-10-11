@@ -198,6 +198,29 @@ describe('Ashby location and school autocomplete', () => {
     ])
   })
 
+  it('searches a stored place label, then the city name alone', () => {
+    assert.deepEqual(
+      ashbyLocationQueries({
+        city: 'Philadelphia, Pennsylvania, United States',
+        state: 'Pennsylvania',
+        country: 'United States',
+      }),
+      [
+        'Philadelphia, Pennsylvania, United States',
+        'Philadelphia',
+        'Pennsylvania, United States',
+        'United States',
+      ],
+    )
+    assert.equal(
+      pickAshbyLocationOption(
+        ['Philadelphia, Mississippi, United States', 'Philadelphia, Pennsylvania, United States'],
+        { city: 'Philadelphia, Pennsylvania, United States', state: 'Pennsylvania', country: 'United States' },
+      ),
+      'Philadelphia, Pennsylvania, United States',
+    )
+  })
+
   it('prefers US California over San Francisco, Córdoba, Argentina', () => {
     const options = [
       'San Francisco, Córdoba, Argentina',
@@ -412,6 +435,8 @@ describe('Ashby yes/no and EEO questions', () => {
       null,
     )
     assert.equal(ashbyYesNoDecision('Are you eighteen years of age or older?', { age18OrOlder: 'yes' }), 'yes')
+    assert.equal(ashbyYesNoDecision('Are you 18 or older?', { age18OrOlder: 'yes' }), 'yes')
+    assert.equal(ashbyYesNoDecision('Are you 18 or older?', { age18OrOlder: 'no' }), 'no')
     assert.equal(
       ashbyYesNoDecision(
         'Will you now or in the future require sponsorship (i.e. H-1B visa ect.) to legally work in the United States?',

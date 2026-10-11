@@ -107,23 +107,38 @@ export function resumeDisplayName(profileName: string | null | undefined, path: 
   return path.split('/').pop() || 'resume.pdf'
 }
 
-export function resumeMimeType(fileName: string, headerType?: string | null): string {
-  const header = (headerType ?? '').split(';')[0].trim().toLowerCase()
-  if (header && header !== 'application/octet-stream' && header !== 'binary/octet-stream') return header
-  const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
-  if (ext === 'pdf') return 'application/pdf'
-  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  if (ext === 'doc') return 'application/msword'
-  if (ext === 'rtf') return 'application/rtf'
-  if (ext === 'txt') return 'text/plain'
-  return header || 'application/octet-stream'
+const RESUME_EXTENSION_MIME: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
+  rtf: 'application/rtf',
+  txt: 'text/plain',
 }
 
-function authHeaders(anonKey: string, accessToken: string): Headers {
+export function resumeMimeType(fileName: string, headerType?: string | null): string {
+  const header = (headerType ?? '').split(';')[0].trim().toLowerCase()
+  const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
+  const fromName = RESUME_EXTENSION_MIME[ext] || ''
+  // Storage sometimes answers a file download with application/json or text/plain
+  // because the request asked for JSON. Ashby signs the upload with this type, so
+  // a PDF has to stay application/pdf or the presigned POST is rejected.
+  const headerIsGeneric =
+    !header ||
+    header === 'application/octet-stream' ||
+    header === 'binary/octet-stream' ||
+    header === 'application/json' ||
+    header === 'text/plain' ||
+    header === 'text/html'
+  if (fromName && headerIsGeneric) return fromName
+  if (header) return header
+  return fromName || 'application/octet-stream'
+}
+
+function authHeaders(anonKey: string, accessToken: string, accept = 'application/json'): Headers {
   return new Headers({
     apikey: anonKey,
     Authorization: `Bearer ${accessToken}`,
-    Accept: 'application/json',
+    Accept: accept,
   })
 }
 
@@ -159,7 +174,9 @@ export async function loadSavedResumeFile(deps: SavedResumeDeps): Promise<File |
   const encoded = objectPath.split('/').map(encodeURIComponent).join('/')
   const downloadUrl = `${supabaseUrl}/storage/v1/object/authenticated/${RESUME_BUCKET}/${encoded}`
   const fileRes = await deps.fetchImpl(downloadUrl, {
-    headers: authHeaders(deps.anonKey, session.accessToken),
+    // The profile row is JSON. The object itself is the resume bytes. Accepting
+    // JSON here makes storage label a PDF as application/json.
+    headers: authHeaders(deps.anonKey, session.accessToken, '*/*'),
   })
   if (!fileRes.ok) return null
 

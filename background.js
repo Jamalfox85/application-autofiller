@@ -26,6 +26,10 @@ import {
   installLeverResumeGuardInPage,
   restoreLeverResumeGuardInPage,
 } from './src/utils/siteRules/leverResumeGuard.js'
+import {
+  ashbyLocationCommandInPage,
+  sanitizeAshbyLocationCommand,
+} from './src/utils/siteRules/ashbyLocationPage.js'
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { ensureAccountKeyInSession, openAccountKeySession } from './src/services/accountKeyWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
@@ -710,9 +714,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
-  // Ashby reads the resume File in the page. Build it there so the presigned
-  // POST has the bytes. The command only sets the marked file input and fires
-  // change. It does not click Upload, Submit, or Autofill from resume.
   // Lever's apply page CSP is script-src 'self', so a content-script <script>
   // never runs. These functions run in the page world and only wrap
   // XMLHttpRequest/fetch around the resume change event, or GET /searchLocations.
@@ -751,6 +752,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  // Ashby location state lives on the page's React fiber. Type, choose, and read
+  // it there so a selection is the saved providerLocationId, not typed text.
+  // These commands do not submit the application.
+  if (
+    request.action === 'typeAshbyLocation' ||
+    request.action === 'chooseAshbyLocation' ||
+    request.action === 'readAshbyLocation' ||
+    request.action === 'clearAshbyLocation'
+  ) {
+    const tabId = sender && sender.tab ? sender.tab.id : null
+    const payload = sanitizeAshbyLocationCommand({ ...request, command: request.action })
+    if (tabId == null || !payload || !chrome.scripting?.executeScript) {
+      sendResponse({ found: false, typed: false, chose: false, cleared: false })
+      return true
+    }
+    const target = { tabId }
+    if (typeof sender.frameId === 'number') target.frameIds = [sender.frameId]
+    chrome.scripting
+      .executeScript({
+        target,
+        world: 'MAIN',
+        func: ashbyLocationCommandInPage,
+        args: [payload],
+      })
+      .then((results) => {
+        const result = results && results[0] && results[0].result
+        sendResponse(result && typeof result === 'object' ? result : { found: false })
+      })
+      .catch(() => sendResponse({ found: false, typed: false, chose: false, cleared: false }))
+    return true
+  }
+
+  // Ashby reads the resume File in the page. Build it there so the presigned
+  // POST has the bytes. The command only sets the marked file input and fires
+  // change. It does not click Upload, Submit, or Autofill from resume.
   if (request.action === 'assignAshbyResume') {
     const tabId = sender && sender.tab ? sender.tab.id : null
     const payload = sanitizeAshbyResumeAssignment(request)
