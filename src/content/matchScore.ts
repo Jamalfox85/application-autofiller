@@ -4,6 +4,7 @@ import { extractJobDescription } from '../services/matchScore/extractors/index.t
 import { matchScoreSurfaceReady } from '../services/matchScore/extractors/surface.ts'
 import { matchScoreEnabled } from '../services/matchScore/flags.ts'
 import { matchScoreIntent } from '../services/matchScore/intent.ts'
+import { matchJobIdentity, sameMatchJob } from '../services/matchScore/jobUrl.ts'
 import { matchScoreDismissedKey } from '../services/matchScore/cache.ts'
 import {
   readResumeMatchingEnabled,
@@ -25,6 +26,7 @@ import {
   renderMatchScoreCard,
   type MatchScoreCardModel,
 } from './matchScoreCard.ts'
+import { MATCH_SCORE_ID } from './toastStack.ts'
 
 interface RenderMessage {
   action?: string
@@ -153,7 +155,7 @@ export function onMatchScoreRender(message: RenderMessage) {
     if (message.seq < seenSeq) return
     seenSeq = message.seq
   }
-  if (message.jobUrl && dismissedJob === message.jobUrl) return
+  if (message.jobUrl && dismissedJob && sameMatchJob(dismissedJob, message.jobUrl)) return
   rememberContext(message)
   if (message.requested) {
     analytics('match_score_requested', { cached: false })
@@ -358,6 +360,12 @@ async function undoSkillAdd(skill: string) {
 export function resetMatchScoreForTests(): void {
   sent.clear()
   userDisabled = false
+  activeJobUrl = null
+  activeScore = null
+  activeMissing = false
+  pending = false
+  dismissedJob = null
+  seenSeq = 0
 }
 
 export async function runOnce() {
@@ -385,7 +393,7 @@ export async function runOnce() {
     isPro: entitlement.isPro,
   })
   if (intent === 'skip' || !extraction) return
-  const dedupeKey = `${intent}:${extraction.jobUrl}`
+  const dedupeKey = `${intent}:${matchJobIdentity(extraction.jobUrl)}`
   if (sent.has(dedupeKey)) return
   sent.add(dedupeKey)
   activeJobUrl = extraction.jobUrl
@@ -425,9 +433,40 @@ function resetCardForNavigation() {
   collapsed = false
   undoSkill = null
   lastJd = ''
+  activeJobUrl = null
+  dismissedJob = null
   sent.clear()
   if (undoTimer) clearTimeout(undoTimer)
   hideMatchScoreCard()
+}
+
+function restoreCardIfRemoved() {
+  if (userDisabled || !activeJobUrl) return
+  if (!sameMatchJob(activeJobUrl, window.location.href)) return
+  if (dismissedJob && sameMatchJob(dismissedJob, window.location.href)) return
+  if (document.getElementById(MATCH_SCORE_ID)) return
+  if (!activeScore && !activeMissing && !pending) return
+  paint()
+}
+
+// Same requisition (overview and /apply/applyManually) keeps the card and does
+// not score again. A different posting clears the card and scores once.
+export function applyMatchScoreLocation(previousHref: string, nextHref: string): 'same' | 'score' | 'reset' {
+  if (nextHref === previousHref) {
+    restoreCardIfRemoved()
+    return 'same'
+  }
+  if (sameMatchJob(previousHref, nextHref)) {
+    if (activeJobUrl) {
+      restoreCardIfRemoved()
+      return 'same'
+    }
+    whenFormReady(scoreCurrentPage)
+    return 'score'
+  }
+  resetCardForNavigation()
+  whenFormReady(scoreCurrentPage)
+  return 'reset'
 }
 
 function installSettingWatch() {
@@ -447,16 +486,24 @@ function installSettingWatch() {
   })
 }
 
+function installCardWatch() {
+  if (!isTopFrame() || !document.documentElement) return
+  const observer = new MutationObserver(() => {
+    restoreCardIfRemoved()
+  })
+  observer.observe(document.documentElement, { childList: true, subtree: true })
+}
+
 export function startMatchScore(): void {
   whenFormReady(scoreCurrentPage)
   installSettingWatch()
   if (urlWatchInstalled || !isTopFrame()) return
   urlWatchInstalled = true
+  installCardWatch()
   let href = window.location.href
   window.setInterval(() => {
-    if (window.location.href === href) return
-    href = window.location.href
-    resetCardForNavigation()
-    whenFormReady(scoreCurrentPage)
+    const next = window.location.href
+    applyMatchScoreLocation(href, next)
+    href = next
   }, 1000)
 }

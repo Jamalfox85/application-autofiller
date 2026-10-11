@@ -12,6 +12,7 @@ import { fetchAllowedPosting } from './matchScore/fetchPosting.ts'
 import { fulfillMatchScore, willRequestMatchScore, type CachedMatchScore } from './matchScore/fulfill.ts'
 import { buildMatchProfile, profileHash } from './matchScore/profile.ts'
 import { persistSkillChange } from './matchScore/skills.ts'
+import { canonicalMatchJobUrl, matchJobIdentity } from './matchScore/jobUrl.ts'
 import { deliverToTopFrame } from './matchScore/relay.ts'
 import { isMatchAts, type JdSource, type MatchAts } from './matchScore/types.ts'
 
@@ -104,10 +105,11 @@ async function score(
   sender: MatchSender,
   deps: MatchScoreDeps,
 ): Promise<{ ok: true; deduped?: boolean }> {
-  const jobUrl = asString(request.jobUrl)
+  const jobUrl = canonicalMatchJobUrl(asString(request.jobUrl))
+  const identity = matchJobIdentity(jobUrl)
   const rescore = request.rescore === true
   const tabId = sender.tab?.id ?? 0
-  const remembered = rememberedJd.get(`${tabId}:${jobUrl}`)
+  const remembered = rememberedJd.get(`${tabId}:${identity}`)
   let ats = asString(request.ats)
   let jdText = asString(request.jdText)
   let jdSource: JdSource | '' = request.jdSource === 'fetched' ? 'fetched' : request.jdSource === 'dom' ? 'dom' : ''
@@ -122,11 +124,18 @@ async function score(
   }
   const atsName: MatchAts = ats
   const source: JdSource = jdSource
-  rememberedJd.set(`${tabId}:${jobUrl}`, { jdText, jdSource: source, ats: atsName })
+  rememberedJd.set(`${tabId}:${identity}`, { jdText, jdSource: source, ats: atsName })
 
-  const flightKey = `${tabId}:${jobUrl}`
+  const flightKey = `${tabId}:${identity}`
   if (!rescore) {
-    if (inflight.has(flightKey)) return { ok: true, deduped: true }
+    const existing = inflight.get(flightKey)
+    if (existing) {
+      // The overview request is already running. Wait for its cache write, then
+      // paint this page from that cache instead of posting again.
+      await existing
+      await scoreWithProfile(sender, deps, { jobUrl, ats: atsName, jdText, jdSource: source, rescore })
+      return { ok: true, deduped: true }
+    }
     let release = () => {}
     const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -261,7 +270,7 @@ async function decline(
     fetchImpl: deps.fetchImpl,
   })
   if (result.ok && method === 'POST') {
-    const jobUrl = asString(request.jobUrl)
+    const jobUrl = canonicalMatchJobUrl(asString(request.jobUrl))
     if (jobUrl) {
       const info = await readProfile(deps.storage)
       const hash = await profileHash(buildMatchProfile(info))
@@ -281,10 +290,11 @@ export async function handleMatchScoreMessage(
       case 'fetchJobPosting':
         return fetchAllowedPosting(asString(request.url), deps.fetchImpl)
       case 'matchScoreRelay': {
-        const jobUrl = asString(request.jobUrl)
+        const jobUrl = canonicalMatchJobUrl(asString(request.jobUrl))
         const tabId = sender.tab?.id ?? 0
-        const key = `relay:${tabId}:${jobUrl}:${asString(request.view)}`
-        if (inflight.has(key)) return { ok: true, deduped: true }
+        const key = `relay:${tabId}:${matchJobIdentity(jobUrl)}:${asString(request.view)}`
+        const pendingRelay = inflight.get(key)
+        if (pendingRelay) await pendingRelay
         let release = () => {}
         const gate = new Promise<void>((resolve) => {
           release = resolve
