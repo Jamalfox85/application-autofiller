@@ -7,8 +7,10 @@ import { icimsGateMayAdvance } from './icimsFields.ts'
 import { resetIcimsResumeAttachMemory, resetIcimsSavedResumeCache } from './icimsResumeFile.ts'
 import {
   chooseIcimsAutofillFrameIds,
+  combineIcimsAutofillResults,
   deliverIcimsAutofill,
   embeddedIcimsFillableFields,
+  icimsFramesToFill,
   icimsFrameSnapshot,
 } from './icimsFrameAutofill.js'
 
@@ -346,4 +348,51 @@ test('a plain iCIMS resume file input in a frame receives the saved filename', a
     resetIcimsResumeAttachMemory()
     Object.assign(globalThis, previous)
   }
+})
+
+test('login autofill messages the iframe that owns the email and the shell, and keeps the fill', async () => {
+  const login = 'https://careers-aprilaire.icims.com/jobs/2668/login?in_iframe=1'
+  const shell = 'https://careers-aprilaire.icims.com/jobs/2668/login'
+  assert.deepEqual(
+    icimsFramesToFill([
+      { frameId: 0, href: shell, fillableCount: 3, hasPlainResumeFile: false },
+      { frameId: 7, href: login, fillableCount: 1, hasPlainResumeFile: false },
+    ]),
+    [7, 0],
+  )
+  const sent: number[] = []
+  const result = await deliverIcimsAutofill(9, {
+    scripting: {
+      async executeScript() {
+        return [
+          { frameId: 0, result: { href: shell, fillableCount: 3, hasPlainResumeFile: false } },
+          { frameId: 7, result: { href: login, fillableCount: 1, hasPlainResumeFile: false } },
+        ]
+      },
+    },
+    tabs: {
+      async sendMessage(_tabId: number, message: { action?: string; surface?: string }, options: { frameId?: number }) {
+        assert.equal(message.action, 'autofill')
+        assert.equal(message.surface, 'popup')
+        const frameId = options.frameId ?? 0
+        sent.push(frameId)
+        if (frameId === 7) return { success: true, fieldsCount: 1, totalCount: 1, message: 'Filled 1 fields' }
+        return { success: false, message: 'No matching fields found' }
+      },
+    },
+  })
+  assert.deepEqual(sent, [7, 0])
+  assert.equal(result.success, true)
+  assert.equal(result.fieldsCount, 1)
+  assert.equal(
+    combineIcimsAutofillResults([
+      { success: false, message: 'No matching fields found' },
+      { success: true, fieldsCount: 1, message: 'Filled 1 fields' },
+    ]).success,
+    true,
+  )
+  const notifications = readFileSync(new URL('../../content/notifications.ts', import.meta.url), 'utf8')
+  const background = readFileSync(new URL('../../../background.js', import.meta.url), 'utf8')
+  assert.match(notifications, /action: 'autofillIcimsFromPage'/)
+  assert.match(background, /request\.action === 'autofillIcimsTab' \|\| request\.action === 'autofillIcimsFromPage'/)
 })

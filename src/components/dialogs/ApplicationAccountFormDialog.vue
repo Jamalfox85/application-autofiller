@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { ApplicationAccount } from '../../types'
+import { editorPasswordValue } from '../../lib/accountSecrets.ts'
 import { passwordForApplicationAccount } from '../../utils/siteRules/icimsAccount.ts'
 import FullScreenSheet from './FullScreenSheet.vue'
 
@@ -56,7 +57,7 @@ const resetForm = () => {
   if (props.item) {
     portal.value = props.item.portal
     email.value = props.item.email
-    password.value = props.item.password
+    password.value = editorPasswordValue(props.item.password)
     requireConfirmation.value = props.item.requireConfirmation
   } else {
     portal.value = PORTAL_OPTIONS[0]
@@ -134,6 +135,11 @@ const handleSave = () => {
           <input
             v-model="password"
             :type="showPassword ? 'text' : 'password'"
+            name="gofillr-new-account-password"
+            autocomplete="new-password"
+            spellcheck="false"
+            data-1p-ignore
+            data-lpignore="true"
             placeholder="••••••••••••"
           />
           <button type="button" class="password-toggle" @click="showPassword = !showPassword">

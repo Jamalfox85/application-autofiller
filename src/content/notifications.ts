@@ -309,18 +309,55 @@ export function showAutofillPrompt() {
     prompt.style.transform = 'translateY(20px)'
     setTimeout(() => prompt.remove(), 300)
 
-    const result = await autofillPage()
-    if (result.code === 'hard_cap' || result.paywall === 'hard') {
-      const { showFillPaywall } = await import('./fillPaywall')
-      void showFillPaywall('hard', result)
-    } else if (result.success) {
-      showAutofillNotification(result)
-      if (result.paywall === 'soft') {
-        const { showFillPaywall } = await import('./fillPaywall')
-        void showFillPaywall('soft', result)
-      }
-    } else {
-      presentFillFailure(result)
-    }
+    const result = await runPromptAutofill()
+    presentAutofillOutcome(result)
   })
+}
+
+// The shell's Auto-fill button must not fill only the outer document. iCIMS
+// keeps #email in the ?in_iframe=1 frame. Ask every frame that owns fields,
+// then show one combined result here.
+async function runPromptAutofill() {
+  const host = window.location.hostname.toLowerCase()
+  let top = true
+  try {
+    top = window.top === window
+  } catch {
+    top = false
+  }
+  if (top && host.includes('icims.com')) {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'autofillIcimsFromPage' })
+      if (response && typeof response === 'object') return response
+    } catch {
+      // The worker is unreachable. Fill this document.
+    }
+  }
+  return await autofillPage()
+}
+
+export function presentAutofillOutcome(result: {
+  code?: string
+  paywall?: 'soft' | 'hard' | null
+  success?: boolean
+  fieldsCount?: number
+  totalCount?: number
+  repeatFill?: boolean
+  message?: string
+  fillCount?: number
+  fillsRemaining?: number
+  ats?: string
+} | null | undefined): void {
+  if (result?.code === 'hard_cap' || result?.paywall === 'hard') {
+    void import('./fillPaywall').then(({ showFillPaywall }) => showFillPaywall('hard', result))
+    return
+  }
+  if (result?.success) {
+    showAutofillNotification(result)
+    if (result.paywall === 'soft') {
+      void import('./fillPaywall').then(({ showFillPaywall }) => showFillPaywall('soft', result))
+    }
+    return
+  }
+  presentFillFailure(result)
 }
