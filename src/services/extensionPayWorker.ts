@@ -19,6 +19,7 @@ import {
 import { fillsRemaining } from './billing/quota.ts'
 import { readFillQuota } from './billing/quotaStore.ts'
 import { clearPendingProfilePlan, syncProPlanAfterPurchase } from './billing/profilePlan.ts'
+import { readExtPayApiKey } from './billing/planRefresh.ts'
 import {
   PAID_EVENT,
   checkoutAbandonedProps,
@@ -133,7 +134,15 @@ async function syncExtPayUser(user: PaidUser, trustPaidEvent: boolean): Promise<
 
   await writeEntitlement({ isPro, plan, updatedAt: now })
   if (isPro && !previous.isPro) {
-    await syncProPlanAfterPurchase()
+    try {
+      const extpayApiKey = await readExtPayApiKey({
+        sync: chrome.storage?.sync,
+        local: chrome.storage?.local,
+      })
+      await syncProPlanAfterPurchase({ extpayApiKey })
+    } catch (error) {
+      console.error('[extpay] plan sync failed', error)
+    }
     if (trustPaidEvent || session) await trackPurchase(user, plan ?? 'monthly', session)
     if (session) await reopenPopupAfterPro()
   } else if (!isPro && previous.isPro) {

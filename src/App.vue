@@ -35,6 +35,10 @@ import PaywallDialog from './components/PaywallDialog.vue'
 import ProFeatures from './components/ProFeatures.vue'
 import ProfilesModal from './components/ProfilesModal.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
+import {
+  PURCHASE_VERIFY_FAILED_COPY,
+  PURCHASE_VERIFY_NOTICE_KEY,
+} from '@/services/billing/profilePlan'
 import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
 import {
   gateCanFinish,
@@ -740,6 +744,35 @@ const onEntitlementStored = (
 
 const onPopupFocus = () => {
   void refreshBilling()
+  void presentPurchaseVerifyNotice()
+}
+
+// Receipt failures store a fixed sentence, never the install key. Showing it
+// must not throw into popup startup.
+let purchaseNoticeRead: Promise<void> | null = null
+const presentPurchaseVerifyNotice = () => {
+  if (purchaseNoticeRead) return purchaseNoticeRead
+  purchaseNoticeRead = (async () => {
+    try {
+      const data = await chrome.storage.local.get(PURCHASE_VERIFY_NOTICE_KEY)
+      if (data[PURCHASE_VERIFY_NOTICE_KEY] !== PURCHASE_VERIFY_FAILED_COPY) return
+      showNotification(PURCHASE_VERIFY_FAILED_COPY, 'error')
+      await chrome.storage.local.remove(PURCHASE_VERIFY_NOTICE_KEY)
+    } catch {
+      // A 400 from billing/plan must not take down the popup.
+    }
+  })().finally(() => {
+    purchaseNoticeRead = null
+  })
+  return purchaseNoticeRead
+}
+
+const onPurchaseVerifyNotice = (
+  changes: { [key: string]: chrome.storage.StorageChange },
+  areaName: string,
+) => {
+  if (areaName !== 'local' || changes[PURCHASE_VERIFY_NOTICE_KEY]?.newValue == null) return
+  void presentPurchaseVerifyNotice()
 }
 
 onMounted(async () => {
@@ -750,9 +783,12 @@ onMounted(async () => {
   chrome.storage.onChanged.addListener(onIcimsNoticeStored)
   chrome.storage.onChanged.addListener(onPersonalInfoStored)
   chrome.storage.onChanged.addListener(onEntitlementStored)
+  chrome.storage.onChanged.addListener(onPurchaseVerifyNotice)
   window.addEventListener('focus', onPopupFocus)
+  void presentPurchaseVerifyNotice()
   if (supabaseConfigError) return
   await initAuth()
+  await presentPurchaseVerifyNotice()
   if (authStatus.value === 'signed-in') {
     await loadAppState()
   } else if (authStatus.value === 'signed-out') {

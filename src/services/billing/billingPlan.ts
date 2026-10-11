@@ -19,20 +19,34 @@ export function isProBillingPlanSuccess(body: unknown): boolean {
   return (record.data as { plan?: unknown }).plan === 'pro'
 }
 
+// Body the server accepts with EXTENPAY_RECEIPT_REQUIRED on or off.
+// The extra field is ignored while the flag is off. A blank key is not a receipt.
+export function billingPlanBody(extpayApiKey: string): { plan: 'pro'; extpay_api_key: string } {
+  return { plan: 'pro', extpay_api_key: extpayApiKey }
+}
+
+export function isReceiptVerifyStatus(status: number): boolean {
+  return status === 400 || status === 403 || status === 503
+}
+
 export async function postBillingPlan(input: {
   token: string
   apiKey: string
   baseUrl: string
+  extpayApiKey?: string | null
   fetchImpl?: typeof fetch
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const apiKey = configuredResumeApiKey(input.apiKey)
   if (!apiKey) return { ok: false, reason: 'missing_api_key' }
 
+  const extpayApiKey = (input.extpayApiKey ?? '').trim()
+  if (!extpayApiKey) return { ok: false, reason: 'receipt_required' }
+
   const fetchImpl = input.fetchImpl ?? fetch
   const response = await fetchImpl(`${resumeApiBaseUrl(input.baseUrl)}${BILLING_PLAN_PATH}`, {
     method: 'POST',
     headers: billingPlanHeaders(input.token, apiKey),
-    body: JSON.stringify({ plan: 'pro' }),
+    body: JSON.stringify(billingPlanBody(extpayApiKey)),
   })
 
   let parsed: unknown = null
@@ -46,5 +60,6 @@ export async function postBillingPlan(input: {
   }
 
   if (response.ok && isProBillingPlanSuccess(parsed)) return { ok: true }
+  if (isReceiptVerifyStatus(response.status)) return { ok: false, reason: `http_${response.status}` }
   return { ok: false, reason: response.ok ? 'unexpected_body' : `http_${response.status}` }
 }
