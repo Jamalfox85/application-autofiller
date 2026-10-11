@@ -12,6 +12,7 @@ import { fetchAllowedPosting } from './matchScore/fetchPosting.ts'
 import { fulfillMatchScore, willRequestMatchScore, type CachedMatchScore } from './matchScore/fulfill.ts'
 import { buildMatchProfile, profileHash } from './matchScore/profile.ts'
 import { persistSkillChange } from './matchScore/skills.ts'
+import { deliverToTopFrame } from './matchScore/relay.ts'
 import { isMatchAts, type JdSource, type MatchAts } from './matchScore/types.ts'
 
 interface MatchSender {
@@ -95,11 +96,7 @@ async function readActiveProfileId(storage: StorageLike): Promise<string | null>
 async function relay(deps: MatchScoreDeps, sender: MatchSender, message: Record<string, unknown>) {
   const tabId = sender.tab?.id
   if (tabId == null) return
-  try {
-    await deps.sendToTopFrame(tabId, message)
-  } catch {
-    // The top frame has no listener yet. Autofill does not wait on this.
-  }
+  await deliverToTopFrame(() => deps.sendToTopFrame(tabId, message))
 }
 
 async function score(
