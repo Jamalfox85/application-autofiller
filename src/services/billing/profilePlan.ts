@@ -1,3 +1,4 @@
+import { billingCallRecoveringSession } from '../../lib/accessRecovery.ts'
 import { PENDING_PLAN_KEY } from './entitlementStore.ts'
 import { postBillingPlan } from './billingPlan.ts'
 import { configuredResumeApiKey, resumeApiBaseUrl } from './proApiContract.ts'
@@ -141,26 +142,30 @@ export async function syncProPlanAfterPurchase(options?: {
   }
 
   try {
-    const result = await postBillingPlan({
-      token,
-      apiKey,
-      baseUrl,
-      extpayApiKey,
-      fetchImpl: options?.fetchImpl,
-    })
+    const result = await billingCallRecoveringSession(token, (next) =>
+      postBillingPlan({
+        token: next,
+        apiKey,
+        baseUrl,
+        extpayApiKey,
+        fetchImpl: options?.fetchImpl,
+      }),
+    )
     if (result.ok) {
       await clearPending(store)
       return { ok: true }
     }
 
     if (result.reason === 'http_400' || result.reason === 'http_403' || result.reason === 'http_503') {
-      const refresh = await postPlanRefresh({
-        token,
-        extpayApiKey,
-        baseUrl,
-        apiKey,
-        fetchImpl: options?.fetchImpl,
-      })
+      const refresh = await billingCallRecoveringSession(token, (next) =>
+        postPlanRefresh({
+          token: next,
+          extpayApiKey,
+          baseUrl,
+          apiKey,
+          fetchImpl: options?.fetchImpl,
+        }),
+      )
       if (refresh.ok && refresh.plan === 'pro' && refresh.verified) {
         await clearPending(store)
         return { ok: true }

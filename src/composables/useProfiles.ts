@@ -18,6 +18,7 @@ import {
   copyProfileResume,
   deleteResumeFile,
 } from '../lib/sync/profileResume'
+import { billingCallRecoveringSession } from '../lib/accessRecovery'
 import { postPlanRefresh, readExtPayApiKey } from '../services/billing/planRefresh'
 import { resumeApiBaseUrl } from '../services/billing/proApiContract'
 import { mirrorEpoch, onMirrorReset } from '../lib/sync/mirrorEpoch'
@@ -56,7 +57,9 @@ async function syncServerPlan(): Promise<PlanSyncResult> {
     })
     if (!extpayApiKey) return { ok: false }
     const token = await getValidAccessToken()
-    const result = await postPlanRefresh({ token, extpayApiKey, ...apiConfig() })
+    const result = await billingCallRecoveringSession(token, (next) =>
+      postPlanRefresh({ token: next, extpayApiKey, ...apiConfig() }),
+    )
     if (!result.ok) {
       console.warn('[profiles] plan refresh skipped', result.reason)
       return { ok: false }

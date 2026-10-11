@@ -2,7 +2,7 @@
 import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
 import { normalizeProfileUrl } from '../../utils/profileUrl.ts'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { fillEmptyFromParsedResume, mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
+import { mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
 import type { PersonalInfo, OtherLink } from '../../types/index.ts'
 import { isToolbarPopup, openResumeUploadTab, pageIsExtensionTab } from '@/utils/uploadTab'
@@ -11,11 +11,14 @@ import SectionSheet from './SectionSheet.vue'
 const props = defineProps<{
   show: boolean
   personalInfo: PersonalInfo
+  // False until this open has loaded the profile into `personalInfo`. Applying a parse
+  // before that saved the empty placeholder and cleared phone, street, and ZIP.
+  profileReady?: boolean
 }>()
 
 const emit = defineEmits<{
   close: []
-  save: [profile: PersonalInfo]
+  save: [profile: PersonalInfo, opts?: { fromResumeParse?: boolean }]
   review: []
 }>()
 
@@ -33,10 +36,8 @@ const stripProtocol = (value: string) => value.replace(/^https?:\/\//i, '')
 
 const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
 
-// A resume upload only prefills the profile the first time — when there's no saved profile
-// data yet. Once the user has real data (entered manually or from a previous parse), an upload
-// just swaps the stored file and leaves their fields — experience, education, skills, contact
-// details — untouched, since they may have edited those by hand.
+// The file card copy. The merge itself never uses this: a parse fills blanks and merges
+// skills, and it does not clear a phone, street, or ZIP the profile already has.
 const hasExistingProfileData = computed(() => profileHasUserData(props.personalInfo))
 const prefilledFromResume = ref(false)
 const saved = ref(false)
@@ -48,55 +49,41 @@ let savedTimeout: ReturnType<typeof setTimeout> | undefined
 const resumeUpload = useResumeUpload()
 const resumeUploading = computed(() => resumeUpload.phase.value === 'uploading')
 
+// Apply a finished upload once the open profile is on screen. No confirmation here, so
+// skills are merged rather than replaced. `fromResumeParse` tells save_profile to omit
+// null columns the parse did not return.
+const applyFinishedUpload = () => {
+  if (resumeUpload.phase.value !== 'done') return
+  if (props.profileReady === false) return
+  const parsed = resumeUpload.parsedResume.value
+  const fileName = resumeUpload.fileName.value
+  const savedPath = resumeUpload.storagePath.value || editableProfile.value.resumeFilePath
+  const existing = completePersonalInfo(props.personalInfo)
+  const base = parsed ? mergeParsedResumeIntoProfile(existing, parsed, fileName) : existing
+  editableProfile.value = {
+    ...base,
+    resumeFileName: fileName || base.resumeFileName,
+    resumeFilePath: savedPath,
+  }
+  saved.value = false
+  resumeError.value = ''
+  // Drop the job before save so this watch cannot apply the same parse twice.
+  void resumeUpload.clear()
+  if (parsed) {
+    prefilledFromResume.value = true
+    emit('save', editableProfile.value, { fromResumeParse: true })
+    emit('review')
+  }
+}
+
 watch(
-  () => resumeUpload.phase.value,
-  (phase) => {
-    if (phase === 'done') {
-      const savedPath = resumeUpload.storagePath.value || editableProfile.value.resumeFilePath
-      if (resumeUpload.parsedResume.value && !hasExistingProfileData.value) {
-        // First upload, empty profile — prefill everything for review. The file
-        // is already stored on the account; this only fills the form.
-        editableProfile.value = {
-          ...mergeParsedResumeIntoProfile(
-            editableProfile.value,
-            resumeUpload.parsedResume.value,
-            resumeUpload.fileName.value,
-          ),
-          resumeFilePath: savedPath,
-        }
-        // Persist the prefill now so Personal details / Work / Education show it, and tell
-        // the user to review it. Waiting for a separate Save click lost the parse.
-        prefilledFromResume.value = true
-        emit('save', editableProfile.value)
-        emit('review')
-      } else {
-        // Repeat upload, or the profile already has data. Keep what the user has and
-        // show the resume that was just saved. When the API returned a parse, use it only
-        // to complete blank fields (phone, GitHub, degree...), never to overwrite.
-        const base = resumeUpload.parsedResume.value
-          ? fillEmptyFromParsedResume(
-              editableProfile.value,
-              resumeUpload.parsedResume.value,
-              resumeUpload.fileName.value,
-            )
-          : editableProfile.value
-        editableProfile.value = {
-          ...base,
-          resumeFileName: resumeUpload.fileName.value,
-          resumeFilePath: savedPath,
-        }
-        if (resumeUpload.parsedResume.value) {
-          prefilledFromResume.value = true
-          emit('save', editableProfile.value)
-          emit('review')
-        }
-      }
-      saved.value = false
-      resumeError.value = ''
-      resumeUpload.clear()
-    } else if (phase === 'error') {
+  [() => resumeUpload.phase.value, () => props.profileReady, () => props.personalInfo],
+  () => {
+    if (resumeUpload.phase.value === 'done') {
+      applyFinishedUpload()
+    } else if (resumeUpload.phase.value === 'error') {
       resumeError.value = resumeUpload.errorMessage.value
-      resumeUpload.clear()
+      void resumeUpload.clear()
     }
   },
   { immediate: true },

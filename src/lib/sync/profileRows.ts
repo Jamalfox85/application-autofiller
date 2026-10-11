@@ -65,6 +65,22 @@ export interface ProfileDbRows {
   children: Record<Exclude<ProfileChildKey, 'custom_responses'>, Record<string, unknown>[]>
 }
 
+// save_profile replaces any key that is present and nulls it. A resume parse that did not
+// return phone, street, or ZIP must not send those columns (or an empty skills list) or the
+// stored values disappear. Drop null scalars and empty child tables; keep everything the
+// merged profile actually holds.
+export function preserveServerWhenResumeParseOmits(rows: ProfileDbRows): ProfileDbRows {
+  const profile: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(rows.profile)) {
+    if (value != null) profile[key] = value
+  }
+  const children: Record<string, Record<string, unknown>[]> = {}
+  for (const [key, list] of Object.entries(rows.children)) {
+    if (list.length > 0) children[key] = list
+  }
+  return { profile, children: children as ProfileDbRows['children'] }
+}
+
 export function profileToDbRows(info: PersonalInfo, profileId: string): ProfileDbRows {
   return {
     // `plan`, `id`, `user_id` and `name` are intentionally absent. The plan is server-owned

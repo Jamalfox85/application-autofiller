@@ -176,7 +176,7 @@ export function usePersonalInfo() {
   // Writes the local mirror first (so autofill and a reopened popup see the change even if
   // the network call is slow or fails), then saves the loaded profile via save_profile.
   // Throws if the Supabase write fails — callers decide how loudly to surface that.
-  const savePersonalInfo = async (updatedInfo?: PersonalInfo) => {
+  const savePersonalInfo = async (updatedInfo?: PersonalInfo, opts?: { fromResumeParse?: boolean }) => {
     if (!memoryValid) return
     const epoch = mirrorEpoch()
     const generation = memoryGeneration
@@ -203,7 +203,7 @@ export function usePersonalInfo() {
     const userId = await getUserIdOrNull()
     if (!memoryValid || generation !== memoryGeneration || epoch !== mirrorEpoch() || !userId || !profileId) return
 
-    await saveProfileToDb(stored, profileId)
+    await saveProfileToDb(stored, profileId, opts)
   }
 
   return {

@@ -7,7 +7,12 @@ import { supabase } from '../supabase'
 import { createProfilesApi, type ProfilesApi } from './profiles'
 import { ensureAccountKey } from '../accountKey.ts'
 import { migrateAccountPasswords } from '../accountSecrets.ts'
-import { dbRowsToCustomResponses, dbRowsToProfile, profileToDbRows } from './profileRows'
+import {
+  dbRowsToCustomResponses,
+  dbRowsToProfile,
+  preserveServerWhenResumeParseOmits,
+  profileToDbRows,
+} from './profileRows'
 import type { CustomResponse, PersonalInfo } from '../../types'
 
 export { dbRowsToProfile, profileHasSubstance, profileToDbRows } from './profileRows'
@@ -46,13 +51,18 @@ export async function fetchProfileFromDb(profileId: string | null): Promise<Pers
 
 // Saves the profile row and the five profile child tables. Custom responses are left alone
 // (they are saved on their own by ./customResponses.ts).
-export async function saveProfileToDb(info: PersonalInfo, profileId: string): Promise<void> {
+export async function saveProfileToDb(
+  info: PersonalInfo,
+  profileId: string,
+  opts?: { fromResumeParse?: boolean },
+): Promise<void> {
   // Seal before the row mapper so every save_profile write (popup, match-score
   // skill edit, local migration) stores ciphertext when the key is available.
   // Already-sealed values are left unchanged. No key (signed out, or the
   // key migration is not applied yet) keeps the previous plaintext.
   const key = await ensureAccountKey()
   const sealed = key ? (await migrateAccountPasswords(info, key)).sealed : info
-  const rows = profileToDbRows(sealed, profileId)
+  const mapped = profileToDbRows(sealed, profileId)
+  const rows = opts?.fromResumeParse ? preserveServerWhenResumeParseOmits(mapped) : mapped
   await profilesApi().saveProfile(profileId, rows.profile, rows.children)
 }

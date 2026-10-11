@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { cloneDefaultPersonalInfo } from '../personalInfoDefaults.ts'
+import { normalizeParsedResume } from '../parsedResume.ts'
+import { mergeParsedResumeIntoProfile } from '../../utils/resumeParsing.ts'
 import {
   customResponsesToDbRows,
   dbRowsToCustomResponses,
   dbRowsToProfile,
+  preserveServerWhenResumeParseOmits,
   profileToDbRows,
 } from './profileRows.ts'
 import type { PersonalInfo } from '../../types/index.ts'
@@ -92,6 +95,48 @@ test('get_profile rows map back to PersonalInfo and custom responses', () => {
   assert.equal(back[0].title, 'Why us?')
   assert.equal(back[0].text, 'Because.')
   assert.deepEqual(back[0].tags, ['why'])
+})
+
+test('a resume parse that lacks phone, street, and ZIP does not null them in save_profile', () => {
+  const existing = {
+    ...cloneDefaultPersonalInfo(),
+    firstName: 'Ada',
+    phone: '(215) 555-0100',
+    address: '1 Analytical Engine',
+    zip: '19104',
+    skills: ['Go'],
+  }
+  const parsed = normalizeParsedResume({
+    name: 'Ada Lovelace',
+    contact: { email: 'ada@example.com', city: 'Austin', state: 'TX' },
+    skills: ['Rust'],
+    work_history: [],
+    education: [],
+  })
+  assert.equal(parsed.phone, undefined)
+  assert.equal(parsed.address, undefined)
+  assert.equal(parsed.zip, undefined)
+
+  const merged = mergeParsedResumeIntoProfile(existing, parsed, 'ada.pdf')
+  assert.equal(merged.phone, '(215) 555-0100')
+  assert.equal(merged.address, '1 Analytical Engine')
+  assert.equal(merged.zip, '19104')
+  assert.deepEqual(merged.skills, ['Go', 'Rust'])
+
+  const rows = preserveServerWhenResumeParseOmits(profileToDbRows(merged, PROFILE))
+  assert.equal(rows.profile.phone, '(215) 555-0100')
+  assert.equal(rows.profile.address, '1 Analytical Engine')
+  assert.equal(rows.profile.zip, '19104')
+  assert.deepEqual(
+    rows.children.skills.map((row) => row.name),
+    ['Go', 'Rust'],
+  )
+
+  const blank = preserveServerWhenResumeParseOmits(profileToDbRows(cloneDefaultPersonalInfo(), PROFILE))
+  assert.equal('phone' in blank.profile, false)
+  assert.equal('address' in blank.profile, false)
+  assert.equal('zip' in blank.profile, false)
+  assert.equal('skills' in blank.children, false)
 })
 
 test('a GPA the numeric(3,2) column cannot hold is dropped instead of failing the save', async () => {

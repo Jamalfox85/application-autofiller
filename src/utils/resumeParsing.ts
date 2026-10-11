@@ -6,37 +6,63 @@ function assignEntryIds<T extends { id?: number }>(entries: T[]): (T & { id: num
   return entries.map((entry) => ({ ...entry, id: nextId++ }))
 }
 
-// Merges a backend resume-parse result into a full PersonalInfo, assigning client-side ids
-// to education/experience entries (the backend has no concept of these).
+function cleanSkills(list: unknown): string[] {
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((skill): skill is string => typeof skill === 'string')
+    .map((skill) => skill.trim())
+    .filter(Boolean)
+}
+
+// First spelling wins. "Go" and "go" are the same skill.
+export function mergeSkillList(
+  existing: string[] | undefined,
+  incoming: string[] | undefined,
+  replace: boolean,
+): string[] {
+  const next = cleanSkills(incoming)
+  const have = cleanSkills(existing)
+  const source = replace && next.length > 0 ? next : [...have, ...next]
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const skill of source) {
+    const key = skill.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(skill)
+  }
+  return out
+}
+
+// A brand-new profile: start from defaults, then apply only what the parse actually returned.
 export function mergeParsedResume(
   parsed: ParsedResumeData,
   options?: { fileName?: string },
 ): PersonalInfo {
-  return {
-    ...cloneDefaultPersonalInfo(),
-    ...parsed,
-    resumeFileName: options?.fileName ?? parsed.resumeFileName,
-    education: assignEntryIds(parsed.education ?? []),
-    experience: assignEntryIds(parsed.experience ?? []),
-    skills: parsed.skills ?? [],
-  }
+  return mergeParsedResumeIntoProfile(cloneDefaultPersonalInfo(), parsed, options?.fileName, {
+    confirmReplace: true,
+  })
 }
 
-// Overlay a fresh parse onto an existing profile — keeps accounts, custom links, etc.
+// Overlay a parse onto a profile the user already has.
+// Blank parse fields are ignored, so a resume with no phone, street, or ZIP cannot clear
+// them. Skills are merged and de-duplicated. Replacing skills (or education / experience)
+// happens only when `confirmReplace` is set and the parse actually returned that list —
+// the Links sheet saves without that confirmation; the onboarding review sets it.
 export function mergeParsedResumeIntoProfile(
   existing: PersonalInfo,
   parsed: ParsedResumeData,
   fileName?: string,
+  options?: { confirmReplace?: boolean },
 ): PersonalInfo {
-  const { education, experience, skills, fieldNotes, ...scalarFields } = parsed
-
+  const filled = fillEmptyFromParsedResume(existing, parsed, fileName)
+  if (!options?.confirmReplace) return filled
+  const { education, experience, skills } = parsed
   return {
-    ...existing,
-    ...scalarFields,
-    resumeFileName: fileName ?? existing.resumeFileName,
-    education: education?.length ? assignEntryIds(education) : existing.education,
-    experience: experience?.length ? assignEntryIds(experience) : existing.experience,
-    skills: skills?.length ? skills : existing.skills,
+    ...filled,
+    skills: mergeSkillList(existing.skills, skills, true),
+    education: education?.length ? assignEntryIds(education) : filled.education,
+    experience: experience?.length ? assignEntryIds(experience) : filled.experience,
   }
 }
 
@@ -98,7 +124,7 @@ export function fillEmptyFromParsedResume(
     })
   }
 
-  if ((existing.skills ?? []).length === 0) next.skills = skills ?? []
+  next.skills = mergeSkillList(existing.skills, skills, false)
   return next as unknown as PersonalInfo
 }
 

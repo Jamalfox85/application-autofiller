@@ -32,5 +32,7 @@ test('a resume parsed in the Links sheet opens a review of the parsed values', (
   assert.match(app, /@review="startParsedReview"/)
   assert.match(app, /openDialog\('personalInfo'\)/)
   const dlg = readFileSync(new URL('./components/dialogs/UpdateLinksDialog.vue', import.meta.url), 'utf8')
-  assert.equal((dlg.match(/emit\('review'\)/g) ?? []).length, 2)
+  assert.equal((dlg.match(/emit\('review'\)/g) ?? []).length, 1)
+  assert.match(dlg, /profileReady/)
+  assert.match(dlg, /fromResumeParse: true/)
 })
