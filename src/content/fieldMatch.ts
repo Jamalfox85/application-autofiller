@@ -403,6 +403,7 @@ const EXPERIENCE_FIELDS: Array<{ patternKey: keyof typeof FIELD_PATTERNS; dataKe
 
 function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
   const latestExperience = personalInfo.experience[0]
+  if (!latestExperience) return
 
   for (const { patternKey, dataKey } of EXPERIENCE_FIELDS) {
     if (FIELD_PATTERNS[patternKey].some((pattern) => matchesPattern(fieldText, pattern))) {

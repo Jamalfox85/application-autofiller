@@ -1,6 +1,7 @@
 import type { SiteRule } from '../../types/index.ts'
 import { detectAts, type AtsPageContext } from '../ats.ts'
-import { fillNativeInput, setReactInputValue } from '../inputHandlers.ts'
+import { dispatchFillEvent, fillNativeInput, setReactInputValue } from '../inputHandlers.ts'
+import { ignorePagePatternError } from '../../lib/pagePatternError.ts'
 import { assignLeverResumeFile } from './leverResumeFile.ts'
 import {
   isLeverPlainResumeFile,
@@ -305,8 +306,8 @@ function repeatIndex(input: HTMLElement, key: string): number {
 function clickChoice(input: HTMLInputElement) {
   if (input.checked) return
   input.click()
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
+  dispatchFillEvent(input, new Event('input', { bubbles: true }))
+  dispatchFillEvent(input, new Event('change', { bubbles: true }))
 }
 
 function commitSelect(select: HTMLSelectElement, optionText: string): boolean {
@@ -320,8 +321,8 @@ function commitSelect(select: HTMLSelectElement, optionText: string): boolean {
   })
   if (!match) return false
   select.value = match.value
-  select.dispatchEvent(new Event('input', { bubbles: true }))
-  select.dispatchEvent(new Event('change', { bubbles: true }))
+  dispatchFillEvent(select, new Event('input', { bubbles: true }))
+  dispatchFillEvent(select, new Event('change', { bubbles: true }))
   const jq = (
     globalThis as {
       jQuery?: (el: Element) => { val: (v: string) => { trigger: (e: string) => void } }
@@ -370,10 +371,11 @@ async function commitLeverLocation(
 ): Promise<boolean> {
   const hitsPromise = searchLeverLocations(query, input.ownerDocument)
   const view = input.ownerDocument?.defaultView
-  input.focus()
+  ignorePagePatternError(() => input.focus())
   setReactInputValue(input, query)
   const KeyboardEventCtor = view?.KeyboardEvent ?? KeyboardEvent
-  input.dispatchEvent(
+  dispatchFillEvent(
+    input,
     new KeyboardEventCtor('keydown', { key: 'a', bubbles: true, cancelable: true }),
   )
   const hits = await hitsPromise
@@ -388,7 +390,8 @@ async function commitLeverLocation(
   const option = options.find((node) => cleanText(node.textContent) === hit.name)
   if (option) {
     const MouseEventCtor = view?.MouseEvent ?? MouseEvent
-    option.dispatchEvent(
+    dispatchFillEvent(
+      option,
       new MouseEventCtor('mousedown', { bubbles: true, cancelable: true, button: 0 }),
     )
   }
@@ -399,7 +402,7 @@ async function commitLeverLocation(
   if (!locationCommitted(input, hidden, hit)) writeLocationValue(input, hidden, hit)
   closeLocationMenu(widget)
   dispatchChange(input)
-  input.blur()
+  ignorePagePatternError(() => input.blur())
   // Blur wipes both fields while the menu is open. The menu is closed now; if a
   // handler still cleared them, write the payload again without an `input`
   // event (that event is what opens the menu).
@@ -485,7 +488,7 @@ function setDomValue(input: HTMLInputElement, value: string) {
 
 function dispatchChange(input: HTMLInputElement) {
   const EventCtor = input.ownerDocument?.defaultView?.Event ?? Event
-  input.dispatchEvent(new EventCtor('change', { bubbles: true }))
+  dispatchFillEvent(input, new EventCtor('change', { bubbles: true }))
 }
 
 function cleanText(value: string | null | undefined): string {

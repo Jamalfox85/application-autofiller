@@ -199,6 +199,33 @@ function escapeName(name: string): string {
   return name.replace(/["\\]/g, '\\$&')
 }
 
+// Chrome compiles pattern="" with the unicodeSets (`v`) flag. An unescaped `+`
+// inside a class throws from checkValidity, and the console still reports that
+// throw when the caller catches it. Skip the call when the pattern cannot compile.
+function patternWouldThrowInChrome(node: Element): boolean {
+  const pattern = node.getAttribute('pattern')
+  if (!pattern) return false
+  try {
+    new RegExp(pattern, 'v')
+    return false
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/invalid flags|unknown flag/i.test(message) && !/character class/i.test(message)) return false
+    return true
+  }
+}
+
+function controlFailsConstraintValidation(node: HTMLInputElement): boolean {
+  try {
+    if (!node.willValidate || typeof node.checkValidity !== 'function') return false
+    if (patternWouldThrowInChrome(node)) return false
+    return node.checkValidity() === false
+  } catch {
+    // A stub control, or a pattern the pre-check did not recognize, is not a failed submit.
+    return false
+  }
+}
+
 function invalidFieldsIn(root: Element): boolean {
   for (const node of root.querySelectorAll('input, select, textarea')) {
     if (inExtensionUi(node) || !isShown(node)) continue
@@ -219,14 +246,7 @@ function invalidFieldsIn(root: Element): boolean {
         if (!picked) return true
       }
     }
-    const validity = node as HTMLInputElement
-    if (validity.willValidate && typeof validity.checkValidity === 'function') {
-      try {
-        if (!validity.checkValidity()) return true
-      } catch {
-        // A stub control without a real validity state is not evidence of failure.
-      }
-    }
+    if (controlFailsConstraintValidation(node as HTMLInputElement)) return true
   }
   return false
 }
