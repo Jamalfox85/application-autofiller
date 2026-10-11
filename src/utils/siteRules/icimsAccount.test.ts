@@ -7,11 +7,14 @@ import {
   getIcimsAccount,
   hasIcimsAccountCredentials,
   icimsAccountPassword,
+  isConcealedPasswordInput,
   isIcimsAccountCreationEmailStep,
+  isIcimsAuth0LoginHost,
   isIcimsCandidateHost,
   isIcimsLoginPath,
   isIcimsLoginSurface,
   pageHasEmailGate,
+  pageHasPasswordField,
   passwordForApplicationAccount,
 } from './icimsAccount.ts'
 import {
@@ -118,6 +121,120 @@ test('login surface is the /login path or the email gate, before any application
     }),
     false,
   )
+  // Auth0 Universal Login from a careers sign-in link. Not the old /login path.
+  assert.equal(isIcimsAuth0LoginHost('login.icims.com'), true)
+  assert.equal(isIcimsAuth0LoginHost('careers-acme.icims.com'), false)
+  assert.equal(
+    isIcimsLoginSurface({
+      hostname: 'login.icims.com',
+      pathname: '/u/login/identifier',
+      search: '?state=abc',
+      hasPasswordField: false,
+    }),
+    true,
+  )
+  assert.equal(
+    isIcimsLoginSurface({
+      hostname: 'login.icims.com',
+      pathname: '/u/login/password',
+      hasPasswordField: true,
+    }),
+    true,
+  )
+  assert.equal(
+    isIcimsLoginSurface({
+      hostname: 'login.icims.com',
+      pathname: '/authorize',
+      hasPasswordField: false,
+    }),
+    false,
+  )
+  assert.equal(
+    isIcimsLoginSurface({
+      hostname: 'www.icims.com',
+      pathname: '/u/login/identifier',
+    }),
+    false,
+  )
+})
+
+test('Auth0 hidden password decoy is not a password field', () => {
+  const decoy = {
+    hidden: true,
+    type: 'password',
+    getAttribute(name: string) {
+      if (name === 'type') return 'password'
+      if (name === 'hidden') return ''
+      if (name === 'aria-hidden') return 'true'
+      if (name === 'autocomplete') return 'off'
+      return null
+    },
+  }
+  const visible = {
+    hidden: false,
+    type: 'password',
+    getAttribute(name: string) {
+      if (name === 'type') return 'password'
+      if (name === 'id') return 'password'
+      if (name === 'autocomplete') return 'current-password'
+      return null
+    },
+  }
+  assert.equal(isConcealedPasswordInput(decoy), true)
+  assert.equal(isConcealedPasswordInput(visible), false)
+  assert.equal(
+    pageHasPasswordField({
+      querySelectorAll: () => [decoy],
+    }),
+    false,
+  )
+  // The decoy is rendered before the real password input on the password step.
+  assert.equal(
+    pageHasPasswordField({
+      querySelectorAll: () => [decoy, visible],
+    }),
+    true,
+  )
+})
+
+function chromeMatchCovers(pattern: string, url: string): boolean {
+  const parsed = new URL(url)
+  const match = /^(\*|https?):\/\/(\*|(?:\*\.)?[^/]+)(\/.*)$/.exec(pattern)
+  if (!match) return false
+  const scheme = match[1]
+  const host = match[2]
+  const path = match[3]
+  if (!scheme || !host || path == null) return false
+  if (scheme !== '*' && scheme !== parsed.protocol.replace(':', '')) return false
+  if (host.startsWith('*.')) {
+    const rest = host.slice(2)
+    const hostname = parsed.hostname
+    if (hostname !== rest && !hostname.endsWith(`.${rest}`)) return false
+    const prefix = hostname === rest ? '' : hostname.slice(0, -(rest.length + 1))
+    if (prefix.includes('.')) return false
+  } else if (host !== '*' && host !== parsed.hostname) {
+    return false
+  }
+  const pathPattern = path.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+  return new RegExp(`^${pathPattern}$`).test(`${parsed.pathname}${parsed.search}`)
+}
+
+test('login.icims.com is already covered by the *.icims.com host pattern', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../../manifest.json', import.meta.url), 'utf8')) as {
+    host_permissions: string[]
+    content_scripts: Array<{ js?: string[]; matches?: string[] }>
+  }
+  const pattern = 'https://*.icims.com/*'
+  assert.equal(manifest.host_permissions.includes(pattern), true)
+  assert.equal(manifest.host_permissions.includes('https://login.icims.com/*'), false)
+  const content = manifest.content_scripts.find((entry) => entry.js?.includes('content.js'))
+  assert.ok(content?.matches?.includes(pattern))
+  assert.equal(
+    chromeMatchCovers(pattern, 'https://login.icims.com/u/login/identifier?state=abc'),
+    true,
+  )
+  assert.equal(chromeMatchCovers(pattern, 'https://login.icims.com/u/login/password'), true)
+  assert.equal(manifest.host_permissions.length, 23)
 })
 
 const gateDocument = (headings: string[], inputs: Array<{ type?: string; name?: string; autocomplete?: string }>) => ({

@@ -46,6 +46,8 @@ export type IcimsControl = {
   fieldText?: string | null
   // Nearby row text (the Resume label, "Choose File", or "Autofill with resume").
   contextText?: string | null
+  // Hidden attribute or aria-hidden. Auth0's identifier step includes a decoy password.
+  concealed?: boolean
 }
 
 export type IcimsOption = {
@@ -141,6 +143,7 @@ type GateElement = {
   id?: string
   value?: string
   checked?: boolean
+  hidden?: boolean
   placeholder?: string
   autocomplete?: string
   textContent?: string | null
@@ -332,9 +335,16 @@ export function isPlainIcimsResumeFile(blob: string): boolean {
   return blob.includes('choosefile') || blob.includes('upload')
 }
 
+function isAuth0UsernameField(control: IcimsControl): boolean {
+  const name = compact(control.name || '')
+  const id = compact(control.id || '')
+  return name === 'username' || id === 'username'
+}
+
 export function classifyIcimsControl(control: IcimsControl, loginSurface: boolean): IcimsFieldKind {
   const blob = controlBlob(control)
   const type = controlType(control)
+  if (control.concealed) return 'unknown'
   if (!blob) return 'unknown'
   if (isCaptchaField(blob)) return 'captcha'
   if (isEuUkResident(control, blob)) return 'euUkResident'
@@ -342,6 +352,17 @@ export function classifyIcimsControl(control: IcimsControl, loginSurface: boolea
     return 'gatePassword'
   }
   if (type === 'hidden' || type === 'submit' || type === 'button') return 'unknown'
+  // Auth0 identifier: name/id "username", label "Username or email address".
+  // On a login surface that is the saved account email, not the profile email.
+  if (
+    loginSurface &&
+    isAuth0UsernameField(control) &&
+    type !== 'checkbox' &&
+    type !== 'radio' &&
+    type !== 'file'
+  ) {
+    return 'gateEmail'
+  }
   if (isCustomField(blob)) return 'custom'
   if (type === 'file' && !isIcimsPortalResumeFile(control) && isNonResumeUpload(fileOwnBlob(control))) {
     return 'unknown'
@@ -1398,6 +1419,13 @@ function elementAttr(element: GateElement, name: string): string {
   return direct == null ? '' : String(direct)
 }
 
+function elementIsConcealed(element: GateElement): boolean {
+  if (element.hidden === true) return true
+  if (typeof element.getAttribute !== 'function') return false
+  if (element.getAttribute('hidden') != null) return true
+  return (element.getAttribute('aria-hidden') || '').toLowerCase() === 'true'
+}
+
 export function controlFromElement(element: GateElement, fieldText = ''): IcimsControl {
   const tag = (element.tagName || (element.options ? 'SELECT' : 'INPUT')).toString()
   return {
@@ -1409,6 +1437,7 @@ export function controlFromElement(element: GateElement, fieldText = ''): IcimsC
     ariaLabel: elementAttr(element, 'aria-label'),
     autocomplete: elementAttr(element, 'autocomplete') || element.autocomplete || '',
     fieldText,
+    concealed: elementIsConcealed(element),
   }
 }
 

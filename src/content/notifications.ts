@@ -253,6 +253,7 @@ async function startGoogleSignInFromToast(): Promise<void> {
 // the popup already uses). Signed in with an empty profile keeps the empty
 // profile copy. Either way the page shows a toast — the shortcut has no popup.
 export function presentFillFailure(result: { code?: string; message?: string } | null | undefined): void {
+  if (result?.code === 'awaiting_password') return
   const code = result?.code
   const message =
     (typeof result?.message === 'string' && result.message) ||

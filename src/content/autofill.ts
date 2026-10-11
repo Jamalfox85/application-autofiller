@@ -29,7 +29,10 @@ import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
 import { openStoredPersonalInfo } from '../lib/openStoredPersonalInfo.ts'
-import { resetSavedPasswordFillConfirmation } from '../lib/savedAccountConfirmation.ts'
+import {
+  isSavedPasswordPromptOpen,
+  resetSavedPasswordFillConfirmation,
+} from '../lib/savedAccountConfirmation.ts'
 import {
   isGenericAccountPasswordField,
   legacyAccountPasswordLocked,
@@ -173,6 +176,15 @@ export async function claimSubmittedApplications(keys: string[]): Promise<boolea
 
 function isSkippableField(input: FormField, includeFilled?: (input: FormField) => boolean) {
   if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button') {
+    return true
+  }
+  // Auth0 Universal Login puts a hidden password decoy on the identifier step.
+  // The HTML hidden attribute is not type=hidden. It is not a field to fill.
+  if (input.hidden) return true
+  if (
+    (input.type || '').toLowerCase() === 'password' &&
+    (input.getAttribute('aria-hidden') || '').toLowerCase() === 'true'
+  ) {
     return true
   }
 
@@ -442,7 +454,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       } catch (error) {
         console.error('[billing] quota update failed', error)
       }
-    } else {
+    } else if (!isSavedPasswordPromptOpen()) {
       await trackFillContract('autofill_failed', {
         ...fillContext,
         failureReason: 'no_matching_fields',
@@ -450,14 +462,19 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       })
     }
 
+    // A saved password that is waiting on "Fill password" matched. The prompt is
+    // the UI. "No matching fields found" is for a page that had nothing to fill.
+    const awaitingPassword = filledCount === 0 && isSavedPasswordPromptOpen()
+
     return {
       success: filledCount > 0,
+      code: awaitingPassword ? 'awaiting_password' : undefined,
       fieldsCount: filledCount,
       totalCount: attemptedCount,
       unfilledCount: unfilledInputs.length,
       elapsedMs: Date.now() - startTime,
       roleGuess: guessJobTitle(),
-      message: filledCount > 0 ? `Filled ${filledCount} fields` : 'No matching fields found',
+      message: filledCount > 0 ? `Filled ${filledCount} fields` : awaitingPassword ? '' : 'No matching fields found',
       paywall,
       fillCount,
       fillsRemaining,

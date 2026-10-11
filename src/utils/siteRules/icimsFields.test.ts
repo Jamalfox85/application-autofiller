@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import { JSDOM } from 'jsdom'
+import {
+  resetSavedPasswordFillConfirmation,
+  setSavedPasswordPromptPresenter,
+} from '../../lib/savedAccountConfirmation.ts'
 import { icimsPageDropdownCommand } from './icimsPageDropdownCommand.js'
 import type { ApplicationAccount, PersonalInfo } from '../../types/index.ts'
 import { icimsAccountRequiresConfirmation } from './icimsAccount.ts'
@@ -987,4 +993,188 @@ test('content script fills United States then New Jersey through the page dropdo
     if (previousIcims === undefined) delete (globalThis as { ICIMS?: unknown }).ICIMS
     else (globalThis as { ICIMS?: unknown }).ICIMS = previousIcims
   }
+})
+
+test('Auth0 identifier username is the saved account email on a login surface', () => {
+  const username = control({
+    type: 'text',
+    name: 'username',
+    id: 'username',
+    autocomplete: 'email',
+    fieldText: 'username or email address',
+  })
+  assert.equal(classifyIcimsControl(username, true), 'gateEmail')
+  assert.equal(textValue(planIcimsFill(username, profile(), { loginSurface: true })), 'icims@example.com')
+  // Off the login surface the same label is the profile contact email.
+  assert.equal(textValue(planIcimsFill(username, profile(), { loginSurface: false })), 'ada@example.com')
+  const decoy = control({ type: 'password', autocomplete: 'off', concealed: true })
+  assert.equal(classifyIcimsControl(decoy, true), 'unknown')
+  const password = control({
+    type: 'password',
+    name: 'password',
+    id: 'password',
+    autocomplete: 'current-password',
+    fieldText: 'password',
+  })
+  assert.deepEqual(planIcimsFill(password, profile(), { loginSurface: true, passwordConfirmed: false }), {
+    field: 'gatePassword',
+    action: 'leave',
+    reason: 'confirm-password',
+  })
+  assert.equal(
+    textValue(planIcimsFill(password, profile(), { loginSurface: true, passwordConfirmed: true })),
+    'Correct horse',
+  )
+})
+
+const auth0Page = (file: string, href: string) => {
+  const html = readFileSync(new URL(`../../../fixtures/pages/${file}`, import.meta.url), 'utf8')
+  return new JSDOM(html, { url: href, runScripts: 'outside-only' })
+}
+
+async function withAuth0Page(
+  file: string,
+  href: string,
+  run: (dom: JSDOM) => Promise<void>,
+) {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const dom = auth0Page(file, href)
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+  try {
+    await run(dom)
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.document = previousDocument
+    setSavedPasswordPromptPresenter(null)
+    resetSavedPasswordFillConfirmation()
+    resetIcimsGateFillState()
+  }
+}
+
+function fieldTextFor(input: HTMLInputElement, doc: Document): string {
+  const label = input.id ? doc.querySelector(`label[for="${input.id}"]`)?.textContent || '' : ''
+  return `${input.name} ${input.id} ${label} ${input.getAttribute('autocomplete') || ''} ${input.type}`
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+async function fillAuth0Document(dom: JSDOM, personalInfo: PersonalInfo) {
+  const { default: icimsConfig } = await import('./icims.ts')
+  const rule = icimsConfig()
+  const doc = dom.window.document
+  const clicks: string[] = []
+  let submitted = 0
+  doc.querySelectorAll('button, a').forEach((node) => {
+    node.addEventListener('click', () => {
+      clicks.push((node.textContent || '').replace(/\s+/g, ' ').trim())
+    })
+  })
+  doc.querySelectorAll('form').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault()
+      submitted += 1
+    })
+  })
+  const cleanup = rule.onMount?.(personalInfo)
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  const inputs = [...doc.querySelectorAll('input, textarea, select')] as HTMLInputElement[]
+  for (const input of inputs) {
+    if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button' || input.hidden) continue
+    if (input.type === 'password' && (input.getAttribute('aria-hidden') || '').toLowerCase() === 'true') continue
+    await rule.apply(input, fieldTextFor(input, doc), personalInfo)
+  }
+  if (typeof cleanup === 'function') cleanup()
+  return { clicks, submitted }
+}
+
+test('Auth0 identifier fixture fills the saved account email and does not ask for a password', async () => {
+  resetSavedPasswordFillConfirmation()
+  resetIcimsGateFillState()
+  let prompts = 0
+  setSavedPasswordPromptPresenter(() => {
+    prompts += 1
+  })
+  await withAuth0Page(
+    'icims-auth0-identifier.html',
+    'https://login.icims.com/u/login/identifier?state=fixture-state',
+    async (dom) => {
+      const username = dom.window.document.getElementById('username') as HTMLInputElement
+      const saved = profile()
+      const { default: icimsConfig } = await import('./icims.ts')
+      const rule = icimsConfig()
+      rule.onMount?.(saved)
+      for (let i = 0; i < 5; i++) await Promise.resolve()
+      assert.equal(username.value, '')
+      const { clicks, submitted } = await fillAuth0Document(dom, saved)
+      assert.equal(username.value, 'icims@example.com')
+      assert.notEqual(username.value, saved.email)
+      const decoys = [...dom.window.document.querySelectorAll('input[type="password"]')] as HTMLInputElement[]
+      assert.equal(decoys.length, 1)
+      assert.equal(decoys[0]?.hidden, true)
+      assert.equal(decoys[0]?.value, '')
+      assert.equal(prompts, 0)
+      assert.deepEqual(clicks, [])
+      assert.equal(submitted, 0)
+    },
+  )
+})
+
+test('Auth0 password fixture fills the saved password only after confirmation and does not submit', async () => {
+  resetSavedPasswordFillConfirmation()
+  resetIcimsGateFillState()
+  let confirm: (() => void) | null = null
+  let prompts = 0
+  setSavedPasswordPromptPresenter((onConfirm) => {
+    prompts += 1
+    confirm = onConfirm
+  })
+  await withAuth0Page(
+    'icims-auth0-password.html',
+    'https://login.icims.com/u/login/password?state=fixture-state',
+    async (dom) => {
+      const password = dom.window.document.getElementById('password') as HTMLInputElement
+      const saved = profile()
+      const { default: icimsConfig } = await import('./icims.ts')
+      const rule = icimsConfig()
+      rule.onMount?.(saved)
+      for (let i = 0; i < 5; i++) await Promise.resolve()
+      assert.equal(password.value, '')
+      const { clicks, submitted } = await fillAuth0Document(dom, saved)
+      assert.equal(prompts, 1)
+      assert.equal(password.value, '')
+      assert.equal(typeof confirm, 'function')
+      confirm?.()
+      assert.equal(password.value, 'Correct horse')
+      const decoys = [...dom.window.document.querySelectorAll('input[type="password"]')].filter(
+        (input) => (input as HTMLInputElement).hidden,
+      ) as HTMLInputElement[]
+      assert.equal(decoys[0]?.value, '')
+      assert.deepEqual(clicks, [])
+      assert.equal(submitted, 0)
+    },
+  )
+})
+
+test('Auth0 password fixture types the saved password without a prompt when confirmation is off', async () => {
+  resetSavedPasswordFillConfirmation()
+  resetIcimsGateFillState()
+  let prompts = 0
+  setSavedPasswordPromptPresenter(() => {
+    prompts += 1
+  })
+  await withAuth0Page(
+    'icims-auth0-password.html',
+    'https://login.icims.com/u/login/password?state=fixture-state',
+    async (dom) => {
+      const password = dom.window.document.getElementById('password') as HTMLInputElement
+      const saved = profile({ applicationAccounts: [account({ requireConfirmation: false })] })
+      const { clicks, submitted } = await fillAuth0Document(dom, saved)
+      assert.equal(prompts, 0)
+      assert.equal(password.value, 'Correct horse')
+      assert.deepEqual(clicks, [])
+      assert.equal(submitted, 0)
+    },
+  )
 })

@@ -5,6 +5,16 @@ import { readFileSync } from 'node:fs'
 const index = readFileSync(new URL('./index.js', import.meta.url), 'utf8')
 const autofill = readFileSync(new URL('./autofill.ts', import.meta.url), 'utf8')
 
+test('a saved-password prompt is not reported as no matching fields', () => {
+  assert.match(autofill, /isSavedPasswordPromptOpen\(\)/)
+  assert.match(autofill, /awaiting_password/)
+  assert.match(autofill, /awaitingPassword \? '' : 'No matching fields found'/)
+  const notifications = readFileSync(new URL('./notifications.ts', import.meta.url), 'utf8')
+  assert.match(notifications, /code === 'awaiting_password'/)
+  const app = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  assert.match(app, /response\?\.code === 'awaiting_password'/)
+})
+
 test('detection never calls autofillPage on its own', () => {
   assert.equal(/autofillPage\('auto_on_detect'\)/.test(index), false)
   assert.match(autofill, /triggerSource === 'auto_on_detect'/)
