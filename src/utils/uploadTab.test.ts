@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isResumeUploadTab, isToolbarPopup, openResumeUploadTab } from './uploadTab.ts'
+import { isResumeUploadTab, isToolbarPopup, openResumeUploadTab, pageIsExtensionTab } from './uploadTab.ts'
 
 test('popup vs upload tab detection', () => {
   assert.equal(isToolbarPopup({ search: '' }), true)
   assert.equal(isToolbarPopup({ search: '?tab=1&upload=resume' }), false)
   assert.equal(isResumeUploadTab({ search: '?tab=1&upload=resume' }), true)
   assert.equal(isResumeUploadTab({ search: '?upload=resume' }), false)
+})
+
+test('an extension page opened as a tab is not the toolbar popup', async () => {
+  assert.equal(await pageIsExtensionTab(async () => ({ id: 4 })), true)
+  assert.equal(await pageIsExtensionTab(async () => undefined), false)
+  assert.equal(
+    await pageIsExtensionTab(async () => {
+      throw new Error('no tab')
+    }),
+    false,
+  )
 })
 
 test('openResumeUploadTab opens the tab then closes the popup', async () => {

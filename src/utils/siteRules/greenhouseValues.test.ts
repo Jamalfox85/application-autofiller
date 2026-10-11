@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   countrySearchValues,
+  isSelectPlaceholder,
+  nativeCountrySelectValue,
   degreeSearchValues,
   disciplineSearchValues,
   greenhouseEducationRowsToAdd,
@@ -16,6 +18,7 @@ import {
   nativeYearSelectValue,
   parseGreenhouseEducationId,
   educationComboboxLabelSettled,
+  pickCountryOption,
   pickDegreeOption,
   pickDisciplineOption,
   pickMonthOption,
@@ -34,6 +37,32 @@ test('country search uses the Greenhouse label for stored snake_case keys', () =
   assert.deepEqual(countrySearchValues('united_states'), ['United States'])
   assert.deepEqual(countrySearchValues('united_kingdom'), ['United Kingdom'])
   assert.deepEqual(countrySearchValues(''), [])
+})
+
+test('a country dropdown does not commit the Select placeholder', () => {
+  assert.equal(isSelectPlaceholder('Select'), true)
+  assert.equal(isSelectPlaceholder('Select...'), true)
+  assert.equal(isSelectPlaceholder(''), true)
+  assert.equal(isSelectPlaceholder('United States'), false)
+  assert.equal(
+    pickCountryOption(['Select', 'United States', 'Canada'], ['United States']),
+    'United States',
+  )
+  assert.equal(pickCountryOption(['Select', 'Canada'], ['United States']), null)
+  assert.equal(
+    nativeCountrySelectValue(
+      [
+        { value: '', label: 'Select' },
+        { value: 'US', label: 'United States' },
+      ],
+      'united_states',
+    ),
+    'US',
+  )
+  assert.equal(
+    nativeCountrySelectValue([{ value: '', label: 'Select' }], 'united_states'),
+    null,
+  )
 })
 
 test('state search turns New_York into New York', () => {

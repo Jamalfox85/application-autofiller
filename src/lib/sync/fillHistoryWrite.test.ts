@@ -3,6 +3,7 @@ import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import type { FillHistoryEntry } from '../../types/index.ts'
 import {
+  fillHistoryAppendPlan,
   fillHistoryFromStorageChange,
   fillHistoryMirrorUnchanged,
   mergeFillHistoryForWrite,
@@ -19,6 +20,17 @@ function entry(timestamp: number, site = 'Greenhouse · boards.greenhouse.io'): 
     totalCount: 8,
   }
 }
+
+test('a clear between the two history reads does not write the old rows back', () => {
+  const stale = [entry(10)]
+  const dropped = fillHistoryAppendPlan(stale, null, entry(20), 30)
+  assert.equal(dropped.write, false)
+  assert.deepEqual(dropped.entries, [])
+
+  const firstFill = fillHistoryAppendPlan(null, null, entry(20), 30)
+  assert.equal(firstFill.write, true)
+  assert.deepEqual(firstFill.entries, [entry(20)])
+})
 
 test('a cleared mirror is not restored from the earlier snapshot', () => {
   const stale = [entry(10)]
@@ -124,6 +136,11 @@ test('counted fills record one history row and History follows storage', () => {
   assert.doesNotMatch(history, /reconcileFillHistory\(\s*userId: string,\s*local:/)
   assert.match(composable, /chrome\.storage\.onChanged/)
   assert.match(composable, /fillHistoryFromStorageChange/)
+  assert.match(composable, /rereadFillHistoryMirror/)
+  assert.match(background, /latestHistory === null && firstHistory !== null/)
+  assert.doesNotMatch(background, /updateBadge\('!', '#b05454'\)/)
+  assert.match(background, /clearToolbarBadge/)
+  assert.match(background, /fillQuotaClaims/)
   assert.match(composable, /onMirrorReset\(dropFillHistoryMemory\)/)
   assert.match(auth, /noteMirrorUser\(null\)/)
   assert.match(personal, /onMirrorReset\(invalidatePersonalInfoMemory\)/)

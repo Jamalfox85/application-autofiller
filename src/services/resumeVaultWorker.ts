@@ -2,8 +2,10 @@
 // because background.js is copied as-is and is not a Vite entry.
 
 import { cloneDefaultPersonalInfo } from '../lib/personalInfoDefaults'
-import { saveResumeToAccount, type SavedResume } from '../lib/resumeVault'
+import { resumeParseFilePart, saveResumeToAccount, type SavedResume } from '../lib/resumeVault'
 import { supabasePublicConfigError } from '../lib/supabaseConfig'
+
+export { resumeParseFilePart }
 import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../lib/sync/activeProfile'
 
 export async function persistUploadedResume(input: {

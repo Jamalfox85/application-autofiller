@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   canonicalResumeObjectName,
+  resumeParseFilePart,
   resumeStoragePath,
   savedResumeProfileRow,
   saveResumeToAccount,
@@ -173,4 +174,23 @@ test('the service worker saves the resume before it asks the parse API', () => {
   assert.match(uploadFn, /form\.append\('profile_id', profileId\)/)
   assert.match(uploadFn, /persistUploadedResume\(\{ token, profileId,/)
   assert.doesNotMatch(uploadFn, /\/resumes\/generate/)
+  assert.ok(uploadFn.indexOf('new Uint8Array') < uploadFn.indexOf('persistUploadedResume'))
+  assert.match(uploadFn, /resumeParseFilePart/)
+  assert.match(uploadFn, /attempt\.res\.status === 422/)
+  assert.doesNotMatch(uploadFn, /console\.(log|error)\([^)]*rawBody/)
+})
+
+test('the parse request uses the canonical resume file name and MIME', () => {
+  assert.deepEqual(resumeParseFilePart('Jane Doe.pdf', ''), {
+    name: 'resume.pdf',
+    type: 'application/pdf',
+  })
+  assert.deepEqual(resumeParseFilePart('cv.docx', 'application/octet-stream'), {
+    name: 'resume.docx',
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  })
+  assert.deepEqual(resumeParseFilePart('notes.txt', 'text/plain'), {
+    name: 'notes.txt',
+    type: 'text/plain',
+  })
 })

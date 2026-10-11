@@ -25,11 +25,13 @@ import {
   isResidenceCountryField,
   isStateQuestion,
   monthNameFromLooseDate,
+  nativeCountrySelectValue,
   nativeMonthSelectValue,
   nativeSponsorshipSelectValue,
   nativeWorkAuthorizationSelectValue,
   nativeYearSelectValue,
   parseGreenhouseEducationId,
+  pickCountryOption,
   pickDegreeOption,
   pickDisciplineOption,
   pickMonthOption,
@@ -429,11 +431,20 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       const queries = countrySearchValues(personalInfo.country)
       if (queries.length === 0) return true
-      const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
-      const optionSelector = questionId
-        ? `[id^=react-select-question_${questionId}-option-]`
-        : undefined
-      await fillReactSelect(input, queries, optionSelector)
+      if (isNativeSelect(input)) {
+        const value = nativeCountrySelectValue(nativeSelectChoices(input), personalInfo.country)
+        if (value != null) commitNativeSelect(input, value)
+        return true
+      }
+      // Job-board menus open on mouseup/ArrowDown. The default click path types the
+      // label and then clears it, so the control falls back to "Select".
+      await fillReactSelect(
+        input,
+        queries,
+        greenhouseQuestionOptionSelector(input.id),
+        (options) => pickCountryOption(options, queries),
+        'greenhouse',
+      )
       return true
     },
   },

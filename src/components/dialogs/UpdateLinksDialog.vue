@@ -4,7 +4,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { fillEmptyFromParsedResume, mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
 import type { PersonalInfo, OtherLink } from '../../types/index.ts'
-import { isToolbarPopup, openResumeUploadTab } from '@/utils/uploadTab'
+import { isToolbarPopup, openResumeUploadTab, pageIsExtensionTab } from '@/utils/uploadTab'
 import SectionSheet from './SectionSheet.vue'
 
 const props = defineProps<{
@@ -113,7 +113,7 @@ const handleSave = () => {
 const triggerResumePicker = async () => {
   resumeError.value = ''
   // The popup closes when the native file dialog opens, losing the file. Pick in a tab.
-  if (isToolbarPopup() && (await openResumeUploadTab())) return
+  if (isToolbarPopup() && !(await pageIsExtensionTab()) && (await openResumeUploadTab())) return
   resumeInput.value?.click()
 }
 

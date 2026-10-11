@@ -50,15 +50,14 @@ import { configureIcimsAccountNotice } from '../utils/siteRules/icimsAccountNoti
 const CONTENT_SCRIPT_INSTALLED = '__gofillrContentScript'
 
 // Workday account creation calls this when Application Accounts has no Workday login.
-// The page toast is immediate; the service worker badges the toolbar; the popup opens
-// Application Accounts when the user opens GoFillr.
+// The page toast is immediate. The popup opens Application Accounts when the user opens GoFillr.
 configureWorkdayAccountNotice({
   showOnPage: (message) => showErrorNotification(message),
   sendMessage: (message) => chrome.runtime.sendMessage(message),
 })
 
 // iCIMS login/create-account calls this when Application Accounts has no iCIMS login.
-// Same three channels as Workday: page toast, toolbar badge, popup Application Accounts.
+// Same channels as Workday: page toast, then the popup's Application Accounts.
 configureIcimsAccountNotice({
   showOnPage: (message) => showErrorNotification(message),
   sendMessage: (message) => chrome.runtime.sendMessage(message),

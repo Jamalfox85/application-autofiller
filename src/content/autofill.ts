@@ -403,8 +403,9 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
           // One counted fill is one History row and one autofill_succeeded. A later
           // step of the same application is not a new claim, so it does not emit
           // another success or first-fill. Popup, toast, shortcut, and resync all
-          // come through here. Quota sync must not delay the history row: the free
-          // counter is the local write inside chargeFillQuota.
+          // come through here. Record History before the telemetry wait so a slow
+          // autofill_succeeded cannot return the fill with no footer row.
+          await recordFillHistory(filledCount, attemptedCount)
           await withTimeout(
             trackFillContract('autofill_succeeded', {
               ...fillContext,
@@ -414,7 +415,6 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
             2500,
             undefined,
           )
-          await recordFillHistory(filledCount, attemptedCount)
         }
         return charged
       })()

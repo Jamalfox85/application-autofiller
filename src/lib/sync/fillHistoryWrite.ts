@@ -47,3 +47,22 @@ export function fillHistoryFromStorageChange(newValue: unknown): FillHistoryEntr
   if (!Array.isArray(newValue)) return 'cleared'
   return newValue as FillHistoryEntry[]
 }
+
+const FILL_HISTORY_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
+
+// background.js appends one counted fill. `first` is the list it read, `latest` is a
+// second read taken immediately before the write. A clear between those reads leaves
+// `latest` null while `first` still holds the old rows — writing those back is how a
+// wiped History footer comes back. A missing key on both reads is a first fill: write
+// only the new entry.
+export function fillHistoryAppendPlan(
+  first: FillHistoryEntry[] | null,
+  latest: FillHistoryEntry[] | null,
+  entry: FillHistoryEntry,
+  now = Date.now(),
+): { entries: FillHistoryEntry[]; write: boolean } {
+  if (latest === null && first !== null) return { entries: [], write: false }
+  const cutoff = now - FILL_HISTORY_RETENTION_MS
+  const base = (latest ?? []).filter((row) => (row.timestamp ?? 0) >= cutoff)
+  return { entries: [entry, ...base], write: true }
+}
