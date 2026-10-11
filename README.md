@@ -33,6 +33,8 @@ Required:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_EXTENSIONPAY_EXTENSION_ID` — ExtensionPay extension id. The committed default is `gofillr-admin`. Plan nicknames to create in the dashboard: `pro-monthly` ($5.99/mo) and `pro-yearly` ($49/yr). Do not commit the per-install ExtensionPay API key; the library stores it in `chrome.storage.sync`.
+- `VITE_RESUME_API_URL` — resume API base, including `/api/v1`. `npm run build` fails if this is unset, not `https`, or a loopback host. Local API development uses `npm run build:dev`.
+- `VITE_RESUME_API_KEY` — sent as `X-API-Key` on billing, Pro AI, and job-match calls. `npm run build` fails if this is unset, empty, or the placeholder `your-resume-api-key`. The build log does not print the key. `npm run build:dev` does not require it. `npm test` and `npm run dev` do not run the check. Do not commit a live key.
 
 `VITE_BUILD_CHANNEL` is optional. Set it to exactly `test` or `production` to force `build_channel` on every Mixpanel event. Leave it unset to decide at runtime: an unpacked install is `test`, and a Chrome Web Store install is `production`. A store install stays `production` even if this variable is `test`. `npm run build` fails if the value is `test` (including when it is only in `.env.production`), so a release package cannot be stamped as a test build. Unpacked loads are already `test` without the variable. Set `production` when a local unpacked load should report the production channel.
 
