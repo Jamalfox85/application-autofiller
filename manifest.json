@@ -18,6 +18,7 @@
     "https://*.icims.com/*",
     "https://*.jobvite.com/*",
     "https://*.apply.workable.com/*",
+    "https://apply.workable.com/*",
     "https://gofillr.com/*",
     "https://www.gofillr.com/*",
     "https://chromewebstore.google.com/*",
@@ -35,7 +36,7 @@
     "scopes": ["openid", "email", "profile"]
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://extensionpay.com https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co https://api-production-5aca1.up.railway.app https://boards-api.greenhouse.io https://api.lever.co https://api.eu.lever.co https://api.ashbyhq.com https://www.workable.com"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://extensionpay.com https://api.mixpanel.com https://api-js.mixpanel.com https://*.supabase.co https://api-production-5aca1.up.railway.app https://boards-api.greenhouse.io https://api.lever.co https://api.eu.lever.co https://api.ashbyhq.com https://apply.workable.com https://www.workable.com"
   },
   "action": {
     "default_popup": "popup.html"
@@ -75,6 +76,7 @@
         "https://*.icims.com/*",
         "https://*.jobvite.com/*",
         "https://*.apply.workable.com/*",
+        "https://apply.workable.com/*",
         "https://gofillr.com/*",
         "https://www.gofillr.com/*"
       ],
@@ -104,6 +106,7 @@
         "https://*.icims.com/*",
         "https://*.jobvite.com/*",
         "https://*.apply.workable.com/*",
+        "https://apply.workable.com/*",
         "https://gofillr.com/*",
         "https://www.gofillr.com/*",
         "https://extensionpay.com/*"

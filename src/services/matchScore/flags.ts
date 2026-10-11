@@ -3,7 +3,12 @@
 // response shapes and the posting-host allowlist. A title, an apply form, or an
 // iframe shell is not a description. A missing description returns null, so the
 // card stays hidden.
-// Greenhouse, Ashby, Lever, and Workable: documented posting responses.
+// Greenhouse: hosted job description element, else the documented posting response.
+// Ashby: JobPosting JSON-LD (overview and apply) or .ashby-job-posting-description,
+// else the public job-board response.
+// Lever: documented posting response.
+// Workable: [data-ui="job-description"] on the overview, else the widget accounts
+// response. www.workable.com/api/accounts now redirects there.
 // iCIMS: .iCIMS_JobContent on the job content frame. The shell document does not
 // contain it. Jobvite, BambooHR, and Workday stay off: captured apply/job pages
 // have no description body, and no unauthenticated posting host is confirmed.

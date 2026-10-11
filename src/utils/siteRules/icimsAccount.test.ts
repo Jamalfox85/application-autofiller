@@ -234,7 +234,7 @@ test('login.icims.com is already covered by the *.icims.com host pattern', () =>
     true,
   )
   assert.equal(chromeMatchCovers(pattern, 'https://login.icims.com/u/login/password'), true)
-  assert.equal(manifest.host_permissions.length, 23)
+  assert.equal(manifest.host_permissions.length, 24)
 })
 
 const gateDocument = (headings: string[], inputs: Array<{ type?: string; name?: string; autocomplete?: string }>) => ({

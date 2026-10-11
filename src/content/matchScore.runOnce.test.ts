@@ -123,6 +123,45 @@ test('iCIMS job content frame scores the description and the shell does not', as
   }
 })
 
+test('Ashby apply and Workable overview score from the page when there is no form', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const cases = [
+    {
+      file: 'ashby-job-apply.html',
+      href: 'https://jobs.ashbyhq.com/notion/1fc309c8-da20-4ff2-84c7-8b863ece2b0a/application',
+      ats: 'ashby',
+      jd: 'Who We Are\nNotion is the collaborative workspace.\nBuild reliable platform tools.',
+    },
+    {
+      file: 'workable-job-overview.html',
+      href: 'https://apply.workable.com/huggingface/j/81B46579FE/',
+      ats: 'workable',
+      jd: 'Description\n\nBuild open models with the research team.\n\nShip libraries used by the community.\n\nRequirements\n\nTell us about open-source work.',
+    },
+  ]
+  try {
+    const { resetMatchScoreForTests, runOnce } = await import('./matchScore.ts')
+    for (const item of cases) {
+      const dom = new JSDOM(readFileSync(new URL(`../../fixtures/pages/${item.file}`, import.meta.url), 'utf8'), {
+        url: item.href,
+      })
+      Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+      const messages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+      resetMatchScoreForTests()
+      await runOnce()
+      const scored = messages.find((message) => message.action === 'matchScore')
+      assert.ok(scored, item.ats)
+      assert.equal(scored.ats, item.ats)
+      assert.equal(scored.jdSource, 'dom')
+      assert.equal(scored.jdText, item.jd)
+      assert.equal(messages.some((message) => message.action === 'fetchJobPosting'), false, item.ats)
+    }
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
+})
+
 test('Match Score runOnce stays quiet on first-run onboarding', async () => {
   const messages = installChrome({
     [ACTIVE_PROFILE_KEY]: { id: 'primary', name: 'Primary', profileCount: 1 },

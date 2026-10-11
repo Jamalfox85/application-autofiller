@@ -1,6 +1,8 @@
 import { postingUrlAllowed } from './postingHosts.ts'
 
-const MAX_POSTING_BYTES = 2_000_000
+// A public job board can include every posting. Notion's board is about 2.3MB,
+// so the previous 2MB cap dropped the whole response and the card never scored.
+const MAX_POSTING_BYTES = 8_000_000
 
 export async function fetchAllowedPosting(
   rawUrl: string,

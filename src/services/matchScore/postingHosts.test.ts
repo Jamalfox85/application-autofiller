@@ -10,6 +10,10 @@ test('posting fetches stay on the confirmed hosts', async () => {
   assert.equal(postingUrlAllowed('https://api.eu.lever.co/v0/postings/acme/id'), true)
   assert.equal(postingUrlAllowed('https://api.ashbyhq.com/posting-api/job-board/acme'), true)
   assert.equal(postingUrlAllowed('https://www.workable.com/api/accounts/acely?details=true'), true)
+  assert.equal(
+    postingUrlAllowed('https://apply.workable.com/api/v1/widget/accounts/huggingface?details=true'),
+    true,
+  )
   assert.equal(postingUrlAllowed('https://api.jobvite.com/v1/jobFeed'), false)
   assert.equal(postingUrlAllowed('https://evil.example/job'), false)
   assert.equal(postingUrlAllowed('http://boards-api.greenhouse.io/v1/boards/acme/jobs/1'), false)

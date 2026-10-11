@@ -7,6 +7,8 @@ export const POSTING_HOSTS = [
   'api.lever.co',
   'api.eu.lever.co',
   'api.ashbyhq.com',
+  // www.workable.com/api/accounts/{account} now 302s here. Redirects are not followed.
+  'apply.workable.com',
   'www.workable.com',
 ] as const
 

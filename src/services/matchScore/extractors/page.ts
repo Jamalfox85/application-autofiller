@@ -1,10 +1,12 @@
 export interface ExtractElement {
   textContent: string | null
+  innerHTML?: string
   getAttribute(name: string): string | null
 }
 
 export interface ExtractDocument {
   querySelector(selector: string): ExtractElement | null
+  querySelectorAll?(selector: string): ArrayLike<ExtractElement>
 }
 
 export interface ExtractPage {
