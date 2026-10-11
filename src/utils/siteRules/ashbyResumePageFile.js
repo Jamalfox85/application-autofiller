@@ -35,7 +35,13 @@ export function sanitizeAshbyResumeAssignment(request) {
   if (!name || name.length > 180 || /[\\/]/.test(name)) return null
   if (type.length > 180) return null
   if (!bytesBase64 || bytesBase64.length > 12000000) return null
-  return { token, name, type, bytesBase64 }
+  const timeoutMs = clampAshbyResumeTimeout(request.timeoutMs)
+  return { token, name, type, bytesBase64, timeoutMs }
+}
+
+function clampAshbyResumeTimeout(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
+  return Math.min(120000, Math.floor(value))
 }
 
 export function assignAshbyResumeInPage(payload) {
@@ -43,6 +49,10 @@ export function assignAshbyResumeInPage(payload) {
   const name = payload && typeof payload.name === 'string' ? payload.name : ''
   const type = payload && typeof payload.type === 'string' ? payload.type : ''
   const encoded = payload && typeof payload.bytesBase64 === 'string' ? payload.bytesBase64 : ''
+  const timeoutMs =
+    payload && typeof payload.timeoutMs === 'number' && payload.timeoutMs > 0
+      ? Math.min(120000, Math.floor(payload.timeoutMs))
+      : 0
   if (!/^[a-z0-9]{8,64}$/.test(token) || !name) return { assigned: false }
   const input = document.querySelector('input[type="file"][data-gofillr-resume="' + token + '"]')
   if (!input || input.disabled) return { assigned: false }
@@ -59,6 +69,10 @@ export function assignAshbyResumeInPage(payload) {
     type: type || 'application/octet-stream',
     lastModified: Date.now(),
   })
+  // Ashby reads this File after the change event (a short text sample, then the
+  // presigned POST body). Ending this injected turn before that read finishes
+  // drops the blob, and the field spins until the request dies. With a timeout,
+  // stay in this turn until that POST settles, and abort it if it does not.
   return file.arrayBuffer().then((read) => {
     if (!read || read.byteLength !== bytes.byteLength) return { assigned: false }
     const transfer = new DataTransfer()
@@ -70,6 +84,7 @@ export function assignAshbyResumeInPage(payload) {
     }
     const assigned = input.files && input.files[0]
     if (!assigned || assigned.name !== name || assigned.size !== bytes.byteLength) return { assigned: false }
+    const upload = timeoutMs > 0 ? watchAshbyPresignedUpload(timeoutMs) : null
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.dispatchEvent(new Event('change', { bubbles: true }))
     const kept = globalThis.__gofillrResumeTransfers || (globalThis.__gofillrResumeTransfers = [])
@@ -80,8 +95,104 @@ export function assignAshbyResumeInPage(payload) {
     } catch (error) {
       // The marker is only how this function finds the input.
     }
-    return { assigned: true, name: assigned.name, type: assigned.type, size: assigned.size }
+    const result = { assigned: true, name: assigned.name, type: assigned.type, size: assigned.size }
+    if (!upload) return result
+    return upload.then((outcome) => {
+      result.uploaded = outcome.uploaded === true
+      if (!result.uploaded) result.error = outcome.error || 'upload-failed'
+      if (typeof outcome.status === 'number') result.status = outcome.status
+      return result
+    })
   }).catch(() => ({ assigned: false }))
+
+  function watchAshbyPresignedUpload(limit) {
+    const original = globalThis.fetch
+    if (typeof original !== 'function') {
+      return Promise.resolve({ uploaded: false, error: 'upload-failed' })
+    }
+    let restored = false
+    let settled = false
+    let resolveUpload
+    let controller = null
+    const done = new Promise((resolve) => {
+      resolveUpload = resolve
+    })
+    const restore = () => {
+      if (restored) return
+      restored = true
+      try {
+        globalThis.fetch = original
+      } catch (error) {
+        // The page fetch is put back so later requests are untouched.
+      }
+    }
+    const finish = (value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      restore()
+      resolveUpload(value)
+    }
+    const timer = setTimeout(() => {
+      try {
+        if (controller) controller.abort()
+      } catch (error) {
+        // Aborting the hung POST is what stops the field from spinning.
+      }
+      finish({ uploaded: false, error: 'timeout' })
+    }, limit)
+    globalThis.fetch = function (input, init) {
+      if (settled || !isAshbyPresignedPost(input, init)) return original.apply(this, arguments)
+      restore()
+      const next = Object.assign({}, init || {})
+      if (typeof AbortController === 'function') {
+        controller = new AbortController()
+        const prior = next.signal
+        next.signal = controller.signal
+        if (prior && typeof prior.addEventListener === 'function') {
+          if (prior.aborted) controller.abort()
+          else prior.addEventListener('abort', () => controller.abort(), { once: true })
+        }
+      }
+      return original.call(this, input, next).then(
+        (response) => {
+          const status = response && typeof response.status === 'number' ? response.status : 0
+          const ok = !!(response && (response.ok || status === 204))
+          finish({ uploaded: ok, status, error: ok ? undefined : 'upload-failed' })
+          return response
+        },
+        (error) => {
+          const aborted = !!(error && (error.name === 'AbortError' || /abort/i.test(String(error.message || error))))
+          finish({ uploaded: false, error: aborted ? 'timeout' : 'upload-failed' })
+          throw error
+        },
+      )
+    }
+    return done
+  }
+
+  function isAshbyPresignedPost(input, init) {
+    const method = (init && init.method) || (input && input.method) || 'GET'
+    if (String(method).toUpperCase() !== 'POST') return false
+    // The presigned call posts a form whose file field is the resume. GraphQL is JSON.
+    const body = init && init.body
+    if (typeof FormData === 'function' && body instanceof FormData) {
+      try {
+        if (typeof body.get === 'function' && body.get('file')) return true
+      } catch (error) {
+        // A body we cannot inspect is not this upload.
+      }
+    }
+    const url =
+      typeof input === 'string'
+        ? input
+        : input && typeof input.url === 'string'
+          ? input.url
+          : input && typeof input.href === 'string'
+            ? input.href
+            : ''
+    return /amazonaws\.com|\/\/[^/]*\.s3[.-]/i.test(url)
+  }
 }
 
 function hasResumeMagic(bytes) {
