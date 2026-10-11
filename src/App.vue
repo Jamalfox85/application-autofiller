@@ -86,6 +86,9 @@ const { status: authStatus, isSigningIn, signInError, initAuth, signIn, signOut 
 
 // State
 const personalInfo = ref<any>({})
+// False until this open's profile body has loaded. Main can appear before that
+// (an established account), and an empty object used to flash "Set up your profile".
+const personalInfoReady = ref(false)
 const activeView = ref<'main' | 'welcome' | 'history'>('welcome')
 // False until this open's setup gate has decided. The view defaults to welcome, so the
 // template must not mount Welcome while this is false.
@@ -619,6 +622,7 @@ const handleSignOut = async () => {
   profilesStore.reset()
   showProfiles.value = false
   gateResolved.value = false
+  personalInfoReady.value = false
   activeView.value = 'welcome'
 }
 
@@ -660,6 +664,7 @@ function publishPopupGate(setupCompletedAt: number | null, personalInfoLoaded: b
 // Loads the account-gated app state — run once we know a signed-in session exists, whether
 // that was already true on mount or the user just completed sign-in.
 const loadAppState = async () => {
+  personalInfoReady.value = false
   // Know the plan before the home screen can paint Pro rows. A cache hit is a known
   // plan; no cache leaves planIsPro null so the rows stay on the loading label.
   await seedPlanFromCache()
@@ -710,6 +715,7 @@ const loadAppState = async () => {
   } catch (error) {
     console.error('Failed to load personal info', error)
   }
+  personalInfoReady.value = true
   const { profileCount, rosterHasSavedWork } = popupRoster()
   publishPopupGate(setupCompletedAt, true)
   try {
@@ -932,7 +938,7 @@ watch(authStatus, (next, previous) => {
       </div>
 
       <button
-        v-if="!profileLooksFilled"
+        v-if="personalInfoReady && !profileLooksFilled"
         class="setup-link-btn"
         type="button"
         @click="activeView = 'welcome'"
@@ -961,7 +967,11 @@ watch(authStatus, (next, previous) => {
       <div class="section-header-row">
         <span class="section-header-label">Your information</span>
       </div>
+      <div v-if="!personalInfoReady" class="vault-loading" aria-busy="true">
+        <div class="spinner"></div>
+      </div>
       <DataVault
+        v-else
         :personalInfo="personalInfo"
         :customResponseCount="customResponses.length"
         @openDialog="openDialog"
@@ -1139,13 +1149,23 @@ watch(authStatus, (next, previous) => {
   align-items: center;
   justify-content: center;
 }
-.auth-loading .spinner {
+.auth-loading .spinner,
+.vault-loading .spinner {
   width: 28px;
   height: 28px;
   border-radius: 50%;
   border: 3px solid #23272f;
   border-top-color: #7c3aed;
   animation: spin 0.8s linear infinite;
+}
+.vault-loading {
+  display: flex;
+  justify-content: center;
+  padding: 18px 0 8px;
+}
+.vault-loading .spinner {
+  width: 22px;
+  height: 22px;
 }
 .config-error {
   flex: 1;

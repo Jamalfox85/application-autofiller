@@ -1,5 +1,6 @@
 import type { PersonalInfo, SiteRule } from '../../types/index.ts'
 import { noteSkippedAccountPassword } from '../../lib/accountPasswordFill.ts'
+import { requestSavedPasswordConfirmation } from '../../lib/savedAccountConfirmation.ts'
 import {
   hasIcimsAccountCredentials,
   icimsSavedPasswordLocked,
@@ -57,10 +58,11 @@ function readIcimsPage(): IcimsPageSignals {
 }
 
 // What to do on one pass over the login document.
-// writeGate: type the saved email/password. On the email step that happens once;
-// later DOM changes are the captcha widget, and writing again dismisses it.
-// The person solves hCaptcha. Nothing here tells them to create an account.
 // warnIfMissing: the Application Accounts notice, only when no iCIMS login is saved.
+// writeGate describes a login document that has credentials to type. The on-load
+// watcher does not type them. Auto-fill, the shortcut, or the password
+// confirmation does. The person solves hCaptcha. Nothing here tells them to
+// create an account.
 export function planIcimsLoginPass(
   page: IcimsPageSignals,
   emailStepAlreadyWritten: boolean,
@@ -87,19 +89,13 @@ export async function maybeWarnMissingIcimsAccount(
 }
 
 let lastFormSignature = ''
-let emailStepWritten = false
 
 function syncIcimsLogin(personalInfo: PersonalInfo | null | undefined) {
   const page = readIcimsPage()
   if (!isIcimsCandidateHost(page.hostname)) return
-  const plan = planIcimsLoginPass(page, emailStepWritten)
-  const emailStep = isIcimsAccountCreationEmailStep(page)
-  if (!isIcimsLoginSurface(page)) {
-    emailStepWritten = false
-    return
-  }
+  const plan = planIcimsLoginPass(page, false)
+  if (!isIcimsLoginSurface(page)) return
   void (async () => {
-    if (!emailStep) emailStepWritten = false
     const latest = await readPersonalInfoForIcims(personalInfo)
     if (icimsSavedPasswordLocked(latest)) {
       noteSkippedAccountPassword()
@@ -107,13 +103,9 @@ function syncIcimsLogin(personalInfo: PersonalInfo | null | undefined) {
     }
     if (!hasIcimsAccountCredentials(latest)) {
       if (plan.warnIfMissing) await maybeWarnMissingIcimsAccount(latest, page)
-      return
     }
-    if (!plan.writeGate) return
-    // Email and password only. hCaptcha, the EU/UK checkbox, and every advance
-    // button stay untouched so a person can finish the gate and never auto-submit.
-    fillIcimsLoginGate(document, latest, page)
-    if (emailStep) emailStepWritten = true
+    // Saved email and password are typed only after Auto-fill, the shortcut,
+    // or the password confirmation. This watcher must not write them.
     consumeIcimsHcaptchaStop(document)
   })()
 }
@@ -178,6 +170,13 @@ export default function icimsConfig(): SiteRule {
         icimsSavedPasswordLocked(personalInfo)
       ) {
         noteSkippedAccountPassword()
+        return 'skip'
+      }
+      if (plan.action === 'leave' && plan.reason === 'confirm-password') {
+        const doc = input.ownerDocument
+        requestSavedPasswordConfirmation(() => {
+          fillIcimsLoginGate(doc, personalInfo, readIcimsPage())
+        })
         return 'skip'
       }
       if (plan.action === 'file') {

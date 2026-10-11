@@ -5,19 +5,19 @@ import {
   hasSavedWorkdayApplicationAccount,
   hasWorkdayAccountCredentials,
   isWorkdayApplyHost,
+  workdayPasswordAwaitingConfirmation,
   workdaySavedPasswordLocked,
 } from './workdayAccount.ts'
 import {
   publishMissingWorkdayAccountNotice,
   readPersonalInfoForWorkday,
 } from './workdayAccountNotice.ts'
-import { openStoredPersonalInfo } from '../../lib/openStoredPersonalInfo.ts'
 import { noteSkippedAccountPassword } from '../../lib/accountPasswordFill.ts'
+import { requestSavedPasswordConfirmation } from '../../lib/savedAccountConfirmation.ts'
 import {
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
   isWorkdaySignInForm,
-  workdayAccountAgreementCheckbox,
   workdayCreateAccountLink,
   workdayApplyChooserTarget,
   workdaySignInWithEmailButton,
@@ -29,7 +29,6 @@ import {
   nextWorkdayFormSignature,
   workdayAccountCredentialKind,
   workdayAccountInputs,
-  workdayAccountSubmitControl,
   workdayActivePrompt,
   workdayApplicationQuestionKind,
   workdayContactKeyFromElement,
@@ -130,9 +129,7 @@ export default function workdayConfig(): SiteRule {
       const fillResume = createWorkdayResumeAttempt(() => workdayResumeLoader())
       let signInWithEmailClicked = false
       let createAccountClicked = false
-      let accountInputHandled = false
-      let accountFormMode = ''
-      let accountCredentialsMissing = false
+      let accountNoticeChecked = false
       let formStarted = false
       let educationStarted = false
       let phoneTypeAttempts = 0
@@ -199,43 +196,19 @@ export default function workdayConfig(): SiteRule {
             }
           }
 
-          // Step 4: Fill in account information. Never write empty credentials or click
-          // the account submit control when the vault has no Workday login — tell the
-          // user instead, and keep walking the rest of the form. My Information email
-          // is a different control and must not be treated as this form.
-          // Create Account can client-route to /login without remounting. Salesforce
-          // and Zillow share that sign-in form, so fill its password even after the
-          // create form was already handled.
-          const accountMode = isWorkdayAccountCreationForm(document)
-            ? 'create'
-            : isWorkdaySignInForm(document)
-              ? 'sign-in'
-              : ''
-          if (accountMode === 'sign-in' && accountFormMode !== 'sign-in') accountInputHandled = false
-          if (accountMode) accountFormMode = accountMode
+          // Step 4: Sign-in / Create Account is on the page. Tell the user when the
+          // vault has no Workday login. Do not type the saved email or password
+          // here — that waits for Auto-fill, the shortcut, or the password prompt.
           if (
-            !accountInputHandled &&
-            !accountCredentialsMissing &&
+            !accountNoticeChecked &&
             (isWorkdayAccountCreationForm(document) || isWorkdaySignInForm(document))
           ) {
+            accountNoticeChecked = true
             const latest = await readPersonalInfoForWorkday(personalInfo)
             if (workdaySavedPasswordLocked(latest)) {
               noteSkippedAccountPassword()
-              accountCredentialsMissing = true
-            } else if (!hasWorkdayAccountCredentials(latest)) {
-              if (!hasSavedWorkdayApplicationAccount(latest)) {
-                await publishMissingWorkdayAccountNotice()
-              }
-              accountCredentialsMissing = true
-            } else {
-              if (!hasSavedWorkdayApplicationAccount(latest)) {
-                await publishMissingWorkdayAccountNotice()
-              }
-              accountInputHandled = true
-              console.log('✓ Account form loaded, filling account details')
-              await handleAccountInput(latest)
-              await new Promise((resolve) => setTimeout(resolve, 2000))
-              return
+            } else if (!hasSavedWorkdayApplicationAccount(latest)) {
+              await publishMissingWorkdayAccountNotice()
             }
           }
 
@@ -462,39 +435,8 @@ export default function workdayConfig(): SiteRule {
 
       observer.observe(document.body, { childList: true, subtree: true })
 
-      // If the user adds a Workday login in the popup while this page is open, fill the
-      // account form on the next profile write instead of staying stuck on the notice.
-      const onStoredProfile = (
-        changes: { [key: string]: chrome.storage.StorageChange },
-        areaName: chrome.storage.AreaName,
-      ) => {
-        if (areaName !== 'local' || accountInputHandled || !changes.personalInfo) return
-        const next = changes.personalInfo.newValue as PersonalInfo | undefined
-        void (async () => {
-          if (accountInputHandled) return
-          const opened = await openStoredPersonalInfo(next)
-          if (accountInputHandled) return
-          if (workdaySavedPasswordLocked(opened)) {
-            noteSkippedAccountPassword()
-            return
-          }
-          if (!hasWorkdayAccountCredentials(opened)) return
-          if (!isWorkdayAccountCreationForm(document) && !isWorkdaySignInForm(document)) return
-          accountCredentialsMissing = false
-          accountInputHandled = true
-          await handleAccountInput(opened)
-        })()
-      }
-
-      let removeProfileListener = () => {}
-      if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
-        chrome.storage.onChanged.addListener(onStoredProfile)
-        removeProfileListener = () => chrome.storage.onChanged.removeListener(onStoredProfile)
-      }
-
       return () => {
         observer.disconnect()
-        removeProfileListener()
       }
     },
     apply: async (input, fieldText, personalInfo) => {
@@ -629,6 +571,20 @@ const fieldHandlers: Array<{
       }
       const value = kind === 'email' ? account.email : account.password
       if (!value) return true
+      if (
+        (kind === 'password' || kind === 'verifyPassword') &&
+        workdayPasswordAwaitingConfirmation(latest)
+      ) {
+        const password = account.password
+        const doc = (input as HTMLInputElement).ownerDocument
+        requestSavedPasswordConfirmation(() => {
+          if (!doc) return
+          const fields = workdayAccountInputs(doc)
+          if (fields.password) void fillWorkdayAccountValue(fields.password, password)
+          if (fields.verifyPassword) void fillWorkdayAccountValue(fields.verifyPassword, password)
+        })
+        return 'skip'
+      }
       await fillWorkdayAccountValue(input as HTMLInputElement, value)
       return true
     },
@@ -2071,82 +2027,6 @@ function firstListbox(section: ParentNode, ids: string[]): HTMLButtonElement | n
     if (button) return button
   }
   return null
-}
-
-const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined) => {
-  try {
-    console.log('Starting account input fill...')
-    const latest = await readPersonalInfoForWorkday(personalInfo)
-    if (workdaySavedPasswordLocked(latest)) {
-      noteSkippedAccountPassword()
-      return
-    }
-    if (!hasSavedWorkdayApplicationAccount(latest)) {
-      await publishMissingWorkdayAccountNotice()
-    }
-    if (!hasWorkdayAccountCredentials(latest)) return
-    const workdayAccount = getWorkdayAccount(latest)
-
-    // Wait longer for the form to fully render
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Salesforce nests these under formField-*; Cisco puts the automation id on the input.
-    // /login has email + password and no verifyPassword. A hidden decoy password
-    // input must not win over the visible type=password field.
-    const creating = isWorkdayAccountCreationForm(document)
-    const {
-      email: emailInput,
-      password: passwordInput,
-      verifyPassword: verifyPasswordInput,
-    } = workdayAccountInputs(document)
-    const createAccountCheckbox = creating ? workdayAccountAgreementCheckbox(document) : null
-
-    console.log('Email input found:', !!emailInput)
-    console.log('Password input found:', !!passwordInput)
-    console.log('Verify password input found:', !!verifyPasswordInput)
-    console.log('Checkbox found:', !!createAccountCheckbox)
-
-    if (!emailInput || !passwordInput || (creating && !verifyPasswordInput)) {
-      console.error('Account form inputs missing; not submitting')
-      return
-    }
-
-    await fillWorkdayAccountValue(emailInput, workdayAccount.email)
-    await fillWorkdayAccountValue(passwordInput, workdayAccount.password)
-    if (verifyPasswordInput) {
-      await fillWorkdayAccountValue(verifyPasswordInput, workdayAccount.password)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300))
-
-    if (!creating) {
-      // Sign-in password is filled. Do not click Sign In; that is the candidate's click.
-      console.log('✓ Filled sign-in email and password')
-      return
-    }
-
-    // Cisco has no agreement checkbox. Only click one when the tenant renders it.
-    if (createAccountCheckbox && !createAccountCheckbox.checked) {
-      createAccountCheckbox.click()
-      console.log('✓ Checked account agreement')
-      await new Promise((resolve) => setTimeout(resolve, 500))
-    }
-
-    // Wait for form to stabilize after all inputs are filled
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Prefer createAccountSubmitButton. click_filter is only the fallback when
-    // that button is absent, and only inside the account card — never job-application Submit.
-    if (!isWorkdayAccountCreationForm(document)) return
-    const submitControl = workdayAccountSubmitControl(document)
-    if (submitControl && document.body.contains(submitControl)) {
-      submitControl.click()
-      console.log('✓ Clicked Create Account')
-    } else {
-      console.error('Create Account submit control not found')
-    }
-  } catch (error) {
-    console.error('Error handling account input:', error)
-  }
 }
 
 function experienceDatePartsEmpty(section: ParentNode, metadataId: string): boolean {

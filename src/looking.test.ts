@@ -14,9 +14,18 @@ test('the popup shows a looking state while detection retries', () => {
 })
 
 test('an empty profile gets a way back to Welcome from the dashboard', () => {
-  assert.match(app, /v-if="!profileLooksFilled"/)
+  assert.match(app, /v-if="personalInfoReady && !profileLooksFilled"/)
   assert.match(app, /@click="activeView = 'welcome'"/)
   assert.match(app, /Set up your profile/)
+})
+
+test('the popup shows a loading state until personal details have loaded', () => {
+  assert.match(app, /const personalInfoReady = ref\(false\)/)
+  assert.match(app, /personalInfoReady\.value = false/)
+  assert.match(app, /personalInfoReady\.value = true/)
+  assert.match(app, /v-if="!personalInfoReady"/)
+  assert.match(app, /class="vault-loading"/)
+  assert.match(app, /<DataVault\s+v-else/)
 })
 
 test('a resume parsed in the Links sheet opens a review of the parsed values', () => {

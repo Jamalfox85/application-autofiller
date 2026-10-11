@@ -19,6 +19,7 @@ import {
   getIcimsAccount,
   hasIcimsAccountCredentials,
   icimsAccountPassword,
+  icimsPasswordAwaitingConfirmation,
   isIcimsLoginSurface,
   type IcimsPageSignals,
 } from './icimsAccount.ts'
@@ -102,6 +103,7 @@ export type IcimsLeaveReason =
   | 'resume-autofill'
   | 'phone-type'
   | 'password-missing'
+  | 'confirm-password'
   | 'no-vault-value'
   | 'current-role'
   | 'eeo-off'
@@ -535,7 +537,7 @@ function hasExplicitWorkAuth(info: Partial<PersonalInfo> | null | undefined): bo
 export function planIcimsFill(
   control: IcimsControl,
   personalInfo: Partial<PersonalInfo> | null | undefined,
-  page: { loginSurface?: boolean } = {},
+  page: { loginSurface?: boolean; passwordConfirmed?: boolean } = {},
 ): IcimsFillPlan {
   const loginSurface = page.loginSurface === true
   const field = classifyIcimsControl(control, loginSurface)
@@ -559,11 +561,17 @@ export function planIcimsFill(
   if (field === 'phoneType') return { field, action: 'leave', reason: 'phone-type' }
 
   if (field === 'gatePassword') {
-    // requireConfirmation is stored on the account ("Ask before entering this password").
-    // Workday account creation never reads that flag. icimsWritesGatePassword matches it:
-    // a complete iCIMS row still supplies the password.
+    // requireConfirmation is "Ask before entering this password". The same
+    // savedPasswordAwaitingConfirmation check holds a Workday password.
     if (!icimsWritesGatePassword(personalInfo)) {
       return { field, action: 'leave', reason: 'password-missing' }
+    }
+    if (
+      icimsPasswordAwaitingConfirmation(personalInfo, {
+        confirmed: page.passwordConfirmed,
+      })
+    ) {
+      return { field, action: 'leave', reason: 'confirm-password' }
     }
     return {
       field,
