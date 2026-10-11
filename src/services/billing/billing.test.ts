@@ -189,7 +189,7 @@ test('locked paywall copy and mixpanel names', () => {
   assert.match(popup, /softContinueFreeLabel\(counts\(\)\.fillsRemaining\)/)
   assert.match(onPage, /softContinueFreeLabel\(ctx\.fillsRemaining\)/)
   assert.doesNotMatch(`${popup}\n${onPage}`, /Continue free \(15 fills left\)/)
-  assert.equal(PAYWALL_COPY.hard.title, 'You\u2019ve hit your free fill limit')
+  assert.equal(PAYWALL_COPY.hard.title, 'You\u2019ve hit your free fill limit for this week')
   assert.equal(
     PAYWALL_COPY.hard.body,
     'Unlock unlimited fills, score matching, and up to 5 profiles with Pro.',

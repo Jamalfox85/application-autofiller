@@ -16,7 +16,7 @@ export const PAYWALL_COPY = {
     tertiary: 'See annual \u2014 $49/yr',
   },
   hard: {
-    title: 'You\u2019ve hit your free fill limit',
+    title: 'You\u2019ve hit your free fill limit for this week',
     body: 'Unlock unlimited fills, score matching, and up to 5 profiles with Pro.',
     // Visible primary CTA. Clicking it starts the monthly checkout.
     primary: 'Get Pro \u2014 $5.99/mo',
