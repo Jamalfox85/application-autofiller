@@ -37,6 +37,11 @@ import {
 } from './billing/paidEvents.ts'
 import { paidEventContext, trackPaid } from './billing/trackPaid.ts'
 import { EXTPAY_USER_KEY, resolveIsPro } from './billing/proUnlock.ts'
+import {
+  expireSessionKeepingLocalProfile,
+  refreshAccessToken,
+  refreshSessionIfExpiring,
+} from '../lib/accessRecovery.ts'
 
 const extensionId = (
   (import.meta.env.VITE_EXTENSIONPAY_EXTENSION_ID as string | undefined) ||
@@ -394,7 +399,29 @@ async function rememberCheckoutTab(session: CheckoutSession): Promise<void> {
   }
 }
 
+let authWakeStarted = false
+
+// MV3 kills the autoRefresh timer when the worker sleeps. Every wake runs this
+// module again; refresh if the access token is inside five minutes of expires_at.
+function wakeAuthSession(): void {
+  if (authWakeStarted) return
+  authWakeStarted = true
+  void refreshSessionIfExpiring().catch((error) => {
+    console.warn('[auth] session refresh on wake failed', error)
+  })
+}
+
+// Content scripts must not call the refresh-token endpoint themselves. That
+// rotates the refresh token without the extension-origin lock and signs the
+// popup out. They ask the worker, which refreshes once.
+export async function handleAuthRefreshMessage(): Promise<{ ok: boolean }> {
+  const result = await refreshAccessToken()
+  if (!result.ok && !result.transient) await expireSessionKeepingLocalProfile()
+  return { ok: result.ok }
+}
+
 export function startExtensionPay(): void {
+  wakeAuthSession()
   if (started) return
   if (!configured) {
     console.warn(

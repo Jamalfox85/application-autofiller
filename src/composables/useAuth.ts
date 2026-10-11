@@ -63,11 +63,10 @@ function onStoredSessionChanged(
 ) {
   if (areaName !== 'local') return
   const action = storedSessionAction(status.value, changes)
-  if (action === 'sign-out') {
-    applySession(null)
-    return
-  }
   if (action !== 'reread') return
+  // A removed session key is re-read too. Refresh rotation deletes the key and
+  // writes the new one; applying sign-out on the gap left the popup signed out
+  // while the token was still in storage. A real sign-out re-reads as null.
   void getStoredSession().then(applySession)
 }
 

@@ -65,6 +65,9 @@ export type ResumeByteSource = {
     headers: Record<string, string>,
     body?: Record<string, unknown>,
   ): Promise<FetchJsonResult>
+  // Extension pages ask the service worker to refresh so two contexts do not
+  // rotate the same refresh token. Tests omit this and post the grant directly.
+  requestRefresh?(): Promise<void>
 }
 
 export type ResumeStorageConfig = {
@@ -266,6 +269,13 @@ async function usableSession(
   const session = await source.readSession(authStorageKeyForUrl(config.supabaseUrl))
   if (!session) return null
   if (!sessionNeedsRefresh(session.expiresAt, nowMs)) return session
+  if (source.requestRefresh) {
+    await source.requestRefresh()
+    const next = await source.readSession(authStorageKeyForUrl(config.supabaseUrl))
+    if (!next) return null
+    if (next.expiresAt * 1000 > nowMs) return next
+    return null
+  }
   const refreshed = await refreshSession(source, session, config, nowMs)
   if (refreshed) return refreshed
   if (session.expiresAt && session.expiresAt * 1000 > nowMs) return session
@@ -304,9 +314,16 @@ async function downloadObject(
   let current = session
   let result = await source.fetchBytes(url, authHeaders(current, config.anonKey))
   if (result.status === 401) {
-    const refreshed = await refreshSession(source, current, config, nowMs)
-    if (!refreshed) return null
-    current = refreshed
+    if (source.requestRefresh) {
+      await source.requestRefresh()
+      const next = await source.readSession(current.storageKey)
+      if (!next) return null
+      current = next
+    } else {
+      const refreshed = await refreshSession(source, current, config, nowMs)
+      if (!refreshed) return null
+      current = refreshed
+    }
     result = await source.fetchBytes(url, authHeaders(current, config.anonKey))
   }
   if (!result.ok || result.bytes.byteLength === 0) return null
@@ -405,6 +422,13 @@ function chromeResumeByteSource(): ResumeByteSource {
     },
     async writeSession(storageKey, session) {
       await chrome.storage.local.set({ [storageKey]: JSON.stringify(session) })
+    },
+    async requestRefresh() {
+      try {
+        await chrome.runtime.sendMessage({ action: 'refreshSupabaseSession' })
+      } catch {
+        // The worker is restarting. The caller re-reads whatever session is stored.
+      }
     },
     async fetchBytes(url, headers) {
       const res = await fetch(url, { headers })

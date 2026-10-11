@@ -10,25 +10,32 @@
 //
 // Refresh and clearing on a failed refresh stay with supabase-js
 // (autoRefreshToken/persistSession below).
-import { supabase } from './supabase'
 import type { Session } from '@supabase/supabase-js'
+import { isRevokedRefreshTokenError, readPersistedSession } from './accessRecovery'
+import { supabase } from './supabase'
 
 // Reads whatever session supabase-js currently holds. On the first call in a fresh context
 // (e.g. the popup just opened) this awaits supabase-js's own initialization, which loads the
-// session from chrome.storage.local and, if the access token has expired, silently refreshes
-// it using the stored refresh token — no UI involved either way. If that refresh fails (token
-// revoked, refresh token expired), supabase-js clears the stored session and this resolves to
-// null, which is a signal to show the sign-in screen again.
+// session from chrome.storage.local and, if the access token has expired, refreshes it
+// using the stored refresh token. A refresh that fails because another context just rotated
+// the refresh token, or because the network blipped, must not look like sign-out while the
+// token is still in storage. Only a revoked refresh token (which supabase-js removes) does.
 //
 // Later calls also re-read chrome.storage.local, so a session the service worker just wrote
 // shows up without recreating this client.
 export async function getStoredSession(): Promise<Session | null> {
-  const { data, error } = await supabase.auth.getSession()
-  if (error) {
+  try {
+    const { data, error } = await supabase.auth.getSession()
+    if (data.session?.access_token) return data.session
+    if (error && isRevokedRefreshTokenError(error)) return null
+    if (error) console.error('Failed to read Supabase session:', error)
+  } catch (error) {
+    if (isRevokedRefreshTokenError(error)) return null
     console.error('Failed to read Supabase session:', error)
-    return null
   }
-  return data.session
+  const persisted = await readPersistedSession()
+  if (!persisted || typeof persisted.access_token !== 'string') return null
+  return persisted as unknown as Session
 }
 
 // Fires on every auth transition: initial restore, silent refresh, and sign-out (explicit or

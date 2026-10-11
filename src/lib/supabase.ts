@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { navigatorLock } from '@supabase/auth-js'
 import { chromeLocalStorage } from './chromeLocalStorage'
 import { SUPABASE_BUILD_ENV_MESSAGE, supabasePublicConfigError } from './supabaseConfig'
 
@@ -26,6 +27,12 @@ function createSupabase(): SupabaseClient {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false, // Important: disable for extensions
+      // Popup, extension pages, and the service worker share this origin, so a
+      // refresh in one context waits instead of rotating the refresh token out
+      // from under the other. auth-js is otherwise lockless and the loser of
+      // that race deletes the session ("Already Used").
+      lock: navigatorLock,
+      lockAcquireTimeout: 15000,
     },
   })
 }

@@ -7,6 +7,7 @@
 // steps here, where the identity API keeps the worker alive until the window
 // closes. The popup only sends { action: 'signInWithGoogle' }.
 
+import { navigatorLock } from '@supabase/auth-js'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { chromeLocalStorage } from '../lib/chromeLocalStorage.ts'
 import {
@@ -44,6 +45,8 @@ function workerSupabase(): SupabaseClient {
       persistSession: true,
       detectSessionInUrl: false,
       skipAutoInitialize: true,
+      lock: navigatorLock,
+      lockAcquireTimeout: 15000,
     },
   })
   return client
