@@ -1,6 +1,8 @@
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { detectAts } from '../ats.ts'
 import { fillNativeInput, fillReactSelect, setReactInputValue } from '../../utils/inputHandlers.ts'
+import { coerceFillText } from '../fillValue.ts'
+import { normalizeText, sleep } from '../helpers.ts'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
 import {
   dialingCodeSearchValues,
@@ -136,6 +138,67 @@ function nativeSelectChoices(select: HTMLSelectElement): NativeSelectChoice[] {
     value: option.value,
     label: (option.text || option.label || '').replace(/\s+/g, ' ').trim(),
   }))
+}
+
+function questionPrompt(input: {
+  getAttribute?: (name: string) => string | null
+  ownerDocument?: Document | null
+}): string {
+  try {
+    const describedBy = input.getAttribute?.('aria-describedby') || ''
+    const doc = input.ownerDocument
+    if (!describedBy || !doc?.getElementById) return ''
+    const chunks: string[] = []
+    for (const id of describedBy.split(/\s+/)) {
+      if (!id || id.endsWith('-error') || id.endsWith('-help')) continue
+      const text = doc.getElementById(id)?.textContent || ''
+      if (text.trim()) chunks.push(text)
+    }
+    return chunks.join(' ')
+  } catch {
+    return ''
+  }
+}
+
+function isNamePronunciationField(
+  input: {
+    getAttribute?: (name: string) => string | null
+    ownerDocument?: Document | null
+  },
+  fieldText: string,
+): boolean {
+  const prompt = normalizeText(`${fieldText} ${questionPrompt(input)}`)
+  return prompt.includes('pronounce') && prompt.includes('yourname')
+}
+
+function applicantName(info: {
+  firstName?: string
+  middleName?: string
+  lastName?: string
+}): string {
+  return [info.firstName, info.middleName, info.lastName]
+    .map((part) => coerceFillText(part) || '')
+    .filter(Boolean)
+    .join(' ')
+}
+
+function isTextControl(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): input is HTMLInputElement | HTMLTextAreaElement {
+  return input.tagName === 'INPUT' || input.tagName === 'TEXTAREA'
+}
+
+async function writePronunciation(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  name: string,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (input.value.trim() === name) return true
+    await fillNativeInput(input, name)
+    await sleep(200)
+    if (input.value.trim() === name) return true
+  }
+  return false
 }
 
 function commitNativeSelect(select: HTMLSelectElement, value: string) {
@@ -446,6 +509,19 @@ const fieldHandlers: Array<{
         'greenhouse',
       )
       return true
+    },
+  },
+  {
+    // The visible label is a section title. The question itself is the description
+    // ("How do you pronounce your name?"). That text is not part of the field
+    // signature, so the generic matcher never sees it and the required input stays blank.
+    match: (input, fieldText) => isNamePronunciationField(input, fieldText),
+    handle: async (input, _, personalInfo) => {
+      const name = applicantName(personalInfo)
+      if (!name) return 'skip'
+      if (!isTextControl(input)) return 'skip'
+      const wrote = await writePronunciation(input, name)
+      return wrote ? true : 'skip'
     },
   },
   ...reactSelectEeoFieldHandlers,

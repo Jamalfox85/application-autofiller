@@ -149,6 +149,10 @@ export const reactSelectEeoFieldHandlers: Array<{
     handle: (input, _, personalInfo) => fillAnswer(input, personalInfo, personalInfo.gender, genderLabels),
   },
   {
+    // "Are you Hispanic/Latino?" is Yes / No / Decline. Yes records Hispanic or
+    // Latino and hides the race list. No reveals #race ("Please identify your race").
+    // A click that only types the word is wiped back to Select…, so this shares the
+    // sticky commit used by the other demographic menus.
     match: (_, fieldText) => fieldText.includes('hispanicethnicityareyouhispanic'),
     handle: async (input, _, personalInfo) => {
       if (personalInfo.eeoAnswersEnabled === false) return 'skip'
@@ -156,14 +160,13 @@ export const reactSelectEeoFieldHandlers: Array<{
       if (!race) return fillAnswer(input, personalInfo, '', () => null)
       const isHispanic = race === 'hispanic_or_latino'
       const picked = await fillLabels(input, isHispanic ? ['Yes'] : ['No'])
-      if (!isHispanic) {
-        const raceInput = await waitForElement<HTMLInputElement>('#race')
-        if (raceInput) {
-          const labels = raceLabels(race)
-          if (labels) await fillStickyReactSelect(raceInput, labels, optionSelector(raceInput))
-        }
-      }
-      return picked
+      if (isHispanic || picked !== true) return picked
+      const raceInput = await waitForElement<HTMLInputElement>('#race')
+      if (!raceInput) return 'skip'
+      const labels = raceLabels(race)
+      if (!labels) return 'skip'
+      const raceOk = await fillStickyReactSelect(raceInput, labels, optionSelector(raceInput))
+      return raceOk ? true : 'skip'
     },
   },
   {

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Voluntary identity fixture</title>
+  </head>
+  <body>
+    <form id="application-form">
+      <div class="field-wrapper">
+        <label id="question_16218466008-label" for="question_16218466008">
+          (Optional) Personal Preferences<span aria-hidden="true">*</span>
+        </label>
+        <input
+          id="question_16218466008"
+          class="input input__single-line"
+          type="text"
+          maxlength="255"
+          aria-required="true"
+          aria-describedby="question_16218466008-description question_16218466008-error"
+          value=""
+        />
+        <div id="question_16218466008-description">
+          <p>How do you pronounce your name?</p>
+        </div>
+        <div id="question_16218466008-error"></div>
+      </div>
+      <div class="field-wrapper">
+        <label id="question_99-label" for="question_99">Why do you want to work here?</label>
+        <textarea id="question_99" aria-required="true"></textarea>
+      </div>
+      <input type="hidden" id="race-stored" value="" />
+      <div class="select" id="wrap-gender"></div>
+      <div class="select" id="wrap-hispanic"></div>
+      <div class="select" id="wrap-veteran"></div>
+    </form>
+    <script>
+      const RACE_OPTIONS = [
+        'American Indian or Alaskan Native',
+        'Asian',
+        'Black or African American',
+        'White',
+        'Native Hawaiian or Other Pacific Islander',
+        'Two or More Races',
+        'Decline To Self Identify',
+      ]
+
+      function mount(field) {
+        const root = document.getElementById(field.wrap)
+        root.dataset.clicks = '0'
+        root.dataset.commit = ''
+        root.dataset.wiped = ''
+        root.innerHTML =
+          '<div class="select__container">' +
+          '<label id="' + field.id + '-label" for="' + field.id + '">' + field.label +
+          (field.required ? '<span aria-hidden="true">*</span>' : '') +
+          '</label>' +
+          '<div class="select__control"><div class="select__value-container">' +
+          '<div class="select__placeholder">Select...</div>' +
+          '<input id="' + field.id + '" class="select__input" type="text" role="combobox" ' +
+          'autocomplete="off" aria-expanded="false" aria-autocomplete="list" aria-required="' +
+          (field.required ? 'true' : 'false') + '" />' +
+          '</div><button type="button" aria-label="Toggle flyout" tabindex="-1"></button></div>' +
+          '<div class="select__menu" hidden><div id="react-select-' + field.id + '-listbox" role="listbox"></div></div>' +
+          '</div>'
+
+        const input = document.getElementById(field.id)
+        const menu = root.querySelector('.select__menu')
+        const listbox = document.getElementById('react-select-' + field.id + '-listbox')
+        const placeholder = root.querySelector('.select__placeholder')
+        const button = root.querySelector('button')
+        let focusIndex = -1
+        let epoch = 0
+        let commitSource = ''
+
+        function visible() {
+          return Array.from(listbox.querySelectorAll('[role="option"]'))
+        }
+
+        function fold(value) {
+          return (value || '').toLowerCase().replace(/[\u2018\u2019\u2032]/g, "'")
+        }
+
+        function show(term) {
+          focusIndex = -1
+          input.setAttribute('aria-activedescendant', '')
+          listbox.innerHTML = ''
+          const needle = fold(term)
+          const items = field.options.filter((label) => !needle || fold(label).includes(needle))
+          items.forEach((label, index) => {
+            const option = document.createElement('div')
+            option.setAttribute('role', 'option')
+            option.id = 'react-select-' + field.id + '-option-' + index
+            option.textContent = label
+            listbox.append(option)
+          })
+        }
+
+        function setOpen(open) {
+          input.setAttribute('aria-expanded', open ? 'true' : 'false')
+          menu.hidden = !open
+          if (open) show((input.value || '').trim().toLowerCase())
+          else listbox.innerHTML = ''
+        }
+
+        function paint(label) {
+          const existing = root.querySelector('.select__single-value')
+          if (existing) existing.remove()
+          if (!label) {
+            placeholder.hidden = false
+            root.dataset.commit = ''
+            return
+          }
+          placeholder.hidden = true
+          const chosen = document.createElement('div')
+          chosen.className = 'select__single-value'
+          chosen.textContent = label
+          placeholder.parentElement.insertBefore(chosen, placeholder)
+          input.value = ''
+          root.dataset.commit = commitSource
+        }
+
+        button.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        })
+
+        root.addEventListener('mouseup', () => {
+          setOpen(input.getAttribute('aria-expanded') !== 'true')
+        })
+
+        input.addEventListener('keyup', (event) => {
+          if (event.code === 'Escape' || event.code === 'Tab') {
+            setOpen(false)
+            return
+          }
+          if (event.code === 'Enter') return
+          if (input.getAttribute('aria-expanded') !== 'true') setOpen(true)
+        })
+
+        input.addEventListener('input', () => {
+          if (input.getAttribute('aria-expanded') === 'true') {
+            show((input.value || '').trim().toLowerCase())
+          }
+          if (input.value === '' && root.dataset.commit === 'keyboard') {
+            root.dataset.wiped = '1'
+            commitSource = ''
+            paint('')
+          }
+        })
+
+        input.addEventListener('keydown', (event) => {
+          if (event.code === 'ArrowDown') {
+            const options = visible()
+            if (!options.length || input.getAttribute('aria-expanded') !== 'true') return
+            focusIndex = Math.min(focusIndex + 1, options.length - 1)
+            options.forEach((option, index) => {
+              option.classList.toggle('select__option--is-focused', index === focusIndex)
+            })
+            input.setAttribute('aria-activedescendant', options[focusIndex].id)
+            return
+          }
+          if (event.code !== 'Enter') return
+          if (input.getAttribute('aria-expanded') !== 'true') return
+          const options = visible()
+          if (focusIndex < 0 || !options[focusIndex]) return
+          event.preventDefault()
+          epoch += 1
+          commitSource = 'keyboard'
+          const label = options[focusIndex].textContent || ''
+          paint(label)
+          setOpen(false)
+          if (field.onCommit) field.onCommit(label)
+        })
+
+        listbox.addEventListener('mousedown', (event) => {
+          const option = event.target.closest('[role="option"]')
+          if (!option || input.getAttribute('aria-expanded') !== 'true') return
+          root.dataset.clicks = String(Number(root.dataset.clicks || '0') + 1)
+          const token = ++epoch
+          commitSource = 'pointer'
+          paint(option.textContent || '')
+          window.setTimeout(() => {
+            if (token !== epoch || commitSource !== 'pointer') return
+            paint('')
+          }, 30)
+        })
+
+        input.addEventListener('focusout', () => setOpen(false))
+      }
+
+      function onHispanicCommit(label) {
+        const stored = document.getElementById('race-stored')
+        if (label === 'Yes') {
+          stored.value = 'Hispanic or Latino'
+          return
+        }
+        if (label === 'Decline To Self Identify') {
+          stored.value = 'Decline To Self Identify'
+          const race = document.getElementById('wrap-race')
+          if (race) race.remove()
+          return
+        }
+        if (label !== 'No') return
+        stored.value = ''
+        if (document.getElementById('race')) return
+        const wrap = document.createElement('div')
+        wrap.id = 'wrap-race'
+        wrap.className = 'select'
+        document.getElementById('application-form').append(wrap)
+        mount({
+          wrap: 'wrap-race',
+          id: 'race',
+          label: 'Please identify your race',
+          required: false,
+          options: RACE_OPTIONS,
+        })
+      }
+
+      mount({
+        wrap: 'wrap-gender',
+        id: 'gender',
+        label: 'Gender',
+        required: false,
+        options: ['Male', 'Female', 'Decline To Self Identify'],
+      })
+      mount({
+        wrap: 'wrap-hispanic',
+        id: 'hispanic_ethnicity',
+        label: 'Are you Hispanic/Latino?',
+        required: false,
+        options: ['Yes', 'No', 'Decline To Self Identify'],
+        onCommit: onHispanicCommit,
+      })
+      mount({
+        wrap: 'wrap-veteran',
+        id: 'veteran_status',
+        label: 'Veteran Status',
+        required: false,
+        options: [
+          'I am not a protected veteran',
+          'I identify as one or more of the classifications of a protected veteran',
+          "I don't wish to answer",
+        ],
+      })
+    </script>
+  </body>
+</html>
