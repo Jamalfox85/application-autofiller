@@ -17,6 +17,10 @@ import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { persistUploadedResume, resumeParseFilePart } from './src/services/resumeVaultWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
+import {
+  assignAshbyResumeInPage,
+  sanitizeAshbyResumeAssignment,
+} from './src/utils/siteRules/ashbyResumePageFile.js'
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { ensureAccountKeyInSession, openAccountKeySession } from './src/services/accountKeyWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
@@ -698,6 +702,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     loadSavedResumeForWorker()
       .then((result) => sendResponse(savedResumeReply(result)))
       .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
+  // Ashby reads the resume File in the page. Build it there so the presigned
+  // POST has the bytes. The command only sets the marked file input and fires
+  // change. It does not click Upload, Submit, or Autofill from resume.
+  if (request.action === 'assignAshbyResume') {
+    const tabId = sender && sender.tab ? sender.tab.id : null
+    const payload = sanitizeAshbyResumeAssignment(request)
+    if (tabId == null || !payload || !chrome.scripting?.executeScript) {
+      sendResponse({ assigned: false })
+      return true
+    }
+    const target = { tabId }
+    if (typeof sender.frameId === 'number') target.frameIds = [sender.frameId]
+    chrome.scripting
+      .executeScript({
+        target,
+        world: 'MAIN',
+        func: assignAshbyResumeInPage,
+        args: [payload],
+      })
+      .then((results) => {
+        const result = results && results[0] && results[0].result
+        sendResponse(result && result.assigned === true ? result : { assigned: false })
+      })
+      .catch(() => sendResponse({ assigned: false }))
     return true
   }
 
