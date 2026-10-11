@@ -53,6 +53,38 @@ const APPLICANT_PLACE_ASKS = [
   'countryofresidence',
 ]
 
+// Profile URL fields. A screening question that merely mentions one of these words
+// ("in reviewing the website www.example.com, what is the company's line of business?")
+// is not asking for the applicant's link.
+const URL_PROFILE_KEYS = new Set(['website', 'otherWebsite', 'linkedin', 'github', 'twitter'])
+
+const APPLICANT_URL_ASKS = [
+  'yourwebsite',
+  'yourportfolio',
+  'yourlinkedin',
+  'yourgithub',
+  'yourtwitter',
+  'personalwebsite',
+  'websiteurl',
+  'linkedinurl',
+  'githuburl',
+  'portfoliourl',
+  'githubprofile',
+  'linkedinprofile',
+  'mywebsite',
+  'mylinkedin',
+  'mygithub',
+  // Greenhouse-style names keep the brackets: job_application[website].
+  '[website]',
+  '[linkedin]',
+  '[github]',
+  '[portfolio]',
+]
+
+function asksForApplicantUrl(fieldText: string): boolean {
+  return APPLICANT_URL_ASKS.some((ask) => fieldText.includes(ask))
+}
+
 function asksForApplicantPlace(fieldText: string): boolean {
   return APPLICANT_PLACE_ASKS.some((ask) => fieldText.includes(ask))
 }
@@ -193,6 +225,17 @@ export function matchFieldToData(
             return { matchedValue: 'Negotiable', relativeMatchKey: key }
           }
           if (!personalInfo.desiredSalary) continue
+        }
+
+        // "website" / "portfolio" / "linkedin" are real fields and also ordinary words in a
+        // custom question. A free-text question never receives a profile URL unless it is
+        // actually asking for the applicant's own link ("your website", "LinkedIn URL").
+        if (
+          URL_PROFILE_KEYS.has(key) &&
+          isQuestionLikeField(fieldText) &&
+          !asksForApplicantUrl(fieldText)
+        ) {
+          continue
         }
 
         // console.log(`Matched pattern "${pattern}" for key "${key}" in fieldText "${fieldText}"`)

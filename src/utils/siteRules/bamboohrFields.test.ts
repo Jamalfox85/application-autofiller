@@ -15,6 +15,8 @@ import {
   isBambooStateControl,
   pickBambooCountryOption,
   pickBambooStateOption,
+  pickBambooWorkOption,
+  bambooWorkQuestionKind,
 } from './bamboohrFields.ts'
 import {
   fileFromBambooSavedResumeMessage,
@@ -766,4 +768,153 @@ test('the Fabric resume choose-file receives admin-resume.docx and not the lefto
     ;(globalThis as { chrome?: unknown }).chrome = previousChrome
     setBambooResumeLoader(null)
   }
+})
+
+const ELIGIBLE_OPTIONS = ['Yes', 'No', 'Yes, but I will need sponsorship now or in the future.']
+const ELIGIBLE_QUESTION = 'Are you eligible to work in the United States?'
+const SPONSOR_QUESTION = 'Will you now or in the future require sponsorship for employment?'
+
+function workRadios(question: string, name: string, options: string[]) {
+  const choices = options
+    .map(
+      (option, index) =>
+        `<label><input type="radio" name="${name}" value="${index}" /><span>${option}</span></label>`,
+    )
+    .join('')
+  const dom = new JSDOM(`<!doctype html><body>
+    <fieldset>
+      <legend><label>${question}<span> *</span></label></legend>
+      ${choices}
+    </fieldset>
+  </body>`)
+  const doc = dom.window.document
+  const radios = Array.from(doc.querySelectorAll('input[type="radio"]')) as HTMLInputElement[]
+  return { doc, radios }
+}
+
+test('eligible to work selects plain Yes for a citizen, not the sponsorship option', () => {
+  assert.equal(bambooWorkQuestionKind(ELIGIBLE_QUESTION), 'eligibility')
+  assert.equal(bambooWorkQuestionKind(SPONSOR_QUESTION), 'sponsorship')
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ELIGIBLE_OPTIONS, { workAuthorization: 'us_citizen' }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ELIGIBLE_OPTIONS, {
+      workAuthorization: 'green_card',
+      sponsorshipRequired: 'No',
+    }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ELIGIBLE_OPTIONS, {
+      workAuthorization: 'authorized_no_sponsorship',
+    }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ELIGIBLE_OPTIONS, { workAuthorization: 'work_visa' }),
+    'Yes, but I will need sponsorship now or in the future.',
+  )
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ELIGIBLE_OPTIONS, { workAuthorization: 'need_sponsorship' }),
+    'Yes, but I will need sponsorship now or in the future.',
+  )
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ELIGIBLE_OPTIONS, { workAuthorization: 'not_authorized' }),
+    'No',
+  )
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ['Yes', 'No'], { workAuthorization: 'us_citizen' }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(ELIGIBLE_QUESTION, ['Yes', 'No'], { workAuthorization: 'need_sponsorship' }),
+    'No',
+  )
+})
+
+test('eligible-to-work radios check Yes for us_citizen and leave the sponsorship option unchecked', async () => {
+  const { radios } = workRadios(ELIGIBLE_QUESTION, 'customQuestionAnswers.multi_519', ELIGIBLE_OPTIONS)
+  const info = cloneDefaultPersonalInfo()
+  info.workAuthorization = 'us_citizen'
+  const rule = bambooHrConfig()
+  const sponsorship = radios[2]
+  const sponsorshipField = 'customquestionanswers.multi519yes,butiwillneedsponsorshipnoworinthefuture.radio'
+  assert.equal(await rule.apply(sponsorship, sponsorshipField, info), true)
+  assert.equal(radios[0].checked, true)
+  assert.equal(radios[1].checked, false)
+  assert.equal(radios[2].checked, false)
+  assert.equal(radios[2].value, '2')
+  assert.equal(await rule.apply(radios[0], 'customquestionanswers.multi519yesradio', info), true)
+  assert.equal(radios[0].checked, true)
+})
+
+test('a sponsorship question stays Yes or No and does not follow the eligibility choice', () => {
+  const yesNo = ['Yes', 'No']
+  assert.equal(
+    pickBambooWorkOption(SPONSOR_QUESTION, yesNo, { workAuthorization: 'us_citizen' }),
+    'No',
+  )
+  assert.equal(
+    pickBambooWorkOption(SPONSOR_QUESTION, yesNo, {
+      workAuthorization: 'us_citizen',
+      sponsorshipRequired: 'No',
+    }),
+    'No',
+  )
+  assert.equal(
+    pickBambooWorkOption(SPONSOR_QUESTION, yesNo, { workAuthorization: 'need_sponsorship' }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(SPONSOR_QUESTION, yesNo, { workAuthorization: 'work_visa' }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(SPONSOR_QUESTION, yesNo, {
+      workAuthorization: 'us_citizen',
+      sponsorshipRequired: 'Yes',
+    }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(SPONSOR_QUESTION, ELIGIBLE_OPTIONS, { workAuthorization: 'us_citizen' }),
+    'No',
+  )
+  assert.equal(
+    pickBambooWorkOption(SPONSOR_QUESTION, ELIGIBLE_OPTIONS, { workAuthorization: 'need_sponsorship' }),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(
+      'Are you authorized to work in the United States without requiring sponsorship?',
+      yesNo,
+      { workAuthorization: 'us_citizen' },
+    ),
+    'Yes',
+  )
+  assert.equal(
+    pickBambooWorkOption(
+      'Are you authorized to work in the United States without requiring sponsorship?',
+      yesNo,
+      { workAuthorization: 'work_visa' },
+    ),
+    'No',
+  )
+})
+
+test('a sponsorship question radio selects No for a citizen', async () => {
+  const { radios } = workRadios(SPONSOR_QUESTION, 'customQuestionAnswers.multi_520', ['Yes', 'No'])
+  const info = cloneDefaultPersonalInfo()
+  info.workAuthorization = 'us_citizen'
+  const rule = bambooHrConfig()
+  assert.equal(await rule.apply(radios[0], 'willyounoworinthefuturerequiresponsorship?yesradio', info), true)
+  assert.equal(radios[0].checked, false)
+  assert.equal(radios[1].checked, true)
+
+  info.sponsorshipRequired = 'Yes'
+  assert.equal(await rule.apply(radios[1], 'willyounoworinthefuturerequiresponsorship?noradio', info), true)
+  assert.equal(radios[0].checked, true)
+  assert.equal(radios[1].checked, false)
 })
