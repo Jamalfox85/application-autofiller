@@ -106,7 +106,7 @@ function textValue(plan: IcimsFillPlan): string {
   return plan.value
 }
 
-test('gate password is written even when requireConfirmation is on, matching Workday', () => {
+test('gate password waits for confirmation when the saved account asks, then types it', () => {
   const saved = profile()
   assert.equal(icimsAccountRequiresConfirmation(saved), true)
   assert.equal(icimsWritesGatePassword(saved), true)
@@ -119,20 +119,33 @@ test('gate password is written even when requireConfirmation is on, matching Wor
     saved,
     login,
   )
-  const password = planIcimsFill(control({ type: 'password', name: 'css_password' }), saved, login)
-  const confirm = planIcimsFill(
+  const held = planIcimsFill(control({ type: 'password', name: 'css_password' }), saved, {
+    ...login,
+    passwordConfirmed: false,
+  })
+  const heldConfirm = planIcimsFill(
     control({ type: 'password', autocomplete: 'new-password', name: 'css_password_confirm' }),
     saved,
-    login,
+    { ...login, passwordConfirmed: false },
   )
   assert.equal(textValue(email), 'icims@example.com')
+  assert.deepEqual(held, { field: 'gatePassword', action: 'leave', reason: 'confirm-password' })
+  assert.deepEqual(heldConfirm, { field: 'gatePassword', action: 'leave', reason: 'confirm-password' })
+
+  const password = planIcimsFill(control({ type: 'password', name: 'css_password' }), saved, {
+    ...login,
+    passwordConfirmed: true,
+  })
   assert.equal(textValue(password), 'Correct horse')
-  assert.equal(textValue(confirm), 'Correct horse')
+
+  const open = profile({ applicationAccounts: [account({ requireConfirmation: false })] })
+  const written = planIcimsFill(control({ type: 'password', name: 'css_password' }), open, login)
+  assert.equal(textValue(written), 'Correct horse')
 })
 
 test('an iCIMS password without an uppercase letter is rewritten before fill', () => {
   const failing = profile({
-    applicationAccounts: [account({ password: 'correct horse' })],
+    applicationAccounts: [account({ password: 'correct horse', requireConfirmation: false })],
   })
   const password = planIcimsFill(control({ type: 'password', name: 'css_password' }), failing, login)
   const confirm = planIcimsFill(
@@ -148,7 +161,7 @@ test('an iCIMS password without an uppercase letter is rewritten before fill', (
   const passing = 'Correct horse'
   const kept = planIcimsFill(
     control({ type: 'password', name: 'css_password' }),
-    profile({ applicationAccounts: [account({ password: passing })] }),
+    profile({ applicationAccounts: [account({ password: passing, requireConfirmation: false })] }),
     login,
   )
   assert.equal(textValue(kept), passing)
@@ -299,7 +312,7 @@ test('fillIcimsLoginGate writes account email and password and does not advance 
     infos.push(args.map(String).join(' '))
   }
   try {
-    const result = fillIcimsLoginGate(doc, profile(), {
+    const result = fillIcimsLoginGate(doc, profile({ applicationAccounts: [account({ requireConfirmation: false })] }), {
       hostname: 'careers-acme.icims.com',
       pathname: '/jobs/555885/role/login',
       search: '?in_iframe=1',

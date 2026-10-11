@@ -29,6 +29,7 @@ import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
 import { openStoredPersonalInfo } from '../lib/openStoredPersonalInfo.ts'
+import { resetSavedPasswordFillConfirmation } from '../lib/savedAccountConfirmation.ts'
 import {
   isGenericAccountPasswordField,
   legacyAccountPasswordLocked,
@@ -212,6 +213,7 @@ let userStartedFillOnPage = false
 // must not top up the next one, and a resync already queued for the old form must not fire.
 export function pageNavigated() {
   userStartedFillOnPage = false
+  resetSavedPasswordFillConfirmation()
   hasShownPopup = false
   if (autofillDebounceTimer) {
     clearTimeout(autofillDebounceTimer)

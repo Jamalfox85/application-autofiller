@@ -648,6 +648,39 @@ test('password step still reports a new form after the email step', async () => 
   }
 })
 
+test('iCIMS login mount does not type the saved email or password', async () => {
+  resetIcimsAccountNoticeState()
+  configureIcimsAccountNotice({
+    storage: { get: async () => ({}) },
+  })
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <input type="email" name="email" id="email" autocomplete="email" value="" />
+      <input type="password" name="password" id="password" value="" />
+    </body>`,
+    { url: 'https://careers-acme.icims.com/jobs/555885/role/login' },
+  )
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+  try {
+    const { default: icimsConfig } = await import('./icims.ts')
+    const rule = icimsConfig()
+    const cleanup = rule.onMount?.({ applicationAccounts: [account()] } as never)
+    dom.window.document.body.appendChild(dom.window.document.createElement('span'))
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    const email = dom.window.document.getElementById('email') as HTMLInputElement
+    const password = dom.window.document.getElementById('password') as HTMLInputElement
+    assert.equal(email.value, '')
+    assert.equal(password.value, '')
+    if (typeof cleanup === 'function') cleanup()
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.document = previousDocument
+    resetIcimsAccountNoticeState()
+  }
+})
+
 test('maybeWarn stays quiet when the iCIMS login is already saved', async () => {
   resetIcimsAccountNoticeState()
   const toasts: string[] = []

@@ -48,6 +48,12 @@ import { onMatchScoreRender, startMatchScore } from './matchScore.ts'
 import { configureWorkdayAccountNotice } from '../utils/siteRules/workdayAccountNotice.ts'
 import { configureIcimsAccountNotice } from '../utils/siteRules/icimsAccountNotice.ts'
 import { openStoredPersonalInfo } from '../lib/openStoredPersonalInfo.ts'
+import { setSavedPasswordPromptPresenter } from '../lib/savedAccountConfirmation.ts'
+import { showSavedPasswordPrompt } from './savedPasswordPrompt.ts'
+
+setSavedPasswordPromptPresenter((onConfirm, onDismiss) => {
+  showSavedPasswordPrompt(document, { onConfirm, onDismiss })
+})
 
 const CONTENT_SCRIPT_INSTALLED = '__gofillrContentScript'
 

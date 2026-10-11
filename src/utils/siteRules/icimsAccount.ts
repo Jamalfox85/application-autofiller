@@ -1,5 +1,9 @@
 import type { PersonalInfo } from '../../types/index.ts'
 import { accountIdPasswordLocked } from '../../lib/accountPasswordFill.ts'
+import {
+  savedAccountRequiresConfirmation,
+  savedPasswordAwaitingConfirmation,
+} from '../../lib/savedAccountConfirmation.ts'
 
 // Portal value saved by ApplicationAccountFormDialog ("iCIMS"). Match is case-insensitive
 // so "icims" or " ICIMS " still resolve.
@@ -174,13 +178,20 @@ export function getIcimsAccount(personalInfo: Partial<PersonalInfo> | null | und
   }
 }
 
-// The account editor labels this "Ask before entering this password". Workday account
-// creation never reads the flag and writes the password as soon as the field exists.
-// iCIMS gate fill follows that: a complete row still types the password.
+// The account editor labels this "Ask before entering this password".
+// The decision lives in savedAccountConfirmation so Workday uses the same check.
 export function icimsAccountRequiresConfirmation(
   personalInfo: Partial<PersonalInfo> | null | undefined,
 ): boolean {
-  return resolveIcimsAccount(personalInfo)?.requireConfirmation === true
+  return savedAccountRequiresConfirmation(resolveIcimsAccount(personalInfo))
+}
+
+// True when the iCIMS row's password must stay blank until the user confirms.
+export function icimsPasswordAwaitingConfirmation(
+  personalInfo: Partial<PersonalInfo> | null | undefined,
+  options?: { confirmed?: boolean },
+): boolean {
+  return savedPasswordAwaitingConfirmation(resolveIcimsAccount(personalInfo), options)
 }
 
 // The iCIMS row's password was sealed and did not open. Legacy accountPassword

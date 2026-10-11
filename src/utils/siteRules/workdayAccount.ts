@@ -1,5 +1,6 @@
 import type { PersonalInfo } from '../../types/index.ts'
 import { accountIdPasswordLocked, legacyAccountPasswordLocked } from '../../lib/accountPasswordFill.ts'
+import { savedPasswordAwaitingConfirmation } from '../../lib/savedAccountConfirmation.ts'
 
 // Portal value saved by ApplicationAccountFormDialog. Match is case-insensitive so older
 // rows stored as "workday" or "WORKDAY" still resolve.
@@ -39,6 +40,19 @@ function accountIsComplete(account: { email?: string | null; password?: string |
   return present(account.email).length > 0 && present(account.password).trim().length > 0
 }
 
+function selectedWorkdayAccount(personalInfo: Partial<PersonalInfo> | null | undefined) {
+  const workdayAccounts = workdayAccountRows(personalInfo)
+  const generic = workdayAccounts.filter(
+    (account) => account.portal?.trim().toLowerCase() === WORKDAY_ACCOUNT_PORTAL,
+  )
+  return (
+    generic.find(accountIsComplete) ??
+    workdayAccounts.find(accountIsComplete) ??
+    generic[0] ??
+    workdayAccounts[0]
+  )
+}
+
 // Prefers the per-portal entry in applicationAccounts (one login per portal) and falls
 // back to the legacy flat fields for profiles saved before that migration. A blank field
 // on the Workday row still falls through to the legacy value for that field. A generic
@@ -47,18 +61,21 @@ export function getWorkdayAccount(personalInfo: Partial<PersonalInfo> | null | u
   email: string
   password: string
 } {
-  const workdayAccounts = workdayAccountRows(personalInfo)
-  const generic = workdayAccounts.filter(
-    (account) => account.portal?.trim().toLowerCase() === WORKDAY_ACCOUNT_PORTAL,
-  )
-  const saved =
-    generic.find(accountIsComplete) ??
-    workdayAccounts.find(accountIsComplete) ??
-    generic[0] ??
-    workdayAccounts[0]
+  const saved = selectedWorkdayAccount(personalInfo)
   const email = present(saved?.email).trim() || present(personalInfo?.accountEmail).trim()
   const password = present(saved?.password) || present(personalInfo?.accountPassword)
   return { email, password }
+}
+
+// The saved Workday row's password is waiting for "Require confirmation before filling".
+// A legacy accountPassword has no such flag and is not held back by this check.
+export function workdayPasswordAwaitingConfirmation(
+  personalInfo: Partial<PersonalInfo> | null | undefined,
+  options?: { confirmed?: boolean },
+): boolean {
+  const saved = selectedWorkdayAccount(personalInfo)
+  if (!present(saved?.password).trim()) return false
+  return savedPasswordAwaitingConfirmation(saved, options)
 }
 
 // The password Workday would type was sealed and did not open. A password that

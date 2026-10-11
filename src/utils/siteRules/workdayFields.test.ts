@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 import { JSDOM } from 'jsdom'
 import type { PersonalInfo } from '../../types/index.ts'
 import {
@@ -4375,4 +4376,166 @@ test('previously been employed or worked as a contractor selects No', async () =
   assert.equal(await rule.apply(no, '', info), true)
   assert.equal(no.checked, true)
   assert.equal(yes.checked, false)
+})
+
+test('sign-in and create-account are not typed from the page-load observer', async () => {
+  const workday = readFileSync(new URL('./workday.ts', import.meta.url), 'utf8')
+  const mount = workday.slice(workday.indexOf('onMount:'), workday.indexOf('apply: async'))
+  assert.equal(mount.includes('handleAccountInput'), false)
+  assert.equal(mount.includes('fillWorkdayAccountValue'), false)
+  assert.equal(mount.includes('setReactInputValue'), false)
+
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const previousObserver = globalThis.MutationObserver
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-email"><input id="email-input" type="text" value="" /></div>
+      <input id="password-input" type="password" aria-label="Password" value="" />
+    </body>`,
+    { url: 'https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/login' },
+  )
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    MutationObserver: dom.window.MutationObserver,
+  })
+  try {
+    const { default: workdayConfig } = await import('./workday.ts')
+    const rule = workdayConfig()
+    const cleanup = rule.onMount?.({
+      applicationAccounts: [
+        {
+          id: 1,
+          portal: 'Workday',
+          email: 'acct@example.com',
+          password: 'saved-pass-13',
+          requireConfirmation: false,
+        },
+      ],
+    } as PersonalInfo)
+    dom.window.document.body.appendChild(dom.window.document.createElement('span'))
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    const email = dom.window.document.getElementById('email-input') as HTMLInputElement
+    const password = dom.window.document.getElementById('password-input') as HTMLInputElement
+    assert.equal(email.value, '')
+    assert.equal(password.value, '')
+    cleanup?.()
+  } finally {
+    globalThis.window = previousWindow
+    globalThis.document = previousDocument
+    globalThis.MutationObserver = previousObserver
+  }
+})
+
+test('a confirmed Workday fill types the saved 13-character password and holds it until then', async () => {
+  const { sealPassword, importAccountKey } = await import('../../lib/accountSecrets.ts')
+  const { cacheAccountKey, clearCachedAccountKey, openAccountKeySession, resetAccountKeySessionAccessForTests } =
+    await import('../../lib/accountKeyCache.ts')
+  const { setSavedPasswordPromptPresenter, resetSavedPasswordFillConfirmation } = await import(
+    '../../lib/savedAccountConfirmation.ts'
+  )
+  const plain = 'saved-pass-13'
+  assert.equal(plain.length, 13)
+  const raw = crypto.getRandomValues(new Uint8Array(32))
+  const key = await importAccountKey(raw)
+  const sealed = await sealPassword(plain, key)
+  assert.match(sealed, /^gfr1:/)
+
+  const store: Record<string, unknown> = {}
+  const previousChrome = (globalThis as { chrome?: unknown }).chrome
+  ;(globalThis as { chrome?: unknown }).chrome = {
+    storage: {
+      session: {
+        async setAccessLevel() {},
+        async get(keys: string | string[]) {
+          const names = typeof keys === 'string' ? [keys] : keys
+          const out: Record<string, unknown> = {}
+          for (const name of names) out[name] = store[name]
+          return out
+        },
+        async set(items: Record<string, unknown>) {
+          Object.assign(store, items)
+        },
+        async remove(keys: string | string[]) {
+          const names = typeof keys === 'string' ? [keys] : keys
+          for (const name of names) delete store[name]
+        },
+      },
+    },
+  }
+  resetAccountKeySessionAccessForTests()
+  await clearCachedAccountKey()
+  await openAccountKeySession()
+  await cacheAccountKey('user-admin', Buffer.from(raw).toString('base64'))
+  const { configureWorkdayAccountNotice, resetWorkdayAccountNoticeState } = await import(
+    './workdayAccountNotice.ts'
+  )
+  resetWorkdayAccountNoticeState()
+  configureWorkdayAccountNotice({
+    storage: {
+      get: async () => ({}),
+      set: async () => undefined,
+    },
+  })
+
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div data-automation-id="formField-email"><input id="email-input" type="text" value="" /></div>
+      <input id="password-input" type="password" aria-label="Password" value="" />
+      <input id="verify-password" data-automation-id="verifyPassword" type="password" autocomplete="new-password" name="verifyPassword" value="" />
+    </body>`,
+    { url: 'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/apply' },
+  )
+  const doc = dom.window.document
+  const { default: workdayConfig } = await import('./workday.ts')
+  const rule = workdayConfig()
+  const email = doc.getElementById('email-input') as HTMLInputElement
+  const password = doc.getElementById('password-input') as HTMLInputElement
+  const verify = doc.getElementById('verify-password') as HTMLInputElement
+  const info = {
+    applicationAccounts: [
+      {
+        id: 4,
+        portal: 'Workday',
+        email: 'acct@example.com',
+        password: sealed,
+        requireConfirmation: true,
+      },
+    ],
+  } as PersonalInfo
+
+  let pending: (() => void) | null = null
+  resetSavedPasswordFillConfirmation()
+  setSavedPasswordPromptPresenter((onConfirm) => {
+    pending = onConfirm
+  })
+  try {
+    assert.equal(await rule.apply(email, 'email', info), true)
+    assert.equal(email.value, 'acct@example.com')
+    assert.equal(await rule.apply(password, 'password', info), 'skip')
+    assert.equal(password.value, '')
+    assert.equal(plain.length, 13)
+    assert.notEqual(password.value.length, 21)
+    assert.ok(pending)
+    pending?.()
+    assert.equal(password.value, plain)
+    assert.equal(password.value.length, 13)
+    assert.equal(verify.value, plain)
+  } finally {
+    resetSavedPasswordFillConfirmation()
+    setSavedPasswordPromptPresenter(null)
+    resetWorkdayAccountNoticeState()
+    await clearCachedAccountKey()
+    ;(globalThis as { chrome?: unknown }).chrome = previousChrome
+  }
+})
+
+test('the content script installs the saved-password confirmation prompt', () => {
+  const index = readFileSync(new URL('../../content/index.js', import.meta.url), 'utf8')
+  assert.match(index, /setSavedPasswordPromptPresenter/)
+  assert.match(index, /showSavedPasswordPrompt/)
+  const icims = readFileSync(new URL('./icims.ts', import.meta.url), 'utf8')
+  const sync = icims.slice(icims.indexOf('function syncIcimsLogin'), icims.indexOf('function watchIcimsLogin'))
+  assert.equal(sync.includes('fillIcimsLoginGate'), false)
 })

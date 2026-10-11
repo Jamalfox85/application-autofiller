@@ -17,7 +17,7 @@ After Apply, the career host navigates to `…/jobs/{id}/…/login`, often insid
 ## Profile to load
 
 - Application Accounts: one row, portal **iCIMS**, with the email and password for that career site.
-- “Require confirmation before filling” may stay on. GoFillr still types the password, matching Workday account creation, which does not read that flag.
+- “Require confirmation before filling” on holds the password until you confirm “Fill password”. Email can still fill from Auto-fill or the shortcut. The same check is used for a Workday account. Nothing types the login on page load.
 - Contact: first name, last name, a profile email (it can differ from the iCIMS login), phone, street, city, state, postal code, country, LinkedIn.
 - One current experience (no end date) and one past experience.
 - One education row: school, degree, field of study, start year, graduation year.

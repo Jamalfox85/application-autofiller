@@ -7,6 +7,7 @@ import {
   hasSavedWorkdayApplicationAccount,
   hasWorkdayAccountCredentials,
   isWorkdayApplyHost,
+  workdayPasswordAwaitingConfirmation,
 } from './workdayAccount.ts'
 import {
   WORKDAY_ACCOUNT_MISSING_MESSAGE,
@@ -56,6 +57,26 @@ test('workday site rule detect follows apply hosts', async () => {
   } finally {
     globalThis.window = previous
   }
+})
+
+test('a Workday password waits on the shared confirmation check', () => {
+  const saved = { applicationAccounts: [account()] }
+  assert.equal(workdayPasswordAwaitingConfirmation(saved, { confirmed: false }), true)
+  assert.equal(workdayPasswordAwaitingConfirmation(saved, { confirmed: true }), false)
+  assert.equal(
+    workdayPasswordAwaitingConfirmation(
+      { applicationAccounts: [account({ requireConfirmation: false })] },
+      { confirmed: false },
+    ),
+    false,
+  )
+  assert.equal(
+    workdayPasswordAwaitingConfirmation({
+      accountEmail: 'legacy@example.com',
+      accountPassword: 'legacy-secret',
+    }),
+    false,
+  )
 })
 
 test('getWorkdayAccount prefers a Workday application account over legacy fields', () => {
@@ -279,7 +300,7 @@ test('Cisco Create Account fills the saved Workday Application Account and does 
               portal: 'Workday',
               email: 'cisco-acct@example.com',
               password: 'cisco-secret',
-              requireConfirmation: true,
+              requireConfirmation: false,
             },
           ],
         },
