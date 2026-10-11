@@ -108,6 +108,18 @@ function assertNoAllSites(value: unknown, path: string) {
   }
 }
 
+test('Chrome Web Store description stays within 132 characters and names no hiring site', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../manifest.json', import.meta.url), 'utf8'))
+  const description = manifest.description as string
+  assert.equal(
+    description,
+    'Autofill job applications from one saved profile. Enter your details once and fill supported hiring sites in a click.',
+  )
+  assert.ok(description.length <= 132)
+  assert.doesNotMatch(description, /greenhouse|ashby|lever|jobvite|workable|icims|workday|bamboohr/i)
+  assert.doesNotMatch(description, /match score|ats score/i)
+})
+
 test('manifest content script and the command fallback target content.js', () => {
   const manifest = JSON.parse(readFileSync(new URL('../../manifest.json', import.meta.url), 'utf8'))
   assert.ok(manifest.permissions.includes('scripting'))
