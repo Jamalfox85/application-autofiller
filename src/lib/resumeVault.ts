@@ -24,6 +24,18 @@ export function canonicalResumeObjectName(fileName: string, fileType: string): s
   return null
 }
 
+// The parse API receives the same object the account saved. A PDF named
+// "Jane Doe.pdf" with an empty or browser MIME is rejected with 422.
+export function resumeParseFilePart(fileName: string, fileType: string): { name: string; type: string } {
+  const objectName = canonicalResumeObjectName(fileName, fileType)
+  if (objectName === PDF) return { name: PDF, type: 'application/pdf' }
+  if (objectName === DOCX) return { name: DOCX, type: DOCX_MIME }
+  return {
+    name: fileName.trim() || 'resume',
+    type: fileType.trim() || 'application/octet-stream',
+  }
+}
+
 export function userIdFromAccessToken(token: string): string | null {
   const payload = token.split('.')[1]
   if (!payload) return null

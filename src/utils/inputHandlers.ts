@@ -439,6 +439,13 @@ function findVisibleListbox(): Element | null {
   return null
 }
 
+function selectOptionIsPlaceholder(opt: HTMLOptionElement): boolean {
+  const value = opt.value.trim()
+  const text = opt.text.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!value || !text) return true
+  return /^(select|choose)(\b|$)/.test(text) || /\bplease (select|choose)\b/.test(text)
+}
+
 export function setSelectValue(
   selectElement: HTMLSelectElement,
   desiredValue: string,
@@ -467,13 +474,18 @@ export function setSelectValue(
     )
   }
 
-  // Try 3: Partial match - desired value contains option
+  // Try 3: Partial match - desired value contains option.
+  // An empty option value matches every string (`"united_states".includes("")`), which
+  // selects the blank "Select" placeholder and the field snaps back.
   if (!matchedOption) {
-    matchedOption = options.find(
-      (opt) =>
-        normalizedDesired.includes(opt.value.toLowerCase()) ||
-        normalizedDesired.includes(opt.text.toLowerCase()),
-    )
+    matchedOption = options.find((opt) => {
+      if (selectOptionIsPlaceholder(opt)) return false
+      const value = opt.value.toLowerCase().trim()
+      const text = opt.text.toLowerCase().trim()
+      const valueHit = value.length >= 2 && normalizedDesired.includes(value)
+      const textHit = text.length >= 2 && normalizedDesired.includes(text)
+      return valueHit || textHit
+    })
   }
 
   // Try 4: Relative match - desired value is similar to option

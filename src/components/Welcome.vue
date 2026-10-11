@@ -80,9 +80,11 @@ const markSetupComplete = () => completeProfileSetupSession()
 
 // Skip never starts a setup session (only Upload / Enter manually do). It still has to
 // record completion, or Match Score stays gated off and the next popup open returns here.
-const handleSkip = async () => {
-  await skipProfileSetup()
+const handleSkip = () => {
+  // Paint the next screen before the storage write. Awaiting it first looks like a
+  // no-op, and a popup.html tab can close before the view changes.
   emit('finish')
+  void skipProfileSetup()
 }
 
 const handleUpload = (file: File) => {

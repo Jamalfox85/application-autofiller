@@ -44,6 +44,46 @@ export function countrySearchValues(country?: string): string[] {
   return label ? [label] : []
 }
 
+// "Select" / "Select..." is the blank option on a country dropdown. Matching it
+// commits the placeholder and the field flickers back to Select.
+export function isSelectPlaceholder(label: string): boolean {
+  const text = label
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/g, '')
+    .replace(/…/g, '')
+    .trim()
+  if (!text || text === '-' || text === '--' || text === 'n/a') return true
+  return (
+    text === 'select' ||
+    text === 'choose' ||
+    text.startsWith('please select') ||
+    text.startsWith('please choose') ||
+    text.startsWith('select ') ||
+    text.startsWith('choose ')
+  )
+}
+
+// Prefer the country label itself ("United States") over a placeholder or a
+// dialing-code row. Returns the original option text to click.
+export function pickCountryOption(optionTexts: string[], queries: string[]): string | null {
+  const wanted = queries.map((query) => query.trim().toLowerCase()).filter((query) => query.length >= 2)
+  if (wanted.length === 0) return null
+  const options = optionTexts
+    .map((raw) => ({ raw, n: raw.replace(/\s+/g, ' ').trim() }))
+    .filter((option) => option.n && !isSelectPlaceholder(option.n))
+  for (const query of wanted) {
+    const exact = options.find((option) => option.n.toLowerCase() === query)
+    if (exact) return exact.raw
+  }
+  for (const query of wanted) {
+    const starts = options.find((option) => option.n.toLowerCase().startsWith(query))
+    if (starts) return starts.raw
+  }
+  return null
+}
+
 export function stateSearchValues(state?: string): string[] {
   if (!state?.trim()) return []
   const label = state.replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
@@ -658,6 +698,14 @@ export function nativeWorkAuthorizationSelectValue(
   return nativeSelectValue(options, (labels) =>
     pickWorkAuthorizationOption(labels, workAuthorization),
   )
+}
+
+export function nativeCountrySelectValue(
+  options: NativeSelectChoice[],
+  country?: string,
+): string | null {
+  const queries = countrySearchValues(country)
+  return nativeSelectValue(options, (labels) => pickCountryOption(labels, queries))
 }
 
 export function nativeSponsorshipSelectValue(

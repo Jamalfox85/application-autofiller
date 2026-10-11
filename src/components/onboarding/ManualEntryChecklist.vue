@@ -8,6 +8,8 @@ import UpdateEducationDialog from '../dialogs/UpdateEducationDialog.vue'
 import UpdateLinksDialog from '../dialogs/UpdateLinksDialog.vue'
 import UpdateOtherInfoDialog from '../dialogs/UpdateOtherInfoDialog.vue'
 import UpdateEEODialog from '../dialogs/UpdateEEODialog.vue'
+import UpdateSkillsDialog from '../dialogs/UpdateSkillsDialog.vue'
+import { SHEET_LEAVE_MS, nextChecklistTarget, sheetToOpenAfterSave } from './manualChecklist.ts'
 
 const props = defineProps<{
   personalInfo: PersonalInfo
@@ -28,17 +30,20 @@ const DIALOG_COMPONENTS: Record<string, unknown> = {
   links: UpdateLinksDialog,
   authorization: UpdateOtherInfoDialog,
   demographics: UpdateEEODialog,
+  skills: UpdateSkillsDialog,
 }
 
 const openKey = ref<string | null>(null)
+let openGeneration = 0
 
 const doneCount = computed(() => CORE_SECTIONS.filter((s) => s.done(props.personalInfo)).length)
 const progressPct = computed(() => Math.round((doneCount.value / CORE_SECTIONS.length) * 100))
-const nextIncompleteKey = computed(
-  () => CORE_SECTIONS.find((s) => !s.done(props.personalInfo))?.key ?? CORE_SECTIONS[0].key,
-)
+
+const sectionDone = (profile: PersonalInfo) => (section: (typeof CORE_SECTIONS)[number]) =>
+  section.done(profile)
 
 const openSection = (key: string) => {
+  openGeneration += 1
   openKey.value = key
 }
 
@@ -46,17 +51,33 @@ const closeSection = () => {
   openKey.value = null
 }
 
+const continueChecklist = () => {
+  const next = nextChecklistTarget(CORE_SECTIONS, sectionDone(props.personalInfo), null)
+  if (!next) {
+    emit('finishLater')
+    return
+  }
+  openSection(next.key)
+}
+
 const handleSectionSave = (profile: PersonalInfo) => {
   emit('save', profile)
 
-  // Auto-advance to the next not-yet-done section, matching the design's "Save & next" flow.
-  // Every dialog's handleSave() emits 'save' immediately followed by its own 'close' (which
-  // calls closeSection and would null this right back out) — deferring to nextTick lets our
-  // assignment run after that synchronous 'close' has already landed.
-  const currentIndex = CORE_SECTIONS.findIndex((s) => s.key === openKey.value)
-  const next = CORE_SECTIONS.slice(currentIndex + 1).find((s) => !s.done(profile))
+  // Every dialog's handleSave() emits 'save' then its own 'close'. Wait until that
+  // close has landed, then wait out the sheet's leave transition before opening
+  // the next required section. An empty optional save opens nothing.
+  const savedKey = openKey.value
+  const next = savedKey
+    ? sheetToOpenAfterSave(CORE_SECTIONS, sectionDone(profile), savedKey)
+    : null
+  const generation = ++openGeneration
   nextTick(() => {
-    openKey.value = next ? next.key : null
+    openKey.value = null
+    if (!next) return
+    window.setTimeout(() => {
+      if (generation !== openGeneration) return
+      openKey.value = next.key
+    }, SHEET_LEAVE_MS)
   })
 }
 </script>
@@ -102,7 +123,7 @@ const handleSectionSave = (profile: PersonalInfo) => {
 
     <div class="onboarding-footer">
       <button class="finish-later-btn" @click="$emit('finishLater')">Finish later</button>
-      <button class="continue-btn" @click="openSection(nextIncompleteKey)">Continue</button>
+      <button class="continue-btn" type="button" @click="continueChecklist">Continue</button>
     </div>
 
     <component

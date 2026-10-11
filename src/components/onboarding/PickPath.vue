@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { trackEvent } from '@/services/mixpanel'
 import { startProfileSetupSession } from '@/services/profileSetupSession'
 import { CORE_SECTIONS } from '@/utils/infocards.ts'
-import { isToolbarPopup, openResumeUploadTab } from '@/utils/uploadTab'
+import { isToolbarPopup, openResumeUploadTab, pageIsExtensionTab } from '@/utils/uploadTab'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
@@ -21,7 +21,9 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const triggerFilePicker = async () => {
   // The toolbar popup closes when the native file dialog opens and the file is lost, so
   // pick it in a tab instead. The worker finishes the upload; reopening the popup shows it.
-  if (isToolbarPopup()) {
+  // A popup.html tab has no ?tab=1, so isToolbarPopup() is true, but window.close()
+  // would destroy that tab. Only the real toolbar popup should hand off and close.
+  if (isToolbarPopup() && !(await pageIsExtensionTab())) {
     void trackProfileSetupStarted('default')
     if (await openResumeUploadTab()) return
   }
@@ -143,7 +145,7 @@ const handleManual = () => {
 
     <div class="onboarding-footer">
       <span class="footer-note">Only used to fill in your profile</span>
-      <button class="footer-link" @click="$emit('skip')">Skip for now</button>
+      <button class="footer-link" type="button" @click="$emit('skip')">Skip for now</button>
     </div>
   </div>
 </template>

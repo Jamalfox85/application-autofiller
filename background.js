@@ -14,7 +14,7 @@ import {
 } from './src/services/installAttribution.js'
 import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
-import { persistUploadedResume } from './src/services/resumeVaultWorker.js'
+import { persistUploadedResume, resumeParseFilePart } from './src/services/resumeVaultWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
@@ -366,11 +366,16 @@ async function handleResumeUpload({ url, token, profileId, fileName, fileType, f
     return
   }
 
+  // Copy before the account save. The storage upload can keep the original buffer,
+  // and a later Blob built from that same view is empty — the parse API then 422s.
+  const storedBytes = new Uint8Array(bytes)
+  const parseBytes = new Uint8Array(bytes)
+
   // The account save is the upload. The parse API is only for prefilling the
   // form; a file in storage with no profiles row is not a saved resume.
   let saved
   try {
-    saved = await persistUploadedResume({ token, profileId, fileName, fileType, bytes })
+    saved = await persistUploadedResume({ token, profileId, fileName, fileType, bytes: storedBytes })
     await cacheUploadedResume({
       token,
       fileName,
@@ -391,29 +396,36 @@ async function handleResumeUpload({ url, token, profileId, fileName, fileType, f
   let parsed = null
   let firstUpload = null
   try {
-    const form = new FormData()
-    form.append('file', new Blob([bytes], { type: fileType || 'application/octet-stream' }), fileName)
-    // The upload targets one candidate profile (resume-api multi-profiles contract).
-    form.append('profile_id', profileId)
-    // Ask for a parse even when this profile already has one. The API only returns it (it never
-    // rewrites the profile); the popup uses it to fill blank fields.
-    form.append('reparse', 'true')
+    const part = resumeParseFilePart(fileName, fileType)
+    const postParse = async (reparse) => {
+      const form = new FormData()
+      form.append('file', new Blob([parseBytes], { type: part.type }), part.name)
+      // The upload targets one candidate profile (resume-api multi-profiles contract).
+      form.append('profile_id', profileId)
+      // Ask for a parse even when this profile already has one. The API only returns it (it never
+      // rewrites the profile); the popup uses it to fill blank fields. A strict validator 422s
+      // the string "true"; one retry without it still parses a file the account already saved.
+      if (reparse) form.append('reparse', 'true')
 
-    const res = await fetch(url, {
-      method: 'POST',
-      // No Content-Type — FormData sets multipart/form-data + boundary.
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    })
-    const rawBody = await res.text()
-    let body = null
-    try {
-      body = rawBody ? JSON.parse(rawBody) : null
-    } catch {
-      body = null
+      const res = await fetch(url, {
+        method: 'POST',
+        // No Content-Type — FormData sets multipart/form-data + boundary.
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      })
+      const rawBody = await res.text()
+      let body = null
+      try {
+        body = rawBody ? JSON.parse(rawBody) : null
+      } catch {
+        body = null
+      }
+      return { res, body }
     }
-    // Never log the response body: it holds the parsed resume (name, phone, address).
-    console.log('[resume-upload]', res.status)
+
+    let attempt = await postParse(true)
+    if (attempt.res.status === 422) attempt = await postParse(false)
+    const { res, body } = attempt
     if (res.ok && body && body.success === true) {
       firstUpload = body.data ? body.data.first_upload ?? null : null
       parsed = body.data ? body.data.parsed ?? null : null
@@ -425,7 +437,11 @@ async function handleResumeUpload({ url, token, profileId, fileName, fileType, f
         parsed = { ...parsed, contact }
       }
     } else {
-      console.error('[resume-upload] parse failed after the resume was saved', res.status)
+      // Status plus a short code/message only. The body is the parsed resume.
+      const code = body && typeof body.code === 'string' ? body.code : ''
+      const message = body && typeof body.message === 'string' ? body.message : ''
+      const detail = `${code} ${message}`.trim().slice(0, 160)
+      console.error('[resume-upload] parse failed after the resume was saved', res.status, detail)
     }
   } catch (err) {
     console.error('[resume-upload] parse request failed after the resume was saved', err)
@@ -582,24 +598,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Content script publishes a storage notice when a Workday page needs a candidate
-  // account and Application Accounts has no Workday login. Badge the toolbar so the
-  // gap is visible even while the popup is closed.
+  // account and Application Accounts has no Workday login. The page toast and the
+  // popup banner cover it. The toolbar badge is not used for this.
   if (request.action === 'workdayAccountRequired') {
-    const notice = request.notice
-    if (notice && notice.portal === 'Workday' && typeof notice.message === 'string') {
-      updateBadge('!', '#b05454')
-    }
     sendResponse({ ok: true })
     return true
   }
 
-  // Same badge as Workday when an iCIMS login/create-account page has no iCIMS
+  // Same as Workday when an iCIMS login/create-account page has no iCIMS
   // Application Accounts login. The popup reads icimsAccountNotice for the banner.
   if (request.action === 'icimsAccountRequired') {
-    const notice = request.notice
-    if (notice && notice.portal === 'iCIMS' && typeof notice.message === 'string') {
-      updateBadge('!', '#b05454')
-    }
     sendResponse({ ok: true })
     return true
   }
@@ -701,13 +709,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const record = () =>
       new Promise((resolve) => {
         chrome.storage.local.get(['stats', 'fillHistory', 'activeProfile'], (data) => {
+          chrome.storage.local.get('fillHistory', (fresh) => {
           try {
+            const firstHistory = Array.isArray(data.fillHistory) ? data.fillHistory : null
+            const secondFailed = Boolean(chrome.runtime.lastError)
+            const latestHistory = secondFailed
+              ? firstHistory
+              : Array.isArray(fresh.fillHistory)
+                ? fresh.fillHistory
+                : null
             const stats = data.stats || { totalAutofills: 0, totalResponsesUsed: 0 }
             stats.totalAutofills = (stats.totalAutofills || 0) + 1
             const patch = { stats }
-            if (entry) {
+            // A clear between the two reads removed the list. Do not write the old rows back.
+            if (entry && !(latestHistory === null && firstHistory !== null)) {
               const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000
-              const fillHistory = (data.fillHistory || []).filter((e) => e.timestamp >= ninetyDaysAgo)
+              const fillHistory = (latestHistory || []).filter((e) => e.timestamp >= ninetyDaysAgo)
               const active = data.activeProfile && typeof data.activeProfile.id === 'string' ? data.activeProfile : null
               fillHistory.unshift({
                 id: Date.now(),
@@ -735,6 +752,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
             resolve()
           }
+          })
         })
       })
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
@@ -793,8 +811,54 @@ if (chrome.commands) {
   })
 }
 
-// Badge text to show status (optional)
-function updateBadge(text, color) {
-  chrome.action.setBadgeText({ text })
-  chrome.action.setBadgeBackgroundColor({ color })
+// The only toolbar badge this worker ever set was the missing-login "!". It lives on
+// chrome.action, so sign-out and storage clear do not remove it. Never set it for
+// those notices; clear anything a previous version left behind.
+function clearToolbarBadge() {
+  try {
+    chrome.action.setBadgeText({ text: '' })
+  } catch {
+    // Badge API can be missing in a harness.
+  }
 }
+
+const FILL_SESSION_MIRROR_KEYS = [
+  'lastAutofillTriggeredAt',
+  'lastAutofillJobSite',
+  'lastAutofillApplicationKey',
+  'fillQuotaClaims',
+  'submittedApplicationKeys',
+]
+
+function clearFillSessionMirrors() {
+  try {
+    chrome.storage.session.remove(FILL_SESSION_MIRROR_KEYS)
+  } catch {
+    // Session storage is unavailable. The next page load still records a fill.
+  }
+}
+
+function storageValueCleared(change) {
+  return !change || change.newValue == null
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return
+  const keys = Object.keys(changes)
+  const emptied = keys.length === 0
+  const signedOut = keys.some(
+    (key) => /^sb-.+-auth-token$/.test(key) && storageValueCleared(changes[key]),
+  )
+  const noticeCleared = ['workdayAccountNotice', 'icimsAccountNotice'].some(
+    (key) => changes[key] && storageValueCleared(changes[key]),
+  )
+  const historyChange = changes.fillHistory
+  const historyCleared =
+    historyChange != null &&
+    (storageValueCleared(historyChange) ||
+      (Array.isArray(historyChange.newValue) && historyChange.newValue.length === 0))
+  if (signedOut || noticeCleared || historyCleared || emptied) clearToolbarBadge()
+  if (historyCleared || emptied) clearFillSessionMirrors()
+})
+
+clearToolbarBadge()

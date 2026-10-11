@@ -112,7 +112,7 @@ export function showAutofillNotification(summary?: { fieldsCount?: number; total
 
   mountInToastStack(card)
   // If the page rebuilds the body right after the fill (hydration), put the toast back.
-  for (const delayMs of [300, 1200]) {
+  for (const delayMs of [300, 1200, 2500]) {
     setTimeout(() => {
       if (!card.isConnected && card.style.opacity !== '0') mountInToastStack(card)
     }, delayMs)

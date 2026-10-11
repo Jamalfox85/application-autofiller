@@ -13,6 +13,19 @@ export function isToolbarPopup(loc: Loc = location): boolean {
   return !new URLSearchParams(loc.search).has('tab')
 }
 
+// chrome.tabs.getCurrent() resolves only for an extension page opened as a tab.
+// The toolbar popup gets undefined. Upload must not call window.close() on a real tab.
+export async function pageIsExtensionTab(
+  getCurrent: () => Promise<{ id?: number } | undefined> = () => chrome.tabs.getCurrent(),
+): Promise<boolean> {
+  try {
+    const tab = await getCurrent()
+    return typeof tab?.id === 'number'
+  } catch {
+    return false
+  }
+}
+
 export function isResumeUploadTab(loc: Loc = location): boolean {
   const params = new URLSearchParams(loc.search)
   return params.has('tab') && params.get(UPLOAD_TAB_PARAM) === 'resume'

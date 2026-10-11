@@ -75,7 +75,7 @@ const { loadPersonalInfo, savePersonalInfo, loadedProfileId } = usePersonalInfo(
 const { customResponses } = useCustomResponses()
 const profilesStore = useProfiles()
 const { notification, showNotification } = useNotification()
-const { fillHistory, loadFillHistory } = useFillHistory()
+const { fillHistory, loadFillHistory, rereadFillHistoryMirror } = useFillHistory()
 const { status: authStatus, isSigningIn, signInError, initAuth, signIn, signOut } = useAuth()
 
 // State
@@ -303,6 +303,19 @@ const runDetection = async () => {
       detection.value = NOT_DETECTED
       return
     }
+    // The active tab is this extension page (popup.html opened as a tab). Injecting
+    // the content script into it closes the tab. Detection belongs on the job page.
+    let selfId: number | undefined
+    try {
+      const self = await chrome.tabs.getCurrent()
+      selfId = self?.id
+    } catch {
+      selfId = undefined
+    }
+    if (typeof selfId === 'number' && selfId === tabId) {
+      detection.value = NOT_DETECTED
+      return
+    }
     detection.value = await detectWithRetry({
       ask: async () => {
         const frames = await chrome.scripting.executeScript({
@@ -427,16 +440,18 @@ const startParsedReview = async () => {
 }
 
 const handleOnboardingFinish = async (profile?: any) => {
-  // Every Welcome exit lands here, including Skip and the parse-wait fallback. Those paths
-  // used to skip completeProfileSetupSession, which left Match Score gated off.
+  // Every Welcome exit lands here, including Skip and the parse-wait fallback. Show the
+  // dashboard immediately. Awaiting setup completion first looks like Skip did nothing,
+  // and the popup tab can close before the view changes.
+  welcomeFile.value = null
+  activeView.value = 'main'
+  if (profile) publishPersonalInfo(profile)
   try {
     await completeProfileSetupSession()
   } catch (error) {
     console.error('Failed to mark profile setup complete', error)
   }
-  welcomeFile.value = null
   if (profile) {
-    publishPersonalInfo(profile)
     try {
       await savePersonalInfo(profile)
     } catch (error) {
@@ -449,7 +464,6 @@ const handleOnboardingFinish = async (profile?: any) => {
     // wrote the profile server-side) — pull whatever Supabase has now.
     adoptLoadedPersonalInfo(await loadPersonalInfo(profilesStore.activeMirror.value))
   }
-  activeView.value = 'main'
   await detectApplication()
 }
 
@@ -585,6 +599,11 @@ const onIcimsNoticeStored = (
 
 const handleSignOut = async () => {
   await signOut()
+  try {
+    await chrome.action.setBadgeText({ text: '' })
+  } catch {
+    // The toolbar badge is optional. Sign-out still finishes.
+  }
   profilesStore.reset()
   showProfiles.value = false
   gateResolved.value = false
@@ -745,6 +764,7 @@ const onEntitlementStored = (
 const onPopupFocus = () => {
   void refreshBilling()
   void presentPurchaseVerifyNotice()
+  void rereadFillHistoryMirror()
 }
 
 // Receipt failures store a fixed sentence, never the install key. Showing it
