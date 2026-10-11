@@ -83,11 +83,8 @@ function fixturePage(file: string, href: string): ExtractPage {
 test('feature flags default on for proven extractors and off for the rest', () => {
   assert.equal(matchScoreEnabled(), true)
   assert.equal(matchScoreEnabled('false'), false)
-  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite', 'workday']) {
+  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite', 'workday', 'bamboohr']) {
     assert.equal(atsExtractorEnabled(ats), true, ats)
-  }
-  for (const ats of ['bamboohr']) {
-    assert.equal(atsExtractorEnabled(ats), false, ats)
   }
   assert.equal(atsExtractorEnabled('greenhouse', 'false'), false)
   assert.equal(atsExtractorEnabled('icims', 'false'), false)
@@ -430,6 +427,35 @@ test('Workday job page reads the description and the apply step reads the postin
   assert.equal(applyExtraction?.source, 'dom')
   assert.equal(applyExtraction?.text, 'This is an onsite position at the Austin, TX location.\nMeet the team.')
   assert.equal(applyExtraction?.text.includes('Senior Hardware'), false)
+  assert.equal(calls, 0)
+})
+
+test('BambooHR job page reads the description and the apply form reads the posting script', async () => {
+  let calls = 0
+  const fetchPosting = async () => {
+    calls += 1
+    return '{}'
+  }
+  const href = 'https://onsharp.bamboohr.com/careers/76'
+  const job = fixturePage('bamboohr-job.html', href)
+  assert.equal(job.document?.querySelector('form'), null)
+  assert.equal(matchScoreSurfaceReady(job.document, job.href), true)
+  const extraction = await extractJobDescription('bamboohr', job, fetchPosting)
+  assert.equal(extraction?.source, 'dom')
+  assert.equal(extraction?.text, 'Onsharp builds portal software.\nWrite and review code.')
+  assert.equal(extraction?.text.includes('Full Stack'), false)
+
+  const apply = fixturePage('bamboohr-job-apply.html', href)
+  assert.equal(apply.document?.querySelector('.BambooRichText'), null)
+  assert.equal(matchScoreSurfaceReady(apply.document, apply.href), true)
+  const applyExtraction = await extractJobDescription('bamboohr', apply, fetchPosting)
+  assert.equal(applyExtraction?.source, 'dom')
+  assert.equal(applyExtraction?.text, 'Onsharp builds portal software.\nWrite and review code.')
+  assert.equal(applyExtraction?.text.includes('Full Stack'), false)
+
+  const listing = fixturePage('bamboohr-listing.html', 'https://onsharp.bamboohr.com/careers')
+  assert.equal(matchScoreSurfaceReady(listing.document, listing.href), false)
+  assert.equal(await extractJobDescription('bamboohr', listing, fetchPosting), null)
   assert.equal(calls, 0)
 })
 

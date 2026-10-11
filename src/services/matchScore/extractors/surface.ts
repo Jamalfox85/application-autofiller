@@ -13,6 +13,7 @@ const SCORE_SURFACE_SELECTOR = [
   '[data-qa="job-description"]',
   '.jv-job-detail-description',
   '[data-automation-id="jobPostingDescription"]',
+  '.BambooRichText',
 ].join(', ')
 
 type SurfaceDocument = {
