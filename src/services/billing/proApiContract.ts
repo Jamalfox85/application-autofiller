@@ -36,7 +36,9 @@ export function resumeApiBaseUrl(configured: string | null | undefined): string 
 }
 
 // Bearer is the Supabase user access token. X-API-Key is included only when the
-// build provides a non-placeholder VITE_RESUME_API_KEY. Upload/parse does not use this.
+// build provides a non-placeholder VITE_RESUME_API_KEY. `npm run build` fails when that
+// key is unset, empty, or `your-resume-api-key` (scripts/check-release-env.mjs) and does
+// not print the value. `npm run build:dev` does not require it. Upload/parse does not use this.
 export function proResumeHeaders(token: string, apiKey: string | null | undefined): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
