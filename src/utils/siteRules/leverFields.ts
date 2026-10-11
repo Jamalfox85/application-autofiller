@@ -3,6 +3,8 @@
 // not by Greenhouse ids or Ashby data-field-path. DOM-free so the rules can be
 // unit tested against the labels those pages actually render.
 
+import { leverProfileUrl } from '../profileUrl.ts'
+
 export type LeverProfile = {
   firstName?: string | null
   middleName?: string | null
@@ -15,6 +17,8 @@ export type LeverProfile = {
   zip?: string | null
   country?: string | null
   linkedin?: string | null
+  github?: string | null
+  website?: string | null
   eeoAnswersEnabled?: boolean | null
   gender?: string | null
   raceEthnicity?: string | null
@@ -320,6 +324,40 @@ export function pickLeverLocationOption(optionTexts: string[], info: LeverProfil
   }
 
   return best?.text ?? null
+}
+
+// /searchLocations rows are { name, id }. The hidden field stores that object as JSON.
+export type LeverLocationHit = { name: string; id?: string }
+
+export function parseLeverLocationResults(payload: unknown): LeverLocationHit[] {
+  if (!Array.isArray(payload)) return []
+  const hits: LeverLocationHit[] = []
+  for (const item of payload) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const name = clean(typeof record.name === 'string' ? record.name : '')
+    if (!name) continue
+    const hit: LeverLocationHit = { name }
+    if (typeof record.id === 'string' && record.id.trim()) hit.id = record.id.trim()
+    hits.push(hit)
+  }
+  return hits
+}
+
+export function pickLeverLocationHit(
+  hits: LeverLocationHit[],
+  info: LeverProfile,
+): LeverLocationHit | null {
+  const name = pickLeverLocationOption(
+    hits.map((hit) => hit.name),
+    info,
+  )
+  if (!name) return null
+  return hits.find((hit) => hit.name === name) ?? null
+}
+
+export function leverSelectedLocationValue(hit: LeverLocationHit): string {
+  return JSON.stringify(hit.id ? { name: hit.name, id: hit.id } : { name: hit.name })
 }
 
 function classifyCountryToken(last: string, tokens: string[]): 'match' | 'mismatch' | 'unknown' {
@@ -930,7 +968,17 @@ export function leverPlan(
     name.toLowerCase().includes('linkedin') ||
     (normalized.includes('linkedin') && !isOutOfScopeLabel(normalized))
   ) {
-    const value = clean(info.linkedin)
+    if (!isUrlText(type)) return null
+    const value = leverProfileUrl(info.linkedin)
+    return value ? { action: 'text', value } : null
+  }
+
+  if (
+    name.toLowerCase().includes('github') ||
+    (normalized.includes('github') && !isOutOfScopeLabel(normalized))
+  ) {
+    if (!isUrlText(type)) return null
+    const value = leverProfileUrl(info.github)
     return value ? { action: 'text', value } : null
   }
 
@@ -1068,6 +1116,10 @@ function datePlan(
     return choice ? { action: 'select', optionText: choice } : null
   }
   return { action: 'text', value: clean(source) }
+}
+
+function isUrlText(type: string): boolean {
+  return !type || type === 'text' || type === 'url' || type === 'textarea'
 }
 
 function isFirstNameLabel(label: string): boolean {

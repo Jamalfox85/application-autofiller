@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
+import { normalizeProfileUrl } from '../../utils/profileUrl.ts'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { fillEmptyFromParsedResume, mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
@@ -142,7 +143,7 @@ function makeLinkModel(key: 'linkedin' | 'website' | 'github') {
     get: () => stripProtocol(editableProfile.value[key] || ''),
     set: (value: string) => {
       const bare = stripProtocol(value)
-      editableProfile.value[key] = bare ? `https://${bare}` : ''
+      editableProfile.value[key] = bare ? normalizeProfileUrl(bare) : ''
       saved.value = false
     },
   })
@@ -174,7 +175,7 @@ const removeOtherLink = (id: number) => {
 
 const setOtherLinkUrl = (link: OtherLink, value: string) => {
   const bare = stripProtocol(value)
-  link.url = bare ? `https://${bare}` : ''
+  link.url = bare ? normalizeProfileUrl(bare) : ''
   saved.value = false
 }
 

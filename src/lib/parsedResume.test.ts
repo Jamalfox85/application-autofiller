@@ -88,6 +88,8 @@ test('phone is formatted for the profile field and the dial code is split off', 
 test('GitHub is found in contact, website, or free text', () => {
   assert.equal(findGithub({}, { github: 'github.com/jane' }), 'https://github.com/jane')
   assert.equal(findGithub({}, { website: 'https://github.com/jane' }), 'https://github.com/jane')
+  assert.equal(findGithub({}, { github: 'http://example.com/jane' }), 'http://example.com/jane')
+  assert.equal(findGithub({}, { website: 'http://github.com/jane' }), 'http://github.com/jane')
   assert.equal(
     findGithub({ work_history: [{ bullets: ['Built tools, see github.com/jane/tool'] }] }, {}),
     'https://github.com/jane/tool',
