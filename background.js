@@ -21,10 +21,12 @@ import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 import {
+  SUBMITTED_APPLICATIONS_KEY,
   calendarWeekKey,
   decideQuotaClaim,
   forgetQuotaClaim,
   quotaPageKey,
+  rememberSubmittedApplication,
 } from './src/services/billing/quotaPage.js'
 import {
   extensionSuperProperties,
@@ -35,6 +37,16 @@ startExtensionPay()
 
 const FILL_QUOTA_CLAIMS_KEY = 'fillQuotaClaims'
 const quotaClaimQueues = new Map()
+let submissionClaimQueue = Promise.resolve()
+
+function enqueueSubmissionClaim(task) {
+  const run = submissionClaimQueue.then(task, task)
+  submissionClaimQueue = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
 
 function enqueueQuotaClaim(pageKey, task) {
   const previous = quotaClaimQueues.get(pageKey) || Promise.resolve()
@@ -475,8 +487,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
-  // One Free fill per tab URL per week. Claims for the same page run one at a
-  // time, so an embed and its shell cannot both increment the counter.
+  // One application_submitted per application, shared by every frame. The queue
+  // keeps a shell and its iframe from both recording the same confirmation.
+  if (request.action === 'claimApplicationSubmitted') {
+    const keys = Array.isArray(request.keys)
+      ? request.keys.filter((key) => typeof key === 'string' && key)
+      : []
+    enqueueSubmissionClaim(async () => {
+      const stored = await chrome.storage.session.get(SUBMITTED_APPLICATIONS_KEY)
+      const existing = Array.isArray(stored[SUBMITTED_APPLICATIONS_KEY])
+        ? stored[SUBMITTED_APPLICATIONS_KEY].filter((key) => typeof key === 'string')
+        : []
+      const decision = rememberSubmittedApplication(existing, keys)
+      if (!decision.first) {
+        sendResponse({ claimed: false })
+        return
+      }
+      await chrome.storage.session.set({ [SUBMITTED_APPLICATIONS_KEY]: decision.keys })
+      sendResponse({ claimed: true })
+    }).catch(() => {
+      sendResponse({ claimed: false, error: true })
+    })
+    return true
+  }
+
+  // One Free fill per application per week. Claims for the same application run
+  // one at a time, so an embed and its shell — and a later step of that
+  // application — cannot both increment the counter.
   if (request.action === 'claimFillQuota' || request.action === 'releaseFillQuota') {
     const pageKey = quotaPageKey(sender?.tab?.url || request.pageKey || '')
     if (!pageKey) {

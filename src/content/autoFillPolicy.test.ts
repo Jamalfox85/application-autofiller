@@ -53,3 +53,15 @@ test('a repeat fill on the same page says so instead of silently not counting', 
   const notifications = readFileSync(new URL('./notifications.ts', import.meta.url), 'utf8')
   assert.match(notifications, /already counted this week/)
 })
+
+test('a later step does not emit another autofill_succeeded or history row', () => {
+  const block = autofill.slice(autofill.indexOf('if (filledCount > 0)'))
+  const chargedAt = block.indexOf('if (charged)')
+  const successAt = block.indexOf("trackFillContract('autofill_succeeded'")
+  const historyAt = block.indexOf('await recordFillHistory(filledCount, attemptedCount)')
+  assert.ok(chargedAt >= 0 && successAt > chargedAt, 'autofill_succeeded follows a new claim')
+  assert.ok(historyAt > chargedAt, 'history follows a new claim')
+  assert.match(autofill, /quotaPageKey\(window\.location\.href\)/)
+  const beforeCharge = block.slice(0, chargedAt)
+  assert.equal(beforeCharge.includes("trackFillContract('autofill_succeeded'"), false)
+})

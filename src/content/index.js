@@ -1,6 +1,12 @@
 // Runs on all pages on load
 
-import { autofillPage, debounceAutofill, consumeAutofillTriggerForSubmission, pageNavigated } from './autofill.ts'
+import {
+  autofillPage,
+  claimSubmittedApplications,
+  debounceAutofill,
+  pageNavigated,
+  readAutofillTriggerForSubmission,
+} from './autofill.ts'
 import {
   showAutofillNotification,
   showAutofillPrompt,
@@ -29,6 +35,14 @@ import { installProUnlock } from '../services/billing/proUnlock.ts'
 import { getProfileSetupCompletedAt } from '../services/profileSetupSession'
 import { captureLandingAttribution } from '../services/installSource'
 import { detectAts } from '../utils/ats.ts'
+import { quotaPageKey } from '../services/billing/quotaPage.ts'
+import {
+  decideSubmission,
+  readSubmissionSnapshot,
+  shouldArmOnClick,
+  shouldArmOnSubmit,
+  submissionBelongsToAutofill,
+} from './submissionEvidence.ts'
 import { onMatchScoreRender, startMatchScore } from './matchScore.ts'
 import { configureWorkdayAccountNotice } from '../utils/siteRules/workdayAccountNotice.ts'
 import { configureIcimsAccountNotice } from '../utils/siteRules/icimsAccountNotice.ts'
@@ -163,6 +177,7 @@ async function initialize() {
     if (currentUrl === lastUrl) return
     lastUrl = currentUrl
     pageNavigated()
+    void confirmTrackedSubmission(true)
     hasShownPopup = false
     claimedUrl = ''
     promptRestores = 0
@@ -293,16 +308,58 @@ function installApplicationHooks(personalInfo) {
     subtree: true,
   })
 
-  // Best-effort application_submitted detection: only fires on forms the extension actually
-  // engaged with (autofill was triggered this session). clicked_submit is the form submit
-  // event; confirmation_page is handled separately in maybeTrackConfirmationPage.
+  // application_submitted waits for evidence of success. The submit event and a
+  // final Submit click only arm a check; validation errors and a form that is
+  // still on screen do not count.
   document.addEventListener(
     'submit',
-    () => {
-      void trackApplicationSubmitted('clicked_submit')
+    (event) => {
+      if (!shouldArmOnSubmit(event.target)) return
+      scheduleSubmissionChecks()
     },
     true,
   )
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!shouldArmOnClick(event.target)) return
+      scheduleSubmissionChecks()
+    },
+    true,
+  )
+}
+
+let submitAttempt = null
+let submissionTimers = []
+
+function scheduleSubmissionChecks() {
+  for (const timer of submissionTimers) window.clearTimeout(timer)
+  submissionTimers = []
+  const started = readSubmissionSnapshot(document, window.location.href)
+  submitAttempt = {
+    href: started.href,
+    hadApplicationForm: started.applicationFormPresent,
+  }
+  for (const delay of [0, 400, 1200]) {
+    submissionTimers.push(
+      window.setTimeout(() => {
+        void confirmTrackedSubmission(delay >= 1200)
+      }, delay),
+    )
+  }
+}
+
+async function confirmTrackedSubmission(formGoneSettled) {
+  const after = readSubmissionSnapshot(document, window.location.href)
+  const decision = decideSubmission({
+    submitAttempted: !!submitAttempt,
+    hadApplicationForm: !!submitAttempt?.hadApplicationForm,
+    beforeHref: submitAttempt?.href ?? null,
+    after,
+    formGoneSettled,
+  })
+  if (!decision.fire || !decision.submissionSuccess || !decision.submitMethod) return
+  await trackApplicationSubmitted(decision.submitMethod, decision.submissionSuccess)
 }
 
 async function trackJobSiteVisit(detectionMethod, profileCompletedAt) {
@@ -326,34 +383,43 @@ async function trackJobSiteVisit(detectionMethod, profileCompletedAt) {
   })
 }
 
-function isConfirmationPage() {
-  const url = window.location.href.toLowerCase()
-  return /thank[-_ ]?you|application[-_ ]?(submitted|received|complete)|\/confirmation|\/success/.test(
-    url,
-  )
-}
-
 async function maybeTrackConfirmationPage() {
-  if (!isConfirmationPage()) return
-  await trackApplicationSubmitted('confirmation_page')
+  await confirmTrackedSubmission(true)
 }
 
-async function trackApplicationSubmitted(submitMethod) {
-  const trigger = await consumeAutofillTriggerForSubmission()
+async function trackApplicationSubmitted(submitMethod, submissionSuccess) {
+  if (!submissionSuccess) return
+  const trigger = await readAutofillTriggerForSubmission()
   if (!trigger) return
+
+  const href = window.location.href
+  const pageKey = quotaPageKey(href)
+  if (
+    !submissionBelongsToAutofill({
+      href,
+      pageKey,
+      triggerKey: trigger.applicationKey,
+      triggerHost: trigger.jobSite,
+    })
+  ) {
+    return
+  }
+
+  const claimed = await claimSubmittedApplications([trigger.applicationKey, pageKey].filter((key) => key))
+  if (!claimed) return
 
   const host = trigger.jobSite || window.location.hostname
   const properties = {
     ats:
       detectAts({
         hostname: host,
-        href: window.location.href,
+        href,
         document,
       }) ?? 'other',
     job_site: host,
     submit_method: submitMethod,
     time_since_autofill_triggered_seconds: (Date.now() - trigger.triggeredAt) / 1000,
-    submission_success: true,
+    submission_success: submissionSuccess,
   }
   trackEvent('application_submitted', properties)
 }
