@@ -184,16 +184,14 @@ export function mergeServerFillCount(local: FillQuotaRecord, serverCount: number
   // A positive server count means this account has already filled. Leaving
   // firstFillEver false made the fill that reached 10 look like the install's
   // first fill, so the nudge waited until the next one (11 used, 14 left).
-  // It also skipped the weekly cap: decideFill allows the install's first fill
-  // before it looks at successfulFills, so a server count of 25 with an empty
-  // local counter still filled Lever.
+  // Clearing extension storage, or installing on a new browser, also resets the
+  // flag. decideFill allows that "first" fill before it looks at the count, so
+  // a free user already at 25 on the server would get another fill.
   if (count > 0) next.firstFillEver = true
-  // decideFill still lets the first Greenhouse success through at the cap when
-  // greenhouseFillEver is false. An empty local record stays false, so a server
-  // count of 25 filled Greenhouse while the popup showed 25 of 25. Adopting
-  // that count closes the exemption. A local counter that reached the cap on
-  // this device with the flag false still gets the one Greenhouse fill when
-  // the server count is unavailable.
+  // The first Greenhouse success stays ungated when greenhouseFillEver is false.
+  // A wiped local record is false even if this account already used the week.
+  // At the cap, close that exemption too. Under the cap the flag can stay false:
+  // the one Greenhouse fill is still allowed.
   if (count >= FREE_FILL_LIMIT) next.greenhouseFillEver = true
   // The soft nudge is once per week. A count that already passed 10 on another
   // device does not show "10 of 25" again on this one.
@@ -209,15 +207,11 @@ export function decideFill(input: {
   quota: FillQuotaRecord
   isPro: boolean
   ats: string
-  // This application was already counted this week (a later step, or Auto-fill
-  // again). The fill still runs. chargeFillQuota does not increment.
-  alreadyCountedApplication?: boolean
 }): 'allow' | 'block' {
   // Pro is unlimited autofills only. Resume AI and extra profiles have their own gates.
   if (input.isPro) return 'allow'
   // Workday stays free — never hard-stop and never show a Pro prompt for it.
   if (input.ats === 'workday') return 'allow'
-  if (input.alreadyCountedApplication) return 'allow'
   // Never gate the install's first successful autofill.
   if (!input.quota.firstFillEver) return 'allow'
   // First Greenhouse successful fill stays ungated even after the free cap.
@@ -229,7 +223,7 @@ export function decideFill(input: {
 // The content script gates on the cached entitlement. Before a hard stop, ask
 // ExtPay again so a purchase the cache has not seen yet does not block a fill.
 export async function decideFillWithRefresh(
-  input: { quota: FillQuotaRecord; isPro: boolean; ats: string; alreadyCountedApplication?: boolean },
+  input: { quota: FillQuotaRecord; isPro: boolean; ats: string },
   refreshIsPro: () => Promise<boolean>,
 ): Promise<'allow' | 'block'> {
   const decision = decideFill(input)
