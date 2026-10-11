@@ -3,12 +3,18 @@ import test from 'node:test'
 import type { PersonalInfo } from '../../types/index.ts'
 import { readFileSync } from 'node:fs'
 import {
+  ASHBY_RESUME_UPLOAD_TIMEOUT_MS,
   applyAshbyResumeFile,
+  ashbyResumeUploadFailure,
   attachAshbyResumeFile,
   isAshbyPlainResumeFile,
   resetAshbySavedResumeRequest,
 } from './ashbyResumeFile.ts'
-import { assignAshbyResumeInPage, resumeBytesForAshby } from './ashbyResumePageFile.js'
+import {
+  assignAshbyResumeInPage,
+  resumeBytesForAshby,
+  sanitizeAshbyResumeAssignment,
+} from './ashbyResumePageFile.js'
 
 const PDF = new TextEncoder().encode('%PDF-1.4 saved-resume')
 
@@ -417,13 +423,198 @@ test('the page builds the resume file and does not submit', async () => {
       '%PDF-1.4 page-file',
     )
     assert.deepEqual(events, ['input', 'change'])
+    assert.equal(result.uploaded, undefined)
     const source = assignAshbyResumeInPage.toString()
     assert.equal(source.includes('.click'), false)
     assert.equal(source.includes('submit'), false)
     assert.equal(source.includes('requestSubmit'), false)
+    assert.equal(source.includes('watchAshbyPresignedUpload'), true)
   } finally {
     globalThis.document = previousDocument
     globalThis.DataTransfer = previousTransfer
+  }
+})
+
+test('the page waits until the presigned upload finishes', async () => {
+  const pdf = new TextEncoder().encode('%PDF-1.4 page-file')
+  const events: string[] = []
+  const calls: string[] = []
+  const input = {
+    type: 'file',
+    disabled: false,
+    files: null as File[] | null,
+    removeAttribute() {},
+    dispatchEvent(event: Event) {
+      events.push(event.type)
+      if (event.type !== 'change') return true
+      const fetchImpl = globalThis.fetch
+      void fetchImpl('https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiCreateFileUploadHandle', {
+        method: 'POST',
+        body: '{}',
+      })
+      void fetchImpl('https://ashbyhq-infra-prd-main-app-uploaded-files-us-east-1.s3.us-east-1.amazonaws.com/', {
+        method: 'POST',
+        body: 'file',
+      })
+      return true
+    },
+  }
+  class Transfer {
+    files: File[] = []
+    items = { add: (file: File) => { this.files.push(file) } }
+  }
+  const previousDocument = globalThis.document
+  const previousTransfer = globalThis.DataTransfer
+  const previousFetch = globalThis.fetch
+  const pageFetch = async (url: string) => {
+    calls.push(String(url))
+    if (String(url).includes('amazonaws.com')) return { ok: true, status: 204 }
+    return { ok: true, status: 200 }
+  }
+  Object.assign(globalThis, {
+    document: {
+      querySelector(selector: string) {
+        return selector === 'input[type="file"][data-gofillr-resume="abcdefgh"]' ? input : null
+      },
+    },
+    DataTransfer: Transfer,
+    fetch: pageFetch,
+  })
+  try {
+    const result = await assignAshbyResumeInPage({
+      token: 'abcdefgh',
+      name: 'resume-no-contact.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      bytesBase64: bytesToBase64(pdf),
+      timeoutMs: 1000,
+    })
+    assert.equal(result.assigned, true)
+    assert.equal(result.uploaded, true)
+    assert.equal(result.status, 204)
+    assert.equal(result.error, undefined)
+    assert.deepEqual(events, ['input', 'change'])
+    assert.equal(calls.length, 2)
+    assert.equal(globalThis.fetch, pageFetch)
+    assert.equal(calls.some((url) => url.includes('amazonaws.com')), true)
+  } finally {
+    globalThis.document = previousDocument
+    globalThis.DataTransfer = previousTransfer
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('a file form post is the upload even when the host is not amazonaws', async () => {
+  const pdf = new TextEncoder().encode('%PDF-1.4 page-file')
+  const input = {
+    type: 'file',
+    disabled: false,
+    files: null as File[] | null,
+    removeAttribute() {},
+    dispatchEvent(event: Event) {
+      if (event.type !== 'change') return true
+      const body = new FormData()
+      body.append('file', new Blob(['resume']), 'resume-no-contact.docx')
+      void globalThis.fetch('https://uploads.example/resume', { method: 'POST', body })
+      return true
+    },
+  }
+  class Transfer {
+    files: File[] = []
+    items = { add: (file: File) => { this.files.push(file) } }
+  }
+  const previousDocument = globalThis.document
+  const previousTransfer = globalThis.DataTransfer
+  const previousFetch = globalThis.fetch
+  Object.assign(globalThis, {
+    document: {
+      querySelector(selector: string) {
+        return selector === 'input[type="file"][data-gofillr-resume="abcdefgh"]' ? input : null
+      },
+    },
+    DataTransfer: Transfer,
+    fetch: async () => ({ ok: true, status: 204 }),
+  })
+  try {
+    const result = await assignAshbyResumeInPage({
+      token: 'abcdefgh',
+      name: 'resume-no-contact.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      bytesBase64: bytesToBase64(pdf),
+      timeoutMs: 1000,
+    })
+    assert.equal(result.uploaded, true)
+    assert.equal(result.status, 204)
+  } finally {
+    globalThis.document = previousDocument
+    globalThis.DataTransfer = previousTransfer
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('a hung presigned upload times out instead of spinning', async () => {
+  const pdf = new TextEncoder().encode('%PDF-1.4 page-file')
+  const events: string[] = []
+  let aborted = false
+  const input = {
+    type: 'file',
+    disabled: false,
+    files: null as File[] | null,
+    removeAttribute() {},
+    dispatchEvent(event: Event) {
+      events.push(event.type)
+      if (event.type !== 'change') return true
+      void globalThis.fetch('https://jobs.ashbyhq.com/api/non-user-graphql', { method: 'POST' }).catch(() => {})
+      void globalThis.fetch('https://bucket.s3.us-east-1.amazonaws.com/', { method: 'POST' }).catch(() => {})
+      return true
+    },
+  }
+  class Transfer {
+    files: File[] = []
+    items = { add: (file: File) => { this.files.push(file) } }
+  }
+  const previousDocument = globalThis.document
+  const previousTransfer = globalThis.DataTransfer
+  const previousFetch = globalThis.fetch
+  const hangingFetch = (_url: string, init?: { signal?: AbortSignal }) =>
+    new Promise((_resolve, reject) => {
+      const signal = init?.signal
+      if (!signal) return
+      signal.addEventListener('abort', () => {
+        aborted = true
+        const error = new Error('aborted')
+        error.name = 'AbortError'
+        reject(error)
+      })
+    })
+  Object.assign(globalThis, {
+    document: {
+      querySelector(selector: string) {
+        return selector === 'input[type="file"][data-gofillr-resume="abcdefgh"]' ? input : null
+      },
+    },
+    DataTransfer: Transfer,
+    fetch: hangingFetch,
+  })
+  try {
+    const started = Date.now()
+    const result = await assignAshbyResumeInPage({
+      token: 'abcdefgh',
+      name: 'test-resume.pdf',
+      type: 'application/pdf',
+      bytesBase64: bytesToBase64(pdf),
+      timeoutMs: 40,
+    })
+    assert.ok(Date.now() - started < 1000)
+    assert.equal(result.assigned, true)
+    assert.equal(result.uploaded, false)
+    assert.equal(result.error, 'timeout')
+    assert.deepEqual(events, ['input', 'change'])
+    assert.equal(aborted, true)
+    assert.equal(globalThis.fetch, hangingFetch)
+  } finally {
+    globalThis.document = previousDocument
+    globalThis.DataTransfer = previousTransfer
+    globalThis.fetch = previousFetch
   }
 })
 
@@ -447,9 +638,10 @@ test('with an extension id the resume is assigned in the page world', async () =
     chrome: {
       runtime: {
         id: 'ext',
-        async sendMessage(message: { action?: string; name?: string }) {
+        async sendMessage(message: { action?: string; name?: string; timeoutMs?: number }) {
           actions.push(message.action || '')
           if (message.action === 'assignAshbyResume') {
+            assert.equal(message.timeoutMs, ASHBY_RESUME_UPLOAD_TIMEOUT_MS)
             input.files = [new File([PDF], message.name || 'Ada Lovelace.pdf', { type: 'application/pdf' })]
             return { assigned: true, name: message.name, size: PDF.byteLength, type: 'application/pdf' }
           }
@@ -469,6 +661,50 @@ test('with an extension id the resume is assigned in the page world', async () =
   }
 })
 
+test('a timed-out page upload is a clear error and does not count as attached', async () => {
+  const previousChrome = (globalThis as { chrome?: unknown }).chrome
+  const { input } = ashbyFile({ path: '_systemfield_resume', title: 'Resume', id: '_systemfield_resume' })
+  const marked = input as typeof input & {
+    dataset: { gofillrResume?: string }
+    setAttribute: (name: string, value: string) => void
+    removeAttribute: (name: string) => void
+  }
+  marked.dataset = {}
+  marked.setAttribute = (_name, value) => {
+    marked.dataset.gofillrResume = value
+  }
+  marked.removeAttribute = () => {
+    delete marked.dataset.gofillrResume
+  }
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        id: 'ext',
+        async sendMessage(message: { name?: string }) {
+          return { assigned: true, uploaded: false, error: 'timeout', name: message.name, size: PDF.byteLength }
+        },
+      },
+    },
+  })
+  try {
+    const saved = new File([PDF], 'resume-no-contact.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    assert.equal(await attachAshbyResumeFile(marked, saved), false)
+    assert.equal(
+      ashbyResumeUploadFailure('resume-no-contact.docx', 'timeout'),
+      'resume-no-contact.docx did not finish uploading. The upload timed out, so the resume was not saved.',
+    )
+    assert.equal(
+      ashbyResumeUploadFailure('test-resume.pdf', 'upload-failed'),
+      'test-resume.pdf failed to upload, so the resume was not saved.',
+    )
+    assert.equal(marked.dataset.gofillrResume, undefined)
+  } finally {
+    Object.assign(globalThis, { chrome: previousChrome })
+  }
+})
+
 test('the background injects the Ashby resume file in the page world', () => {
   const background = readFileSync(new URL('../../../background.js', import.meta.url), 'utf8')
   const emit = readFileSync(new URL('../../../scripts/emit-install-attribution.mjs', import.meta.url), 'utf8')
@@ -477,6 +713,24 @@ test('the background injects the Ashby resume file in the page world', () => {
   assert.equal(background.includes('./src/utils/siteRules/ashbyResumePageFile.js'), true)
   assert.equal(emit.includes('src/utils/siteRules/ashbyResumePageFile.js'), true)
   assert.equal(background.includes('assignAshbyResumeInPage'), true)
+  const sanitized = sanitizeAshbyResumeAssignment({
+    token: 'abcdefgh',
+    name: 'resume-no-contact.docx',
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    bytesBase64: bytesToBase64(PDF),
+    timeoutMs: 20000,
+  })
+  assert.equal(sanitized?.timeoutMs, 20000)
+  assert.equal(
+    sanitizeAshbyResumeAssignment({
+      token: 'abcdefgh',
+      name: 'test-resume.pdf',
+      type: 'application/pdf',
+      bytesBase64: bytesToBase64(PDF),
+      timeoutMs: -5,
+    })?.timeoutMs,
+    0,
+  )
 })
 
 test('cover letters and the autofill widget are not given a file', async () => {

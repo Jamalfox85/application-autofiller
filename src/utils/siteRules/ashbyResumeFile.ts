@@ -9,9 +9,53 @@
 // the reply, so `bytes` arrives as a plain object and the file is `bytesBase64`.
 // This does not submit the application.
 
+import { mountInToastStack } from '../../content/toastStack.ts'
 import { normalizeAshbyLabel } from './ashbyFields.ts'
 import { resumeBytesForAshby } from './ashbyResumePageFile.js'
 import { fileFromSavedResumeMessage, resumeMimeType } from './bamboohrResume.ts'
+
+// Long enough for the presigned POST of a normal resume. Past this, the page
+// aborts the hung request instead of spinning until Ashby's own failure toast.
+export const ASHBY_RESUME_UPLOAD_TIMEOUT_MS = 20000
+
+export function ashbyResumeUploadFailure(fileName: string, error: unknown): string {
+  const name = fileName.trim() || 'The resume'
+  if (error === 'timeout') {
+    return `${name} did not finish uploading. The upload timed out, so the resume was not saved.`
+  }
+  return `${name} failed to upload, so the resume was not saved.`
+}
+
+function showAshbyResumeUploadFailure(fileName: string, error: unknown): void {
+  const doc = typeof document === 'undefined' ? null : document
+  if (!doc || typeof doc.createElement !== 'function') return
+  const toast = doc.createElement('div')
+  toast.className = 'gofillr-autofill-notification'
+  toast.setAttribute('role', 'alert')
+  toast.dataset.gofillrResumeUpload = 'error'
+  toast.textContent = ashbyResumeUploadFailure(fileName, error)
+  toast.style.cssText = [
+    'display:flex',
+    'align-items:center',
+    'max-width:360px',
+    'background:#1b1b21',
+    'color:#fff',
+    'border:1px solid #2e2e36',
+    'border-left:4px solid #b05454',
+    'border-radius:10px',
+    'padding:12px 14px',
+    'font:13px/1.4 system-ui,sans-serif',
+    'box-shadow:0 8px 24px rgba(0,0,0,.35)',
+  ].join(';')
+  try {
+    mountInToastStack(toast, 'bottom', doc)
+  } catch {
+    return
+  }
+  doc.defaultView?.setTimeout(() => {
+    toast.remove()
+  }, 12000)
+}
 
 const AUTOFILL_ROOT = [
   '.ashby-application-form-autofill-input-root',
@@ -196,15 +240,33 @@ async function assignAshbyResumeOnPage(
       name: file.name,
       type: resumeMimeType(file.name, file.type),
       bytesBase64: bytesToBase64(bytes),
+      timeoutMs: ASHBY_RESUME_UPLOAD_TIMEOUT_MS,
     })
-    const assigned =
-      reply && typeof reply === 'object' ? (reply as { assigned?: unknown }).assigned : undefined
-    if (assigned !== true && assigned !== false) return null
-    if (assigned !== true) return false
+    const body =
+      reply && typeof reply === 'object'
+        ? (reply as { assigned?: unknown; uploaded?: unknown; error?: unknown })
+        : undefined
+    const assigned = body?.assigned
+    // A content-script File is not the File Ashby reads. Never fall back to one
+    // once the extension can assign the file in the page.
+    if (assigned !== true) {
+      showAshbyResumeUploadFailure(file.name, body?.error)
+      return false
+    }
+    if (body?.uploaded === false) {
+      showAshbyResumeUploadFailure(file.name, body.error)
+      return false
+    }
+    if (body?.uploaded === true) return true
     const got = input.files?.[0]
-    return !!got && got.name === file.name && got.size === bytes.byteLength
+    if (!got || got.name !== file.name || got.size !== bytes.byteLength) {
+      showAshbyResumeUploadFailure(file.name, 'upload-failed')
+      return false
+    }
+    return true
   } catch {
-    return null
+    showAshbyResumeUploadFailure(file.name, 'upload-failed')
+    return false
   } finally {
     marker.removeAttribute?.('data-gofillr-resume')
   }
