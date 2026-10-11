@@ -232,7 +232,7 @@ async function fetchPosting(url: string): Promise<string | null> {
 }
 
 function formReady(): boolean {
-  return matchScoreSurfaceReady(document)
+  return matchScoreSurfaceReady(document, window.location.href)
 }
 
 function whenFormReady(run: () => void) {

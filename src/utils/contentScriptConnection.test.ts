@@ -86,6 +86,7 @@ const CONTENT_SCRIPT_MATCHES = [
   'https://*.icims.com/*',
   'https://*.jobvite.com/*',
   'https://*.apply.workable.com/*',
+  'https://apply.workable.com/*',
   'https://gofillr.com/*',
   'https://www.gofillr.com/*',
 ]

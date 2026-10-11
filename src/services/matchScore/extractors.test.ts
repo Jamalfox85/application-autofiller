@@ -215,7 +215,7 @@ test('Ashby picks the job id from the public job board', async () => {
   assert.equal(extraction?.text.includes('Not this job'), false)
 })
 
-test('Workable uses the documented accounts endpoint and the job description', async () => {
+test('Workable uses the widget accounts endpoint and the job description', async () => {
   const urls: string[] = []
   const extraction = await extractJobDescription(
     'workable',
@@ -228,9 +228,98 @@ test('Workable uses the documented accounts endpoint and the job description', a
       return JSON.stringify(workableFixture)
     },
   )
-  assert.deepEqual(urls, ['https://www.workable.com/api/accounts/acely?details=true'])
+  assert.deepEqual(urls, ['https://apply.workable.com/api/v1/widget/accounts/acely?details=true'])
   assert.equal(extraction?.text, 'Teach students with the product.')
   assert.equal(extraction?.text.includes('Account level blurb'), false)
+})
+
+const notionJob = 'https://jobs.ashbyhq.com/notion/1fc309c8-da20-4ff2-84c7-8b863ece2b0a'
+const notionJd = 'Who We Are\nNotion is the collaborative workspace.\nBuild reliable platform tools.'
+
+test('Ashby overview and apply read the posting from the page and keep line breaks', async () => {
+  let calls = 0
+  const fetchPosting = async () => {
+    calls += 1
+    return JSON.stringify(ashbyFixture)
+  }
+  const overview = fixturePage('ashby-job-overview.html', notionJob)
+  const apply = fixturePage('ashby-job-apply.html', `${notionJob}/application`)
+  assert.equal(matchScoreSurfaceReady(overview.document, overview.href), true)
+  assert.equal(overview.document?.querySelector('form'), null)
+  assert.equal(matchScoreSurfaceReady(apply.document, apply.href), true)
+  assert.equal(apply.document?.querySelector('form'), null)
+  for (const page of [overview, apply]) {
+    const extraction = await extractJobDescription('ashby', page, fetchPosting)
+    assert.equal(extraction?.source, 'dom')
+    assert.equal(extraction?.text, notionJd)
+    assert.equal(extraction?.text.includes('Upload your resume'), false)
+    assert.equal(extraction?.jobUrl, page.href)
+  }
+  const board = fixturePage('ashby-board.html', 'https://jobs.ashbyhq.com/notion')
+  assert.equal(matchScoreSurfaceReady(board.document, board.href), false)
+  assert.equal(await extractJobDescription('ashby', board, fetchPosting), null)
+  assert.equal(calls, 0)
+})
+
+test('Ashby posting text keeps paragraph breaks when the page has no description', async () => {
+  const extraction = await extractJobDescription(
+    'ashby',
+    {
+      href: `https://jobs.ashbyhq.com/ashby/${ashbyId}/application`,
+      hostname: 'jobs.ashbyhq.com',
+    },
+    async () =>
+      JSON.stringify({
+        jobs: [
+          {
+            id: ashbyId,
+            descriptionPlain: 'Who We Are\n\nBuild the hiring product.',
+            descriptionHtml: '<p>ignored when plain text is present</p>',
+          },
+        ],
+      }),
+  )
+  assert.equal(extraction?.source, 'fetched')
+  assert.equal(extraction?.text, 'Who We Are\n\nBuild the hiring product.')
+})
+
+test('Workable apply fetches the widget when the overview sections are absent', async () => {
+  const urls: string[] = []
+  const page = fixturePage(
+    'workable-application.html',
+    'https://apply.workable.com/huggingface/j/81B46579FE/apply/',
+  )
+  assert.equal(matchScoreSurfaceReady(page.document, page.href), true)
+  const extraction = await extractJobDescription('workable', page, async (url) => {
+    urls.push(url)
+    return JSON.stringify({
+      jobs: [{ shortcode: '81B46579FE', description: '<p>Build open models.</p><p>Ship libraries.</p>' }],
+    })
+  })
+  assert.deepEqual(urls, ['https://apply.workable.com/api/v1/widget/accounts/huggingface?details=true'])
+  assert.equal(extraction?.source, 'fetched')
+  assert.equal(extraction?.text, 'Build open models.\nShip libraries.')
+})
+
+test('Workable overview reads the description sections and does not fetch', async () => {
+  let calls = 0
+  const page = fixturePage(
+    'workable-job-overview.html',
+    'https://apply.workable.com/huggingface/j/81B46579FE/',
+  )
+  assert.equal(page.document?.querySelector('form'), null)
+  assert.equal(matchScoreSurfaceReady(page.document, page.href), true)
+  const extraction = await extractJobDescription('workable', page, async () => {
+    calls += 1
+    return JSON.stringify(workableFixture)
+  })
+  assert.equal(calls, 0)
+  assert.equal(extraction?.source, 'dom')
+  assert.equal(
+    extraction?.text,
+    'Description\n\nBuild open models with the research team.\n\nShip libraries used by the community.\n\nRequirements\n\nTell us about open-source work.',
+  )
+  assert.equal(extraction?.text.includes('Open-Source Machine Learning Engineer'), false)
 })
 
 const ICIMS_JOB = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job'

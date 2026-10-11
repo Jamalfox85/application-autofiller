@@ -1,10 +1,38 @@
 import { ICIMS_DESCRIPTION_SELECTOR } from './icims.ts'
 
-// A form is the usual score surface. The iCIMS job content frame has the description
-// and no form, so that confirmed node is enough to run. Other ATS stay on the form
-// check; their captured pages do not have a description node to wait for.
-const SCORE_SURFACE_SELECTOR = `form, #application-form, #application_form, ${ICIMS_DESCRIPTION_SELECTOR}`
+// A form is the usual score surface. These description nodes are enough on their
+// own: the iCIMS job frame, an overview that has no form, and an apply page whose
+// fields are not inside a form element.
+const SCORE_SURFACE_SELECTOR = [
+  'form',
+  '#application-form',
+  '#application_form',
+  ICIMS_DESCRIPTION_SELECTOR,
+  '.ashby-job-posting-description',
+  '[data-ui="job-description"]',
+].join(', ')
 
-export function matchScoreSurfaceReady(doc: { querySelector(selector: string): unknown } | null | undefined): boolean {
-  return !!doc?.querySelector(SCORE_SURFACE_SELECTOR)
+type SurfaceDocument = {
+  querySelector(selector: string): { textContent?: string | null } | null
+}
+
+function hostname(href: string | undefined): string {
+  if (!href) return ''
+  try {
+    return new URL(href).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+export function matchScoreSurfaceReady(doc: SurfaceDocument | null | undefined, href?: string): boolean {
+  if (doc?.querySelector(SCORE_SURFACE_SELECTOR)) return true
+  const host = hostname(href)
+  // Apply pages ship the posting in JSON-LD and render inputs without a form.
+  // The same script on an overview is enough to score before the description paints.
+  if (host === 'jobs.ashbyhq.com' || host.endsWith('.ashbyhq.com')) {
+    const script = doc?.querySelector('script[type="application/ld+json"]')
+    return (script?.textContent || '').includes('JobPosting')
+  }
+  return false
 }
