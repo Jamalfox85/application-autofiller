@@ -11,7 +11,11 @@ type ReactTrackedField = (HTMLInputElement | HTMLTextAreaElement) & {
 // Greenhouse text fields and react-select search boxes are controlled inputs, so a
 // plain `input.value = …` plus an input event never reaches the component.
 export function setReactInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
-  const view = input.ownerDocument?.defaultView ?? window
+  const view = input.ownerDocument?.defaultView ?? (typeof window !== 'undefined' ? window : undefined)
+  if (!view) {
+    input.value = value
+    return
+  }
   const textarea = input.tagName === 'TEXTAREA'
   const viewProto = textarea ? view.HTMLTextAreaElement?.prototype : view.HTMLInputElement?.prototype
   const viewSetter = viewProto ? Object.getOwnPropertyDescriptor(viewProto, 'value')?.set : undefined
@@ -33,10 +37,23 @@ export function setReactInputValue(input: HTMLInputElement | HTMLTextAreaElement
       Object.getOwnPropertyDescriptor(ownProto, 'value')?.set?.call(input, value)
     }
   }
+  // A plain object (no prototype setter) still needs the value. Assigning here
+  // when a page setter exists would call that no-op again.
+  if (input.value !== value && !viewSetter) input.value = value
   const tracker = (input as ReactTrackedField)._valueTracker
   if (tracker) tracker.setValue(previous)
-  const InputEventCtor = view.InputEvent ?? InputEvent
-  input.dispatchEvent(new InputEventCtor('input', { bubbles: true, data: value, inputType: 'insertText' }))
+  const InputEventCtor =
+    (typeof view.InputEvent === 'function' ? view.InputEvent : undefined) ??
+    (typeof InputEvent !== 'undefined' ? InputEvent : undefined) ??
+    (typeof view.Event === 'function' ? view.Event : undefined) ??
+    (typeof Event !== 'undefined' ? Event : undefined)
+  if (typeof input.dispatchEvent === 'function' && InputEventCtor) {
+    try {
+      input.dispatchEvent(new InputEventCtor('input', { bubbles: true, data: value, inputType: 'insertText' }))
+    } catch {
+      // The page realm cannot construct the event, or the control is not a node.
+    }
+  }
 }
 
 export async function fillNativeInput(

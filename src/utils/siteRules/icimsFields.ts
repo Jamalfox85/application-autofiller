@@ -940,9 +940,11 @@ function isTextControl(input: Writable): input is HTMLInputElement | HTMLTextAre
 }
 
 function assignText(input: Writable, value: string) {
-  if (isTextControl(input)) {
+  const view = input.ownerDocument?.defaultView
+  const canDispatch = Boolean(view) || typeof window !== 'undefined'
+  if (isTextControl(input) && canDispatch) {
     setReactInputValue(input, value)
-    const EventCtor = input.ownerDocument?.defaultView?.Event ?? Event
+    const EventCtor = view?.Event ?? Event
     try {
       input.dispatchEvent(new EventCtor('change', { bubbles: true }))
     } catch {
