@@ -16,10 +16,19 @@
 // have it.
 // Workday: [data-automation-id="jobPostingDescription"] on the job page. The
 // apply step keeps the posting in JobPosting JSON-LD.
-// BambooHR stays off: the captured apply form and listing have no description
-// body, and no unauthenticated posting host is confirmed.
+// BambooHR: .BambooRichText on the job page. The apply form removes that node
+// and keeps the posting in JobPosting JSON-LD. The openings list does not.
 
-const DEFAULT_ON = new Set(['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite', 'workday'])
+const DEFAULT_ON = new Set([
+  'greenhouse',
+  'ashby',
+  'lever',
+  'workable',
+  'icims',
+  'jobvite',
+  'workday',
+  'bamboohr',
+])
 
 function flagString(read: () => unknown): string | undefined {
   try {

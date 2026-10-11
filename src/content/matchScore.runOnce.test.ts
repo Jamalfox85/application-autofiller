@@ -253,6 +253,30 @@ test('Workday job page scores the description and does not fetch', async () => {
   }
 })
 
+test('BambooHR job page scores the description and does not fetch', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const href = 'https://onsharp.bamboohr.com/careers/76'
+  try {
+    const dom = new JSDOM(readFileSync(new URL('../../fixtures/pages/bamboohr-job.html', import.meta.url), 'utf8'), {
+      url: href,
+    })
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+    const messages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+    const { resetMatchScoreForTests, runOnce } = await import('./matchScore.ts')
+    resetMatchScoreForTests()
+    await runOnce()
+    const scored = messages.find((message) => message.action === 'matchScore')
+    assert.ok(scored)
+    assert.equal(scored.ats, 'bamboohr')
+    assert.equal(scored.jdSource, 'dom')
+    assert.equal(scored.jdText, 'Onsharp builds portal software.\nWrite and review code.')
+    assert.equal(messages.some((message) => message.action === 'fetchJobPosting'), false)
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
+})
+
 test('Match Score runOnce stays quiet on first-run onboarding', async () => {
   const messages = installChrome({
     [ACTIVE_PROFILE_KEY]: { id: 'primary', name: 'Primary', profileCount: 1 },
