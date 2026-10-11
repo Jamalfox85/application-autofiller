@@ -176,6 +176,15 @@ export async function claimSubmittedApplications(keys: string[]): Promise<boolea
   }
 }
 
+// Country/state menus and the resume file commit in the page world after
+// apply() returns. A same-tick value check would drop those fills. Email and
+// other text fields are written before apply() returns.
+function icimsDeferredWrite(input: FormField): boolean {
+  const tag = (input.tagName || '').toUpperCase()
+  const type = (input.type || '').toLowerCase()
+  return tag === 'SELECT' || type === 'file'
+}
+
 function isSkippableField(input: FormField, includeFilled?: (input: FormField) => boolean) {
   if (input.type === 'hidden' || input.type === 'submit' || input.type === 'button') {
     return true
@@ -351,10 +360,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     const unfilledInputs: FormField[] = []
     filledCount += questionFills + experienceFills
 
-    // iCIMS and Workday commit through page-world commands that land after
-    // apply() returns, so a same-tick value check would undercount them.
-    const strictWriteCheck = !isWorkdayApplyHost(window.location.hostname) &&
-      !window.location.hostname.toLowerCase().includes('icims.com')
+    const onIcims = window.location.hostname.toLowerCase().includes('icims.com')
 
     for (const input of inputsToFill) {
       attemptedCount++
@@ -369,6 +375,11 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
         ? await activeSiteRule.apply(input, normalizeText(fieldText), personalInfo)
         : false
       if (applyResult === 'skip') continue
+      // Workday commits through page-world commands that land after apply()
+      // returns. iCIMS dropdowns and resume files do too. Text and email are
+      // same-tick writes: an empty css_loginName is not a fill.
+      const icimsWriteLandsLater = onIcims && icimsDeferredWrite(input)
+      const strictWriteCheck = !isWorkdayApplyHost(window.location.hostname) && !icimsWriteLandsLater
       if (applyResult === true && strictWriteCheck && !fieldWasWritten(input, snapshot)) continue
       let handled = !!applyResult
       // Site rules return true for fields they own even when they had nothing to

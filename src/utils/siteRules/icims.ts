@@ -152,8 +152,9 @@ export default function icimsConfig(): SiteRule {
       // shortcut. Loading login.icims.com must not type the account or submit.
       if (!isIcimsCandidateHost(page.hostname)) return
       // Job search and the job description share the career-portal host. The gate
-      // watcher stays quiet there. The email step fills the saved email once.
-      // A missing login still warns. No popup asks the person to create an account.
+      // watcher stays quiet there and does not type the saved email or password
+      // on load. Auto-fill and the shortcut do. A missing login still warns.
+      // No popup asks the person to create an account.
       syncIcimsLogin(personalInfo)
       return watchIcimsLogin(personalInfo)
     },
@@ -199,7 +200,11 @@ export default function icimsConfig(): SiteRule {
         if (doc) await fillIcimsLocationMenus(doc, personalInfo)
         if (icimsLocationMenuCommitted(input)) return true
       }
-      return applyIcimsPlan(input, plan)
+      const wrote = applyIcimsPlan(input, plan)
+      // Text that did not land must not fall through to the generic matcher,
+      // which would toast "Filled" against an empty css_loginName.
+      if (plan.action === 'text' && !wrote) return 'skip'
+      return wrote
     },
     formChanged: () => {
       if (typeof document === 'undefined') return false

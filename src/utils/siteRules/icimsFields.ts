@@ -927,17 +927,29 @@ export function resolveIcimsSelect(
   return nativeSelectValue(choices, () => label)
 }
 
-type Writable = GateElement & { value?: string; checked?: boolean }
+type Writable = GateElement & { value?: string; checked?: boolean; ownerDocument?: Document | null }
+
+// instanceof fails when the node was created in another realm (the login iframe
+// versus this content script). tagName still identifies the control, and
+// setReactInputValue writes through the native value setter plus an input event.
+function isTextControl(input: Writable): input is HTMLInputElement | HTMLTextAreaElement {
+  if (typeof HTMLInputElement !== 'undefined' && input instanceof HTMLInputElement) return true
+  if (typeof HTMLTextAreaElement !== 'undefined' && input instanceof HTMLTextAreaElement) return true
+  const tag = String(input.tagName || '').toUpperCase()
+  return tag === 'INPUT' || tag === 'TEXTAREA'
+}
 
 function assignText(input: Writable, value: string) {
-  if (typeof HTMLInputElement !== 'undefined' && input instanceof HTMLInputElement) {
+  const view = input.ownerDocument?.defaultView
+  const canDispatch = Boolean(view) || typeof window !== 'undefined'
+  if (isTextControl(input) && canDispatch) {
     setReactInputValue(input, value)
-    input.dispatchEvent?.(new Event('change', { bubbles: true }))
-    return
-  }
-  if (typeof HTMLTextAreaElement !== 'undefined' && input instanceof HTMLTextAreaElement) {
-    setReactInputValue(input, value)
-    input.dispatchEvent?.(new Event('change', { bubbles: true }))
+    const EventCtor = view?.Event ?? Event
+    try {
+      input.dispatchEvent(new EventCtor('change', { bubbles: true }))
+    } catch {
+      // Fake controls used in tests have no event target.
+    }
     return
   }
   input.value = value
@@ -1389,10 +1401,12 @@ export function applyIcimsPlan(input: Writable, plan: IcimsFillPlan): boolean {
     return true
   }
   if (plan.action === 'text') {
-    if (!plan.value) return true
+    if (!plan.value) return false
     if ((input.value || '') === plan.value) return true
     assignText(input, plan.value)
-    return true
+    // A highlight and a "Filled" toast require the DOM value to match. A setter
+    // that did not stick leaves the field empty and is not a successful fill.
+    return (input.value || '') === plan.value
   }
   const options = readIcimsOptions(input)
   if (options.length === 0) {

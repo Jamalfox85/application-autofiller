@@ -79,6 +79,11 @@ test('a second device takes the server count and cannot drop below it', () => {
   assert.equal(fromServer.successfulFills, 18)
   assert.equal(fromServer.accountId, 'acct-a')
   assert.equal(fromServer.softPaywallShownForWeek, true)
+  assert.equal(fromServer.firstFillEver, true)
+  const atNine = mergeServerFillCount(fresh, 9)
+  assert.equal(atNine.successfulFills, 9)
+  assert.equal(atNine.firstFillEver, true)
+  assert.equal(atNine.softPaywallShownForWeek, false)
   assert.equal(decideFill({ quota: fromServer, isPro: false, ats: 'lever' }), 'allow')
 
   const offlineAhead = mergeServerFillCount(quota({ successfulFills: 20, accountId: 'acct-a' }), 18)

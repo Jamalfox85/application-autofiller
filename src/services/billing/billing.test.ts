@@ -76,6 +76,40 @@ test('free quota allows 25, nudges once at 10, and never on the first fill', () 
   assert.equal(tenth.nudge, null)
   assert.equal(tenth.quota.successfulFills, 11)
 
+  // A lost first-fill flag used to treat the fill that reaches 10 as fill #1.
+  // The nudge then fired on the next fill, after that in-flight fill was
+  // counted, so the locked "10 of 25" title sat next to "14 left" (25 - 11).
+  const lostFlag = applySuccessfulFill(
+    quota({ successfulFills: 9, firstFillEver: false, softPaywallShownForWeek: false }),
+    'greenhouse',
+    false,
+  )
+  assert.equal(lostFlag.nudge, 'soft')
+  assert.equal(lostFlag.quota.successfulFills, 10)
+  assert.equal(
+    softContinueFreeLabel(fillsRemaining(lostFlag.quota.successfulFills)),
+    'Continue free (15 fills left this week)',
+  )
+  const afterLost = applySuccessfulFill(lostFlag.quota, 'lever', false)
+  assert.equal(afterLost.nudge, null)
+  assert.equal(fillsRemaining(afterLost.quota.successfulFills), 14)
+
+  let walked = quota({
+    successfulFills: 0,
+    firstFillEver: false,
+    greenhouseFillEver: false,
+    softPaywallShownForWeek: false,
+  })
+  let nudgedAt = 0
+  for (let i = 0; i < 10; i++) {
+    const step = applySuccessfulFill(walked, 'icims', false)
+    walked = step.quota
+    if (step.nudge === 'soft') nudgedAt = walked.successfulFills
+  }
+  assert.equal(nudgedAt, 10)
+  assert.equal(softContinueFreeLabel(fillsRemaining(walked.successfulFills)), 'Continue free (15 fills left this week)')
+  assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this week')
+
   assert.equal(decideFill({ quota: quota({ successfulFills: 24 }), isPro: false, ats: 'greenhouse' }), 'allow')
   assert.equal(decideFill({ quota: quota({ successfulFills: 25 }), isPro: false, ats: 'greenhouse' }), 'block')
   assert.equal(decideFill({ quota: quota({ successfulFills: 25 }), isPro: true, ats: 'greenhouse' }), 'allow')
