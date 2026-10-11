@@ -10,6 +10,7 @@ const SCORE_SURFACE_SELECTOR = [
   ICIMS_DESCRIPTION_SELECTOR,
   '.ashby-job-posting-description',
   '[data-ui="job-description"]',
+  '[data-qa="job-description"]',
 ].join(', ')
 
 type SurfaceDocument = {

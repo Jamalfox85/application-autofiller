@@ -6,7 +6,8 @@
 // Greenhouse: hosted job description element, else the documented posting response.
 // Ashby: JobPosting JSON-LD (overview and apply) or .ashby-job-posting-description,
 // else the public job-board response.
-// Lever: documented posting response.
+// Lever: documented posting response. The overview has [data-qa="job-description"]
+// and no form, so that node is enough to start the same fetch as /apply.
 // Workable: [data-ui="job-description"] on the overview, else the widget accounts
 // response. www.workable.com/api/accounts now redirects there.
 // iCIMS: .iCIMS_JobContent on the job content frame. The shell document does not

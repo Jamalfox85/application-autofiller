@@ -23,7 +23,10 @@ Object.assign(globalThis, {
   document: dom.window.document,
 })
 
-function installChrome(initial: Record<string, unknown>) {
+function installChrome(
+  initial: Record<string, unknown>,
+  reply?: (message: Record<string, unknown>) => Record<string, unknown>,
+) {
   const data: Record<string, unknown> = {
     [ENTITLEMENT_KEY]: { isPro: true, plan: 'monthly', updatedAt: 1 },
     ...initial,
@@ -49,7 +52,7 @@ function installChrome(initial: Record<string, unknown>) {
     runtime: {
       async sendMessage(message: Record<string, unknown>) {
         messages.push(message)
-        return { ok: true, body: '' }
+        return reply ? reply(message) : { ok: true, body: '' }
       },
       getManifest() {
         return { version: '2.0.0' }
@@ -157,6 +160,42 @@ test('Ashby apply and Workable overview score from the page when there is no for
       assert.equal(scored.jdText, item.jd)
       assert.equal(messages.some((message) => message.action === 'fetchJobPosting'), false, item.ats)
     }
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
+})
+
+test('Lever overview scores the posting when the page has a description and no form', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const href = 'https://jobs.lever.co/wealthfront/78d6f6d5-1f08-4d5d-87be-c4250567bfb5'
+  try {
+    const dom = new JSDOM(readFileSync(new URL('../../fixtures/pages/lever-job-overview.html', import.meta.url), 'utf8'), {
+      url: href,
+    })
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+    const messages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 }, (message) => {
+      if (message.action === 'fetchJobPosting') {
+        return {
+          ok: true,
+          body: JSON.stringify({
+            descriptionPlain: 'Build Android apps.',
+            lists: [{ text: 'Requirements', content: '<li>Kotlin</li>' }],
+            additional: 'Estimated annual salary range that is not the description.',
+          }),
+        }
+      }
+      return { ok: true, body: '' }
+    })
+    const { resetMatchScoreForTests, runOnce } = await import('./matchScore.ts')
+    resetMatchScoreForTests()
+    await runOnce()
+    const scored = messages.find((message) => message.action === 'matchScore')
+    assert.ok(scored)
+    assert.equal(scored.ats, 'lever')
+    assert.equal(scored.jdSource, 'fetched')
+    assert.equal(scored.jdText, 'Build Android apps. Requirements Kotlin')
+    assert.equal(String(scored.jdText).includes('salary range'), false)
   } finally {
     Object.assign(globalThis, { window: previousWindow, document: previousDocument })
   }
