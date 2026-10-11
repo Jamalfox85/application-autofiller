@@ -542,6 +542,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  // Read-only. The fill gate allows a second click on an application already
+  // counted this week; claiming here would mark a page the cap is about to block.
+  if (request.action === 'fillQuotaCounted') {
+    const pageKey = quotaPageKey(sender?.tab?.url || request.pageKey || '')
+    chrome.storage.session
+      .get(FILL_QUOTA_CLAIMS_KEY)
+      .then((stored) => {
+        const claims = stored[FILL_QUOTA_CLAIMS_KEY] || {}
+        const counted = Boolean(pageKey) && claims[pageKey] === calendarWeekKey(new Date())
+        sendResponse({ ok: true, counted })
+      })
+      .catch(() => sendResponse({ ok: false, counted: false }))
+    return true
+  }
+
   // One Free fill per application per week. Claims for the same application run
   // one at a time, so an embed and its shell — and a later step of that
   // application — cannot both increment the counter.

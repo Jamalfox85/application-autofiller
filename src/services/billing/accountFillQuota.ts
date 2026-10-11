@@ -65,6 +65,8 @@ export async function readAccountFillQuota(now = new Date()): Promise<FillQuotaR
     const stored = normalizeQuota(localBag[FILL_QUOTA_KEY], now)
     const changed =
       merged.successfulFills !== stored.successfulFills ||
+      merged.firstFillEver !== stored.firstFillEver ||
+      merged.greenhouseFillEver !== stored.greenhouseFillEver ||
       merged.softPaywallShownForWeek !== stored.softPaywallShownForWeek ||
       quotaAccountId(localBag[FILL_QUOTA_KEY]) !== userId
     if (changed) await writeFillQuota(merged)
