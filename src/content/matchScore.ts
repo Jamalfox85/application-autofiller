@@ -44,6 +44,9 @@ interface RenderMessage {
 }
 
 const sent = new Set<string>()
+// In-flight runs, registered before the first await. A second call for the same
+// requisition waits on this instead of sending its own match-score.
+const scoring = new Map<string, Promise<void>>()
 let formObserver: MutationObserver | null = null
 let seenSeq = 0
 let dismissedJob: string | null = null
@@ -99,7 +102,7 @@ function handlers() {
         return
       }
       dismissedJob = activeJobUrl
-      void chrome.storage.local.set({ [matchScoreDismissedKey(activeJobUrl)]: Date.now() })
+      void chrome.storage.local.set({ [matchScoreDismissedKey(matchJobIdentity(activeJobUrl))]: Date.now() })
       analytics('match_score_dismissed')
       hideMatchScoreCard()
       activeScore = null
@@ -359,6 +362,7 @@ async function undoSkillAdd(skill: string) {
 
 export function resetMatchScoreForTests(): void {
   sent.clear()
+  scoring.clear()
   userDisabled = false
   activeJobUrl = null
   activeScore = null
@@ -370,55 +374,86 @@ export function resetMatchScoreForTests(): void {
 
 export async function runOnce() {
   if (!matchScoreEnabled()) return
-  // Read the popup switch on every run so a change applies without a reload.
-  const userEnabled = await readResumeMatchingEnabled()
-  userDisabled = !userEnabled
-  if (!userEnabled) return
-  // First-run (no profiles, no saved info, setup not finished) stays blocked. An account
-  // that already has profiles, or that skipped/finished setup, is not blocked by a missing
-  // or leftover profileSetupSession.
-  if (!(await matchScoreSetupReady())) return
-  const ats = detectAts({ hostname: window.location.hostname, href: window.location.href, document })
+  const href = window.location.href
+  const ats = detectAts({ hostname: window.location.hostname, href, document })
   if (!ats || !isMatchAts(ats)) return
-  const extraction = await extractJobDescription(
-    ats,
-    { href: window.location.href, hostname: window.location.hostname, document },
-    fetchPosting,
-  )
-  const entitlement = await readEntitlement()
-  const intent = matchScoreIntent({
-    enabled: userEnabled,
-    onboarding: false,
-    extraction,
-    isPro: entitlement.isPro,
+  // The posting lives in the top document. An iframe (all_frames) would send a
+  // second match-score for the same requisition. Other sites keep the frame
+  // that actually holds the description.
+  if (ats === 'workday' && !isTopFrame()) return
+  const flightKey = matchJobIdentity(href)
+  for (;;) {
+    if (sent.has(flightKey)) return
+    const pending = scoring.get(flightKey)
+    if (!pending) break
+    await pending
+  }
+  if (sent.has(flightKey)) return
+
+  // Register before any await. The overview request and the /apply redirect
+  // overlap by less than a second; registering after extraction let both post.
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
   })
-  if (intent === 'skip' || !extraction) return
-  const jobUrl = canonicalMatchJobUrl(extraction.jobUrl)
-  const dedupeKey = `${intent}:${matchJobIdentity(jobUrl)}`
-  if (sent.has(dedupeKey)) return
-  sent.add(dedupeKey)
-  activeJobUrl = jobUrl
-  activeAts = ats
-  activeSource = extraction.source
-  lastJd = extraction.text
-  if (intent === 'locked') {
+  scoring.set(flightKey, gate)
+  let scored = false
+  try {
+    // Read the popup switch on every run so a change applies without a reload.
+    const userEnabled = await readResumeMatchingEnabled()
+    userDisabled = !userEnabled
+    if (!userEnabled) return
+    // First-run (no profiles, no saved info, setup not finished) stays blocked. An account
+    // that already has profiles, or that skipped/finished setup, is not blocked by a missing
+    // or leftover profileSetupSession.
+    if (!(await matchScoreSetupReady())) return
+    const pageHref = window.location.href
+    if (matchJobIdentity(pageHref) !== flightKey) return
+    const extraction = await extractJobDescription(
+      ats,
+      { href: pageHref, hostname: window.location.hostname, document },
+      fetchPosting,
+    )
+    const entitlement = await readEntitlement()
+    const intent = matchScoreIntent({
+      enabled: userEnabled,
+      onboarding: false,
+      extraction,
+      isPro: entitlement.isPro,
+    })
+    if (intent === 'skip' || !extraction || matchJobIdentity(window.location.href) !== flightKey) return
+    const jobUrl = canonicalMatchJobUrl(extraction.jobUrl)
+    activeJobUrl = jobUrl
+    activeAts = ats
+    activeSource = extraction.source
+    lastJd = extraction.text
+    sent.add(flightKey)
+    scored = true
+    if (intent === 'locked') {
+      await chrome.runtime.sendMessage({
+        action: 'matchScoreRelay',
+        view: 'locked',
+        jobUrl,
+        ats,
+        jdSource: extraction.source,
+      })
+      return
+    }
     await chrome.runtime.sendMessage({
-      action: 'matchScoreRelay',
-      view: 'locked',
+      action: 'matchScore',
       jobUrl,
       ats,
+      jdText: extraction.text,
       jdSource: extraction.source,
+      rescore: false,
     })
-    return
+  } catch (error) {
+    if (!scored) sent.delete(flightKey)
+    throw error
+  } finally {
+    release()
+    if (scoring.get(flightKey) === gate) scoring.delete(flightKey)
   }
-  await chrome.runtime.sendMessage({
-    action: 'matchScore',
-    jobUrl,
-    ats,
-    jdText: extraction.text,
-    jdSource: extraction.source,
-    rescore: false,
-  })
 }
 
 function scoreCurrentPage() {

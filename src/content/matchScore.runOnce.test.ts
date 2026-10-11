@@ -322,6 +322,63 @@ test('Workday apply redirect keeps the card and does not score again', async () 
   }
 })
 
+test('Workday overview then applyManually requests a score once', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const href =
+    'https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/California---San-Francisco/Software-Engineering-MTS_JR354592'
+  const apply = `${href}/apply/applyManually`
+  const encodedApply =
+    'https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/California%2C---San-Francisco/Software-Engineering-MTS_JR354592/apply/applyManually'
+  try {
+    const dom = new JSDOM(readFileSync(new URL('../../fixtures/pages/workday-job.html', import.meta.url), 'utf8'), {
+      url: href,
+    })
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+    const messages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+    const { resetMatchScoreForTests, runOnce, applyMatchScoreLocation } = await import('./matchScore.ts')
+    resetMatchScoreForTests()
+    const first = runOnce()
+    dom.reconfigure({ url: apply })
+    applyMatchScoreLocation(href, apply)
+    dom.reconfigure({ url: encodedApply })
+    const second = runOnce()
+    await Promise.all([first, second])
+    const scored = messages.filter((message) => message.action === 'matchScore')
+    assert.equal(scored.length, 1)
+    assert.equal(String(scored[0].jobUrl).includes('/apply'), false)
+    assert.equal(String(scored[0].jobUrl).includes('JR354592'), true)
+    assert.equal(messages.filter((message) => message.action === 'matchScoreRelay').length, 0)
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
+})
+
+test('a Workday iframe does not send its own match score', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const href =
+    'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/US-Remote/Software-Engineer_JR2020825'
+  try {
+    const dom = new JSDOM(readFileSync(new URL('../../fixtures/pages/workday-job.html', import.meta.url), 'utf8'), {
+      url: href,
+    })
+    const frameWindow = {
+      location: { href, hostname: 'nvidia.wd5.myworkdayjobs.com' },
+      top: dom.window,
+      document: dom.window.document,
+    }
+    Object.assign(globalThis, { window: frameWindow, document: dom.window.document })
+    const messages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+    const { resetMatchScoreForTests, runOnce } = await import('./matchScore.ts')
+    resetMatchScoreForTests()
+    await runOnce()
+    assert.equal(messages.filter((message) => message.action === 'matchScore').length, 0)
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
+})
+
 test('BambooHR job page scores the description and does not fetch', async () => {
   const previousWindow = globalThis.window
   const previousDocument = globalThis.document
