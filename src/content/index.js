@@ -46,6 +46,7 @@ import {
 import { onMatchScoreRender, startMatchScore } from './matchScore.ts'
 import { configureWorkdayAccountNotice } from '../utils/siteRules/workdayAccountNotice.ts'
 import { configureIcimsAccountNotice } from '../utils/siteRules/icimsAccountNotice.ts'
+import { openStoredPersonalInfo } from '../lib/openStoredPersonalInfo.ts'
 
 const CONTENT_SCRIPT_INSTALLED = '__gofillrContentScript'
 
@@ -236,7 +237,7 @@ async function syncApplicationPage() {
     const stored = await chrome.storage.local.get(['personalInfo', 'autoDetectEnabled'])
     if (gen !== syncGen || window.location.href !== hrefAtStart) return
     autoDetectEnabled = stored.autoDetectEnabled ?? true
-    installApplicationHooks(stored.personalInfo)
+    installApplicationHooks(await openStoredPersonalInfo(stored.personalInfo))
     if (first.detected || isKnownApplicationUrl(hrefAtStart)) void startMatchScore()
   }
 

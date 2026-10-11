@@ -10,6 +10,7 @@ import {
   publishMissingWorkdayAccountNotice,
   readPersonalInfoForWorkday,
 } from './workdayAccountNotice.ts'
+import { openStoredPersonalInfo } from '../../lib/openStoredPersonalInfo.ts'
 import {
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
@@ -461,11 +462,16 @@ export default function workdayConfig(): SiteRule {
       ) => {
         if (areaName !== 'local' || accountInputHandled || !changes.personalInfo) return
         const next = changes.personalInfo.newValue as PersonalInfo | undefined
-        if (!hasWorkdayAccountCredentials(next)) return
-        if (!isWorkdayAccountCreationForm(document) && !isWorkdaySignInForm(document)) return
-        accountCredentialsMissing = false
-        accountInputHandled = true
-        void handleAccountInput(next)
+        void (async () => {
+          if (accountInputHandled) return
+          const opened = await openStoredPersonalInfo(next)
+          if (accountInputHandled) return
+          if (!hasWorkdayAccountCredentials(opened)) return
+          if (!isWorkdayAccountCreationForm(document) && !isWorkdaySignInForm(document)) return
+          accountCredentialsMissing = false
+          accountInputHandled = true
+          await handleAccountInput(opened)
+        })()
       }
 
       let removeProfileListener = () => {}

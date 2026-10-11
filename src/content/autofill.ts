@@ -31,6 +31,7 @@ import { rememberFillBlock } from '@/services/billing/proUnlock'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
+import { openStoredPersonalInfo } from '../lib/openStoredPersonalInfo.ts'
 import { withTimeout } from '../utils/withTimeout.ts'
 import {
   SUBMITTED_APPLICATIONS_KEY,
@@ -242,7 +243,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
   try {
     const startTime = Date.now()
     const personalInfoData = await chrome.storage.local.get('personalInfo')
-    const personalInfo = personalInfoData.personalInfo
+    const personalInfo = await openStoredPersonalInfo(personalInfoData.personalInfo)
 
     const customResponsesData = await chrome.storage.local.get('customResponses')
     const customResponses = customResponsesData.customResponses || {}

@@ -18,6 +18,7 @@ import { persistUploadedResume, resumeParseFilePart } from './src/services/resum
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
+import { ensureAccountKeyInSession } from './src/services/accountKeyWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 import {
@@ -64,6 +65,11 @@ function enqueueQuotaClaim(pageKey, task) {
 // The pre-release local profile roster stored full profiles, including portal passwords.
 // Profiles now live in Supabase; drop the key on every worker start.
 chrome.storage.local.remove('profileRoster').catch(() => {})
+
+// Cache the signed-in user's account-password key for this browser session so a
+// fill can decrypt before the popup opens. Failures stay quiet: legacy plaintext
+// still fills, and the next open retries.
+ensureAccountKeyInSession().catch(() => {})
 
 // Mixpanel tracking for the service-worker context. This can't use the mixpanel-browser
 // SDK (it needs `document`/`window`, which service workers don't have) so it posts to the
@@ -582,6 +588,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true
   }
 
+  if (request.action === 'ensureAccountKey') {
+    ensureAccountKeyInSession()
+      .then((ok) => sendResponse({ ok }))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
   if (request.action === 'trackMixpanel') {
     // Content scripts and the popup relay here so Mixpanel is not subject to the
     // host page's connect-src. trackMixpanelEvent already swallows fetch errors.
@@ -680,6 +693,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     signInWithGoogleInWorker()
       .then((result) => {
         reply(result)
+        if (result?.ok) void ensureAccountKeyInSession()
         // The popup.html tab is still open. Opening the toolbar popup beside it
         // stacks two copies of the same page after sign-in.
         if (result?.ok && !signInStartedFromPopupTab(sender)) reopenPopupAfterSignIn()
