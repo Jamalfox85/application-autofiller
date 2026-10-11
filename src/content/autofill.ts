@@ -32,7 +32,11 @@ import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
 import { withTimeout } from '../utils/withTimeout.ts'
-import { quotaPageKey } from '@/services/billing/quotaPage'
+import {
+  SUBMITTED_APPLICATIONS_KEY,
+  quotaPageKey,
+  rememberSubmittedApplication,
+} from '@/services/billing/quotaPage'
 import {
   captureFieldSnapshot,
   fieldWasWritten,
@@ -65,13 +69,16 @@ let lastAutofillTriggeredAt: number | null = null
 
 // Same-frame guard. The service worker claim is what stops a second frame of the
 // same tab from charging again; this set stops a resync that overlaps the claim.
+// The key is the application, so a later step in this document does not charge.
 const quotaCountedPages = new Set<string>()
-// True when the last fill was not counted because this page already used its fill this week.
+// True when the last fill was not counted because this application already used its fill this week.
 let lastChargeWasRepeat = false
 
 const AUTOFILL_TRIGGERED_AT_KEY = 'lastAutofillTriggeredAt'
 const AUTOFILL_JOB_SITE_KEY = 'lastAutofillJobSite'
-const APPLICATION_SUBMITTED_FOR_KEY = 'applicationSubmittedForTrigger'
+const AUTOFILL_APPLICATION_KEY = 'lastAutofillApplicationKey'
+const submittedApplicationKeys = new Set<string>()
+let lastAutofillApplicationKey = ''
 
 export function getLastAutofillTriggeredAt() {
   return lastAutofillTriggeredAt
@@ -79,10 +86,12 @@ export function getLastAutofillTriggeredAt() {
 
 export async function markAutofillTriggered() {
   lastAutofillTriggeredAt = Date.now()
+  lastAutofillApplicationKey = quotaPageKey(window.location.href)
   try {
     await chrome.storage.session.set({
       [AUTOFILL_TRIGGERED_AT_KEY]: lastAutofillTriggeredAt,
       [AUTOFILL_JOB_SITE_KEY]: window.location.hostname,
+      [AUTOFILL_APPLICATION_KEY]: lastAutofillApplicationKey,
     })
   } catch {
     // chrome.storage.session is unavailable in some test/old contexts — memory is enough
@@ -91,29 +100,69 @@ export async function markAutofillTriggered() {
   return lastAutofillTriggeredAt
 }
 
-export async function consumeAutofillTriggerForSubmission(): Promise<{
+export async function readAutofillTriggerForSubmission(): Promise<{
   triggeredAt: number
   jobSite: string
+  applicationKey: string
 } | null> {
   try {
     const data = await chrome.storage.session.get([
       AUTOFILL_TRIGGERED_AT_KEY,
       AUTOFILL_JOB_SITE_KEY,
-      APPLICATION_SUBMITTED_FOR_KEY,
+      AUTOFILL_APPLICATION_KEY,
     ])
     const triggeredAt = data[AUTOFILL_TRIGGERED_AT_KEY] as number | undefined
-    if (!triggeredAt) return null
-    if (data[APPLICATION_SUBMITTED_FOR_KEY] === triggeredAt) return null
-    await chrome.storage.session.set({ [APPLICATION_SUBMITTED_FOR_KEY]: triggeredAt })
+    if (!triggeredAt) {
+      if (!lastAutofillTriggeredAt) return null
+      return {
+        triggeredAt: lastAutofillTriggeredAt,
+        jobSite: window.location.hostname,
+        applicationKey: lastAutofillApplicationKey,
+      }
+    }
     return {
       triggeredAt,
       jobSite: (data[AUTOFILL_JOB_SITE_KEY] as string) || window.location.hostname,
+      applicationKey: (data[AUTOFILL_APPLICATION_KEY] as string) || lastAutofillApplicationKey,
     }
   } catch {
     if (!lastAutofillTriggeredAt) return null
-    const triggeredAt = lastAutofillTriggeredAt
-    lastAutofillTriggeredAt = null
-    return { triggeredAt, jobSite: window.location.hostname }
+    return {
+      triggeredAt: lastAutofillTriggeredAt,
+      jobSite: window.location.hostname,
+      applicationKey: lastAutofillApplicationKey,
+    }
+  }
+}
+
+// Returns true the first time this application is submitted. A later step, a
+// second autofill, or a confirmation page for the same key does not claim again.
+export async function claimSubmittedApplications(keys: string[]): Promise<boolean> {
+  const incoming = [...new Set(keys.filter((key) => typeof key === 'string' && key.length > 0))]
+  if (incoming.length === 0) return false
+  if (incoming.some((key) => submittedApplicationKeys.has(key))) return false
+  for (const key of incoming) submittedApplicationKeys.add(key)
+
+  try {
+    const claim = await chrome.runtime.sendMessage({ action: 'claimApplicationSubmitted', keys: incoming })
+    if (claim?.claimed === true) return true
+    if (claim?.claimed === false && claim?.error !== true) return false
+  } catch {
+    // Worker unreachable: this frame still records the claim below.
+  }
+
+  try {
+    const data = await chrome.storage.session.get(SUBMITTED_APPLICATIONS_KEY)
+    const stored = data[SUBMITTED_APPLICATIONS_KEY]
+    const existing = Array.isArray(stored)
+      ? stored.filter((key): key is string => typeof key === 'string')
+      : []
+    const decision = rememberSubmittedApplication(existing, incoming)
+    if (!decision.first) return false
+    await chrome.storage.session.set({ [SUBMITTED_APPLICATIONS_KEY]: decision.keys })
+    return true
+  } catch {
+    return true
   }
 }
 
@@ -348,21 +397,23 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     if (filledCount > 0) {
       // Analytics and billing are network calls. Bound the wait so a slow one cannot hold back
       // the "Autofill completed" toast; the work still finishes in the background.
-      await withTimeout(
-        trackFillContract('autofill_succeeded', {
-          ...fillContext,
-          eeo: readLeverEeoTelemetry(),
-          telemetry,
-        }),
-        2500,
-        undefined,
-      )
       const charge = (async () => {
         const charged = await chargeFillQuota(ats || 'other')
         if (charged) {
-          // One counted fill is one History row. Popup, toast ("Auto-fill Form"), shortcut,
-          // and resync all come through here, including a partial fill. Quota sync must
-          // not delay this: the free counter is the local write inside chargeFillQuota.
+          // One counted fill is one History row and one autofill_succeeded. A later
+          // step of the same application is not a new claim, so it does not emit
+          // another success or first-fill. Popup, toast, shortcut, and resync all
+          // come through here. Quota sync must not delay the history row: the free
+          // counter is the local write inside chargeFillQuota.
+          await withTimeout(
+            trackFillContract('autofill_succeeded', {
+              ...fillContext,
+              eeo: readLeverEeoTelemetry(),
+              telemetry,
+            }),
+            2500,
+            undefined,
+          )
           await recordFillHistory(filledCount, attemptedCount)
         }
         return charged
@@ -396,7 +447,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       paywall,
       fillCount,
       fillsRemaining,
-      // Fill worked but is not a new counted fill (same page, same week): no History row.
+      // Fill worked but is not a new counted fill (same application, same week): no History row.
       repeatFill: filledCount > 0 && lastChargeWasRepeat,
       ats,
     }
@@ -421,8 +472,10 @@ function highlightFilledField(input: FormField) {
   setTimeout(() => input.classList.remove(REVIEW_HIGHLIGHT_CLASS), REVIEW_HIGHLIGHT_DURATION_MS)
 }
 
-// Reserve this frame, then ask the worker. The worker's tab URL is shared by
-// every frame, so an embed and its shell cannot both increment the weekly count.
+// Reserve this application, then ask the worker. The worker's tab URL is shared
+// by every frame, so an embed and its shell cannot both increment the weekly
+// count. The key ignores step changes, so the next page of the same application
+// does not increment it either.
 async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof commitSuccessfulFill>> | null> {
   const pageKey = quotaPageKey(window.location.href) || window.location.href.split('#')[0]
   lastChargeWasRepeat = false

@@ -32,7 +32,7 @@ const FILLABLE_SELECTOR = [
 
 // Markers used by the supported ATS apply forms. A marker plus at least one
 // control counts even when the first step is shorter than MIN_APPLICATION_FIELDS.
-const FORM_MARKER_SELECTOR = [
+export const FORM_MARKER_SELECTOR = [
   '#application-form',
   '#application_form',
   'form.application--form',
