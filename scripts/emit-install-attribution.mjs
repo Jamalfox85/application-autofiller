@@ -52,6 +52,10 @@ await copyFile(
   'dist/src/utils/siteRules/ashbyResumePageFile.js',
 )
 await copyFile(
+  'src/utils/siteRules/leverResumeGuard.js',
+  'dist/src/utils/siteRules/leverResumeGuard.js',
+)
+await copyFile(
   'src/utils/siteRules/icimsFrameAutofill.js',
   'dist/src/utils/siteRules/icimsFrameAutofill.js',
 )

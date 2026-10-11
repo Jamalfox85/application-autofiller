@@ -99,6 +99,28 @@ export function currentLocationQueries(info: LocationProfile): string[] {
   return queries
 }
 
+// Profiles store "PA". A work-from question wants the place name, not the street
+// and not a two-letter code the location list will not match.
+function expandUsStateAbbreviation(state: string | null | undefined, country: string | null | undefined): string {
+  const trimmed = (state || '').trim()
+  if (!/^[A-Za-z]{2}$/.test(trimmed)) return trimmed
+  const residence = residenceKey(country)
+  if (residence && residence !== 'united_states') return trimmed
+  const hit = Object.entries(US_ABBREVIATIONS).find(([, abbr]) => abbr.toLowerCase() === trimmed.toLowerCase())
+  if (!hit) return trimmed
+  return hit[0]
+    .split(' ')
+    .map((word) => (word === 'of' ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ')
+}
+
+export function workFromLocationQueries(info: LocationProfile): string[] {
+  return currentLocationQueries({
+    ...info,
+    state: expandUsStateAbbreviation(info.state, info.country) || info.state,
+  })
+}
+
 // Strict city match first. Otherwise accept an option that is just the state (or its
 // abbreviation), which is what a fixed "state" list offers. Never an unrelated place.
 export function pickCurrentLocationOption(optionTexts: string[], info: LocationProfile): string | null {

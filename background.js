@@ -21,6 +21,11 @@ import {
   assignAshbyResumeInPage,
   sanitizeAshbyResumeAssignment,
 } from './src/utils/siteRules/ashbyResumePageFile.js'
+import {
+  fetchLeverLocationsInPage,
+  installLeverResumeGuardInPage,
+  restoreLeverResumeGuardInPage,
+} from './src/utils/siteRules/leverResumeGuard.js'
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { ensureAccountKeyInSession, openAccountKeySession } from './src/services/accountKeyWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
@@ -708,6 +713,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Ashby reads the resume File in the page. Build it there so the presigned
   // POST has the bytes. The command only sets the marked file input and fires
   // change. It does not click Upload, Submit, or Autofill from resume.
+  // Lever's apply page CSP is script-src 'self', so a content-script <script>
+  // never runs. These functions run in the page world and only wrap
+  // XMLHttpRequest/fetch around the resume change event, or GET /searchLocations.
+  // They do not click Apply, Submit, or a resume-parse control.
+  if (request.action === 'leverResumeGuard' || request.action === 'leverLocationSearch') {
+    const tabId = sender && sender.tab ? sender.tab.id : null
+    if (tabId == null || !chrome.scripting?.executeScript) {
+      sendResponse({ ok: false })
+      return true
+    }
+    const target = { tabId }
+    if (typeof sender.frameId === 'number') target.frameIds = [sender.frameId]
+    const func =
+      request.action === 'leverLocationSearch'
+        ? fetchLeverLocationsInPage
+        : request.op === 'restore'
+          ? restoreLeverResumeGuardInPage
+          : installLeverResumeGuardInPage
+    const args = request.action === 'leverLocationSearch' ? [request.query] : []
+    chrome.scripting
+      .executeScript({
+        target,
+        world: 'MAIN',
+        func,
+        args,
+      })
+      .then((results) => {
+        const result = results && results[0] ? results[0].result : undefined
+        sendResponse(
+          request.action === 'leverLocationSearch'
+            ? { ok: true, payload: result == null ? [] : result }
+            : { ok: true },
+        )
+      })
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
   if (request.action === 'assignAshbyResume') {
     const tabId = sender && sender.tab ? sender.tab.id : null
     const payload = sanitizeAshbyResumeAssignment(request)

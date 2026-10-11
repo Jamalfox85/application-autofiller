@@ -13,6 +13,7 @@ import {
   isGreenhousePhoneDialingCodeField,
   currentLocationQueries,
   locationSearchQueries,
+  workFromLocationQueries,
   pickCurrentLocationOption,
   parseGreenhouseEmploymentField,
   phoneDialingCodeTarget,
@@ -32,6 +33,7 @@ import {
   greenhouseEducationRowsToAdd,
   isResidenceCountryField,
   isStateQuestion,
+  isWorkFromLocationQuestion,
   monthNameFromLooseDate,
   nativeCountrySelectValue,
   nativeMonthSelectValue,
@@ -264,6 +266,35 @@ const fieldHandlers: Array<{
         (options) => pickCurrentLocationOption(options, personalInfo),
         'greenhouse',
       )
+      return true
+    },
+  },
+  {
+    // "Address you plan on working from" is where the person will sit, not the
+    // street on their profile. City and state is the location those lists accept.
+    match: (_, fieldText) => isWorkFromLocationQuestion(fieldText),
+    handle: async (input, _, personalInfo) => {
+      const queries = workFromLocationQueries(personalInfo)
+      if (queries.length === 0) return 'skip'
+      const searchable =
+        input.getAttribute('role') === 'combobox' ||
+        input.classList.contains('select__input') ||
+        !!input.closest('.select, .select__control')
+      if (searchable) {
+        if (keepSettledCombobox(input, settledExactLabel(selectedComboboxLabel(input), queries))) {
+          return true
+        }
+        await fillReactSelect(
+          input,
+          queries,
+          `[id^=react-select-${input.id}-option-]`,
+          (options) => pickCurrentLocationOption(options, personalInfo),
+          'greenhouse',
+        )
+        return true
+      }
+      if (!isTextControl(input)) return 'skip'
+      await fillNativeInput(input, queries[0])
       return true
     },
   },

@@ -13,6 +13,7 @@ import {
   workablePhase,
   workablePlan,
   workableQuestionLabel,
+  workableHighestDegreeChoice,
   workableWorkAuthAnswer,
   workableWorkAuthBasis,
   type WorkableField,
@@ -25,6 +26,7 @@ import {
   savedResumeFromStored,
 } from './workableResume.ts'
 import workableConfig, {
+  chooseWorkableHighestDegree,
   describeWorkableField,
   isWorkableApplyPage,
   resetWorkableFormWatch,
@@ -1279,4 +1281,84 @@ test('the stored resume download is attached, and a missing file stays empty', a
     else (globalThis as { chrome?: unknown }).chrome = previous
     resetWorkableFormWatch()
   }
+})
+
+const DEGREE_OPTIONS = [
+  'High school diploma / Secondary education',
+  'Bachelor’s degree',
+  'Postgraduate degree',
+  'Master’s degree',
+  'Doctorate (PhD)',
+  'Technical certificate',
+  'No formal degree',
+]
+
+test('highest degree maps from the education rows and leaves an unrelated dropdown alone', () => {
+  assert.equal(
+    workableHighestDegreeChoice(DEGREE_OPTIONS, [{ degreeType: 'Bachelor of Science' }]),
+    'Bachelor’s degree',
+  )
+  assert.equal(
+    workableHighestDegreeChoice(DEGREE_OPTIONS, [
+      { degreeType: 'bachelors' },
+      { degreeType: 'Master of Science' },
+    ]),
+    'Master’s degree',
+  )
+  assert.equal(workableHighestDegreeChoice(DEGREE_OPTIONS, [{ degreeType: 'phd' }]), 'Doctorate (PhD)')
+  assert.equal(workableHighestDegreeChoice(DEGREE_OPTIONS, [{ degreeType: 'Associate of Arts' }]), null)
+  assert.equal(workableHighestDegreeChoice(DEGREE_OPTIONS, []), null)
+  assert.deepEqual(
+    workablePlan(
+      field({ id: 'input_CA_45060_input', type: 'text', label: 'Highest Degree Obtained' }),
+      profile,
+    ),
+    { action: 'degree' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ name: 'degree', type: 'text', label: 'Degree', group: 'education' }), profile),
+    { action: 'text', value: 'Bachelor of Science' },
+  )
+  assert.deepEqual(
+    workablePlan(field({ name: 'CA_35954', type: 'text', label: 'What is your expected yearly compensation?' }), profile),
+    { action: 'skip' },
+  )
+})
+
+test('a Highest Degree combobox chooses the education level and does not click Apply', async () => {
+  const dom = new JSDOM(`<!doctype html><form data-ui="application-form">
+    <span id="CA_45060_label">Highest Degree Obtained</span>
+    <input id="input_CA_45060_input" role="combobox" aria-controls="input_CA_45060_listbox" aria-labelledby="CA_45060_label" readonly>
+    <input name="CA_45060" aria-hidden="true" value="">
+    <ul id="input_CA_45060_listbox"></ul>
+    <button type="button" id="apply-button">Submit application</button>
+  </form>`)
+  const doc = dom.window.document
+  const input = doc.getElementById('input_CA_45060_input') as HTMLInputElement
+  const hidden = doc.querySelector('input[name="CA_45060"]') as HTMLInputElement
+  const clicks: string[] = []
+  doc.getElementById('apply-button')!.addEventListener('click', () => clicks.push('apply'))
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowDown') return
+    const list = doc.getElementById('input_CA_45060_listbox')!
+    list.innerHTML = DEGREE_OPTIONS.map(
+      (label, index) =>
+        `<li role="option" value="${index}"><span data-role="option-label">${label}</span></li>`,
+    ).join('')
+    for (const option of list.querySelectorAll('[role="option"]')) {
+      option.addEventListener('click', () => {
+        hidden.value = option.getAttribute('value') || ''
+        input.value = (option.querySelector('[data-role="option-label"]')?.textContent || '').trim()
+        clicks.push('option')
+      })
+    }
+  })
+  const info = {
+    ...profile,
+    education: [{ schoolName: 'Temple University', degreeType: 'Bachelor of Science', major: 'Marketing' }],
+  }
+  assert.equal(await chooseWorkableHighestDegree(input, info), true)
+  assert.equal(input.value, 'Bachelor’s degree')
+  assert.equal(hidden.value, '1')
+  assert.deepEqual(clicks, ['option'])
 })

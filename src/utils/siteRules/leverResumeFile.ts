@@ -59,56 +59,21 @@ export function withLeverResumeParseSuppressed(view: Window, run: () => void) {
   }
 }
 
-// Runs in the page world. Lever's parseResume.js is not visible to the content
-// script, so the content script inserts this before dispatching change.
-export const LEVER_PARSE_GUARD_INSTALL = `(function () {
-  var root = globalThis;
-  if (root.__gofillrResumeGuardRestore) return;
-  var origOpen = root.XMLHttpRequest.prototype.open;
-  var origSend = root.XMLHttpRequest.prototype.send;
-  var origFetch = root.fetch;
-  function isParse(url) {
-    return typeof url === 'string' && url.indexOf('parseResume') !== -1;
-  }
-  root.XMLHttpRequest.prototype.open = function (method, url) {
-    this.__gofillrUrl = url == null ? '' : String(url);
-    return origOpen.apply(this, arguments);
-  };
-  root.XMLHttpRequest.prototype.send = function (body) {
-    if (isParse(this.__gofillrUrl || '')) return;
-    return origSend.apply(this, arguments);
-  };
-  if (typeof origFetch === 'function') {
-    root.fetch = function (input, init) {
-      var url = typeof input === 'string' ? input : (input && input.url) || '';
-      if (isParse(String(url))) return Promise.resolve(new root.Response(null, { status: 204 }));
-      return origFetch.apply(this, arguments);
-    };
-  }
-  root.__gofillrResumeGuardRestore = function () {
-    root.XMLHttpRequest.prototype.open = origOpen;
-    root.XMLHttpRequest.prototype.send = origSend;
-    if (origFetch) root.fetch = origFetch;
-    try { delete root.__gofillrResumeGuardRestore; } catch (e) { root.__gofillrResumeGuardRestore = undefined; }
-  };
-})();`
-
-export const LEVER_PARSE_GUARD_RESTORE = `(function () {
-  var restore = globalThis.__gofillrResumeGuardRestore;
-  if (typeof restore === 'function') restore();
-})();`
-
-function injectPageScript(doc: Document, source: string) {
-  const parent = doc.documentElement
-  if (!parent) return
-  const script = doc.createElement('script')
-  script.textContent = source
-  parent.appendChild(script)
-  script.remove()
+// Lever's parseResume.js is not visible to the content script. The worker runs
+// the guard in the page world with chrome.scripting.executeScript. An inline
+// <script> is blocked by pages whose CSP is script-src 'self' (Spotify's Lever
+// apply page reports that at content.js).
+function pageWorldGuardAvailable(): boolean {
+  return typeof chrome !== 'undefined' && !!chrome.runtime?.id && !!chrome.runtime?.sendMessage
 }
 
-function pageWorldGuardAvailable(): boolean {
-  return typeof chrome !== 'undefined' && !!chrome.runtime?.id
+async function runPageResumeGuard(op: 'install' | 'restore'): Promise<void> {
+  if (!pageWorldGuardAvailable()) return
+  try {
+    await chrome.runtime.sendMessage({ action: 'leverResumeGuard', op })
+  } catch {
+    // The worker may be restarting. The file is still attached.
+  }
 }
 
 function fileRealm(input: HTMLInputElement): Window & typeof globalThis {
@@ -122,10 +87,10 @@ function fileRealm(input: HTMLInputElement): Window & typeof globalThis {
   return (input.ownerDocument?.defaultView ?? isolated) as Window & typeof globalThis
 }
 
-export function assignLeverResumeFile(
+export async function assignLeverResumeFile(
   input: HTMLInputElement,
   resume: LeverResumePayload,
-): boolean {
+): Promise<boolean> {
   const realm = fileRealm(input)
   const page = (input.ownerDocument?.defaultView ?? realm) as Window & typeof globalThis
   const FileCtor = realm.File
@@ -150,17 +115,13 @@ export function assignLeverResumeFile(
     input.dispatchEvent(new EventCtor('change', { bubbles: true }))
   }
 
-  // Page listeners (parseResume.js) use the page's XMLHttpRequest. Insert the
-  // guard into that world first, then patch this world for tests.
-  if (pageWorldGuardAvailable() && input.ownerDocument) {
-    injectPageScript(input.ownerDocument, LEVER_PARSE_GUARD_INSTALL)
-  }
+  // Page listeners (parseResume.js) use the page's XMLHttpRequest. Install the
+  // guard in that world first, then patch this world for tests.
+  if (pageWorldGuardAvailable()) await runPageResumeGuard('install')
   try {
     withLeverResumeParseSuppressed(page, dispatch)
   } finally {
-    if (pageWorldGuardAvailable() && input.ownerDocument) {
-      injectPageScript(input.ownerDocument, LEVER_PARSE_GUARD_RESTORE)
-    }
+    if (pageWorldGuardAvailable()) await runPageResumeGuard('restore')
   }
 
   clearLeverResumeParseStatus(input)

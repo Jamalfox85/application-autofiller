@@ -491,6 +491,23 @@ export function isCurrentLocationQuestion(id: string, fieldText: string): boolea
   )
 }
 
+// "Address you plan on working from" is a place question. The word "address"
+// would otherwise type the street only.
+export function isWorkFromLocationQuestion(fieldText: string): boolean {
+  const text = fieldText.replace(/\s+/g, '').toLowerCase()
+  if (!text || text.includes('email') || text.includes('ipaddress')) return false
+  if (text.includes('streetaddress') || text.includes('homeaddress') || text.includes('mailingaddress')) {
+    return false
+  }
+  return (
+    text.includes('workingfrom') ||
+    text.includes('workfrom') ||
+    text.includes('planonworking') ||
+    text.includes('worklocation') ||
+    (text.includes('address') && text.includes('work') && text.includes('from'))
+  )
+}
+
 export function isStateQuestion(fieldText: string): boolean {
   if (
     fieldText.includes('statement') ||

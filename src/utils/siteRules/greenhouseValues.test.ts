@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { JSDOM } from 'jsdom'
+import greenhouseConfig from './greenhouse.ts'
 import {
   countrySearchValues,
   isSelectPlaceholder,
@@ -10,6 +12,7 @@ import {
   isAuthorizedToWork,
   isResidenceCountryField,
   isStateQuestion,
+  isWorkFromLocationQuestion,
   locationSearchValues,
   monthNameFromLooseDate,
   nativeMonthSelectValue,
@@ -449,6 +452,50 @@ test('native sponsorship select picks Yes or No from the visible label', () => {
   ]
   assert.equal(nativeSponsorshipSelectValue(sentences, false), 'ok')
   assert.equal(nativeSponsorshipSelectValue(sentences, true), 'need')
+})
+
+test('a work-from address is a location question and a street address is not', () => {
+  assert.equal(isWorkFromLocationQuestion('addressyouplanonworkingfrom'), true)
+  assert.equal(isWorkFromLocationQuestion('Address you plan on working from'), true)
+  assert.equal(isWorkFromLocationQuestion('homeaddress'), false)
+  assert.equal(isWorkFromLocationQuestion('streetaddress'), false)
+  assert.equal(isWorkFromLocationQuestion('currentlocation'), false)
+})
+
+test('a work-from address question is filled with city and state, not the street', async () => {
+  const dom = new JSDOM(`<!doctype html><form id="application-form">
+    <label for="question_55">Address you plan on working from</label>
+    <input id="question_55">
+  </form>`)
+  const previous = {
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLTextAreaElement: globalThis.HTMLTextAreaElement,
+    Event: globalThis.Event,
+    KeyboardEvent: globalThis.KeyboardEvent,
+    FocusEvent: globalThis.FocusEvent,
+    InputEvent: globalThis.InputEvent,
+  }
+  Object.assign(globalThis, {
+    HTMLInputElement: dom.window.HTMLInputElement,
+    HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
+    Event: dom.window.Event,
+    KeyboardEvent: dom.window.KeyboardEvent,
+    FocusEvent: dom.window.FocusEvent,
+    InputEvent: dom.window.InputEvent,
+  })
+  try {
+    const input = dom.window.document.getElementById('question_55') as HTMLInputElement
+    const wrote = await greenhouseConfig().apply(input, 'Address you plan on working from', {
+      address: '1 Analytical Engine',
+      city: 'Blue Bell',
+      state: 'PA',
+      country: 'united_states',
+    } as never)
+    assert.equal(wrote, true)
+    assert.equal(input.value, 'Blue Bell, Pennsylvania')
+  } finally {
+    Object.assign(globalThis, previous)
+  }
 })
 
 test('native year select assigns the 4-digit year and ignores a raw year-month label', () => {
