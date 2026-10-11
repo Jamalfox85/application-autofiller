@@ -1,3 +1,4 @@
+import { experienceForFill } from '../../lib/sync/profileRows.ts'
 import type { Education, Experience, PersonalInfo } from '../../types/index.ts'
 import { bestOptionIndex } from '../optionMatch.ts'
 import { RELATIVE_MATCHES } from '../relativeMatches.ts'
@@ -506,7 +507,7 @@ function rowAt<T>(rows: T[] | undefined, index: number | null): T | undefined {
 }
 
 function experienceRow(info: Partial<PersonalInfo> | null | undefined, blob: string): Experience | undefined {
-  return rowAt(info?.experience, groupIndex(blob, 'experience'))
+  return rowAt(experienceForFill(info?.experience), groupIndex(blob, 'experience'))
 }
 
 function educationRow(info: Partial<PersonalInfo> | null | undefined, blob: string): Education | undefined {

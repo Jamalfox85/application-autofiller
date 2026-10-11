@@ -1,3 +1,4 @@
+import { experienceForFill } from '../../lib/sync/profileRows.ts'
 import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
 import { detectAts } from '../ats.ts'
 import { fillNativeInput, fillReactSelect, setReactInputValue } from '../../utils/inputHandlers.ts'
@@ -357,7 +358,7 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       const field = parseGreenhouseEmploymentField(input.id)
       if (!field) return false
-      const experience = personalInfo.experience?.[field.index]
+      const experience = experienceForFill(personalInfo.experience)[field.index]
       if (!experience) return true
       const plan = employmentFillPlan(field.kind, experience)
       if (plan.action === 'skip') return true

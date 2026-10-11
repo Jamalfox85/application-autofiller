@@ -66,6 +66,35 @@ describe('Ashby profile text', () => {
     )
   })
 
+  it('uses the present role for current company when an older job is saved first', () => {
+    const swapped = {
+      ...profile,
+      experience: [
+        {
+          companyName: 'American Reading Company',
+          jobTitle: 'Full Stack Developer',
+          startDate: '2016-01',
+          endDate: '2019-06',
+          present: false,
+        },
+        {
+          companyName: 'Acme Software',
+          jobTitle: 'Product Engineer',
+          startDate: '2023-04',
+          present: true,
+        },
+      ],
+    }
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Current or Most Recent Company', type: 'text' }, swapped),
+      'Acme Software',
+    )
+    assert.equal(
+      ashbyTextValue({ path: 'question', title: 'Current or Most Recent Title', type: 'text' }, swapped),
+      'Product Engineer',
+    )
+  })
+
   it('does not treat a company name question as the candidate name', () => {
     assert.equal(
       ashbyTextValue({ path: 'company', title: 'Company Name', type: 'text' }, profile),

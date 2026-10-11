@@ -32,6 +32,81 @@ function dateToMonth(date?: string | null): string {
   return match ? `${match[1]}-${match[2]}` : ''
 }
 
+// A role the fill can order. Dates are "YYYY-MM" from the profile editor, or a
+// longer ISO date from a parse. Missing pieces are not a date.
+export type ExperienceRecency = {
+  present?: boolean | null
+  startDate?: string | null
+  endDate?: string | null
+}
+
+function experienceDateValue(value: string | null | undefined): number | null {
+  const match = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?/.exec((value ?? '').trim())
+  if (!match) return null
+  const year = Number(match[1])
+  const month = match[2] ? Number(match[2]) : 1
+  const day = match[3] ? Number(match[3]) : 1
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null
+  return year * 10000 + month * 100 + day
+}
+
+function isMoreRecentExperience(candidate: ExperienceRecency, incumbent: ExperienceRecency): boolean {
+  const candidatePresent = candidate.present === true
+  const incumbentPresent = incumbent.present === true
+  if (candidatePresent !== incumbentPresent) return candidatePresent
+
+  const candidateStart = experienceDateValue(candidate.startDate)
+  const incumbentStart = experienceDateValue(incumbent.startDate)
+  if (candidatePresent && incumbentPresent) {
+    if (candidateStart == null) return false
+    if (incumbentStart == null) return true
+    return candidateStart > incumbentStart
+  }
+
+  // A past role is as recent as its end date, or its start date when it has no end.
+  const candidateMark = experienceDateValue(candidate.endDate) ?? candidateStart
+  const incumbentMark = experienceDateValue(incumbent.endDate) ?? incumbentStart
+  if (candidateMark == null) return false
+  if (incumbentMark == null) return true
+  if (candidateMark !== incumbentMark) return candidateMark > incumbentMark
+  if (candidateStart == null || incumbentStart == null || candidateStart === incumbentStart) return false
+  return candidateStart > incumbentStart
+}
+
+// The job a "current company" / "current title" field should use. A present role
+// wins. Otherwise the latest end date wins, then the latest start date. A tie
+// keeps the earlier row.
+export function currentExperience<T extends ExperienceRecency>(
+  jobs: readonly T[] | null | undefined,
+): T | undefined {
+  if (!jobs || jobs.length === 0) return undefined
+  let best = jobs[0]
+  for (let i = 1; i < jobs.length; i++) {
+    if (isMoreRecentExperience(jobs[i], best)) best = jobs[i]
+  }
+  return best
+}
+
+// Index 0 is the present or latest job. The other rows keep their saved order,
+// so a second company field is the next saved role and not a copy of the current one.
+export function experienceForFill<T extends ExperienceRecency>(
+  jobs: readonly T[] | null | undefined,
+): T[] {
+  if (!jobs || jobs.length === 0) return []
+  const current = currentExperience(jobs)
+  if (!current) return []
+  const rest: T[] = []
+  let placed = false
+  for (const job of jobs) {
+    if (!placed && job === current) {
+      placed = true
+      continue
+    }
+    rest.push(job)
+  }
+  return [current, ...rest]
+}
+
 function gpaToNumeric(gpa?: string | null): number | null {
   if (gpa == null || gpa === '') return null
   const n = Number(gpa)
@@ -62,6 +137,10 @@ export interface ProfileDbRows {
   // `p_profile` for save_profile: candidate_profiles columns only.
   profile: Record<string, unknown>
   // `p_children` for save_profile. Every key present replaces that table for the profile.
+  // A popup Save of a chrome.storage mirror that is older than the server row can
+  // put cleared work_experience back. Skipping that replace means comparing the
+  // mirror to the server's last write before save_profile. That check is not in
+  // this mapping: a wrong one would drop a real edit. Follow-up after launch.
   children: Record<Exclude<ProfileChildKey, 'custom_responses'>, Record<string, unknown>[]>
 }
 

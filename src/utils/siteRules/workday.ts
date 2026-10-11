@@ -1,3 +1,4 @@
+import { experienceForFill } from '../../lib/sync/profileRows.ts'
 import type { SiteRule, FieldMatch, FieldHandler, PersonalInfo } from '../../types/index.ts'
 import { commitWorkdayTextValue, fillWorkdayInput, setReactInputValue } from '../inputHandlers.ts'
 import {
@@ -2109,7 +2110,7 @@ async function fillWorkdayWorkExperienceOnce(
   root: ParentNode,
   personalInfo: PersonalInfo | null | undefined,
 ): Promise<number> {
-  const jobs = personalInfo?.experience || []
+  const jobs = experienceForFill(personalInfo?.experience)
   if (jobs.length === 0) return 0
   let filled = 0
   for (const experience of jobs) {

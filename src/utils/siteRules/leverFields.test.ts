@@ -363,6 +363,40 @@ describe('Lever location', () => {
 })
 
 describe('Lever experience and education', () => {
+  it('fills current company from the present role when that role is not first', () => {
+    const swapped = {
+      ...profile,
+      experience: [
+        {
+          companyName: 'American Reading Company',
+          jobTitle: 'Full Stack Developer',
+          startDate: '2016-01',
+          endDate: '2019-06',
+          present: false,
+        },
+        {
+          companyName: 'Acme Software',
+          jobTitle: 'Product Engineer',
+          startDate: '2023-04',
+          endDate: '',
+          present: true,
+        },
+      ],
+    }
+    assert.deepEqual(leverPlan({ name: 'org', type: 'text', label: 'Current company' }, swapped, 0), {
+      action: 'text',
+      value: 'Acme Software',
+    })
+    assert.deepEqual(
+      leverPlan({ name: 'cards[a][field1]', type: 'text', label: 'Current title' }, swapped, 0),
+      { action: 'text', value: 'Product Engineer' },
+    )
+    assert.deepEqual(
+      leverPlan({ name: 'cards[a][field0]', type: 'text', label: 'Previous company' }, swapped, 1),
+      { action: 'text', value: 'American Reading Company' },
+    )
+  })
+
   it('fills the first two companies and titles and claims a third', () => {
     assert.deepEqual(
       leverPlan({ name: 'org', type: 'text', label: 'Current company' }, profile, 0),

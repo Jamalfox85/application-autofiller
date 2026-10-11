@@ -1,3 +1,5 @@
+import { currentExperience } from '../../lib/sync/profileRows.ts'
+
 // Pure Ashby application-form mapping for hosted boards (*.ashbyhq.com).
 // Questions are keyed by data-field-path, not Greenhouse-style ids. These
 // helpers stay DOM-free so they can be unit tested.
@@ -34,6 +36,9 @@ export type AshbyProfile = {
   experience?: Array<{
     companyName?: string | null
     jobTitle?: string | null
+    startDate?: string | null
+    endDate?: string | null
+    present?: boolean | null
   }> | null
 }
 
@@ -865,7 +870,7 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
         normalizedTitle.includes('recent') ||
         normalizedTitle.includes('last')))
   if (companyQuestion && !normalizedTitle.includes('companysize')) {
-    return (info.experience?.[0]?.companyName || '').trim()
+    return (currentExperience(info.experience)?.companyName || '').trim()
   }
 
   const titleQuestion =
@@ -876,7 +881,7 @@ export function ashbyTextValue(target: AshbyTextTarget, info: AshbyProfile): str
     normalizedTitle === 'positiontitle' ||
     normalizedTitle === 'title'
   if (titleQuestion) {
-    return (info.experience?.[0]?.jobTitle || '').trim()
+    return (currentExperience(info.experience)?.jobTitle || '').trim()
   }
 
   return null

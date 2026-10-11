@@ -7,6 +7,7 @@
 // exist), experience, education, work authorization, then EEO. Custom / knockout
 // questions are skipped. A resume filename with no file bytes stays blank.
 
+import { experienceForFill } from '../../lib/sync/profileRows.ts'
 import { monthNameFromLooseDate, yearFromLooseDate } from './greenhouseValues.ts'
 import { profileSavedResume, type InlineResumeFile } from './workableResume.ts'
 
@@ -530,7 +531,7 @@ export function workablePlan(field: WorkableField, info: WorkableProfile, rowInd
   }
 
   if (field.group === 'experience') {
-    const row = info.experience?.[rowIndex]
+    const row = experienceForFill(info.experience)[rowIndex]
     if (!row || rowIndex < 0) return { action: 'skip' }
     if (key === 'title') return textPlan(row.jobTitle)
     if (key === 'company') return textPlan(row.companyName)
