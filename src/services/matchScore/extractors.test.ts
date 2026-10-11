@@ -350,9 +350,15 @@ test('iCIMS reads the job content frame and not the shell, login, or candidate d
   const extraction = await extractJobDescription('icims', frame, fetchPosting)
   assert.equal(extraction?.text, 'Build performance tooling.')
   assert.equal(extraction?.source, 'dom')
-  assert.equal(extraction?.jobUrl, ICIMS_FRAME)
+  assert.equal(extraction?.jobUrl, ICIMS_JOB)
   assert.equal(extraction?.text.includes('Apply'), false)
   assert.equal(extraction?.text.includes('Powered by'), false)
+  assert.equal(extraction?.text.includes('Email this job'), false)
+  const sized = fixturePage(
+    'icims-job-frame.html',
+    `${ICIMS_JOB}?in_iframe=1&mobile=false&width=1264&height=500&bga=true&needsRedirect=false&jan1offset=0&jun1offset=0`,
+  )
+  assert.equal((await extractIcims(sized))?.jobUrl, ICIMS_JOB)
   assert.ok(frame.document?.querySelector('.iCIMS_JobOptions'))
   assert.equal(extraction?.text.includes('Performance and Tools'), false)
   assert.deepEqual(await extractIcims(frame), extraction)

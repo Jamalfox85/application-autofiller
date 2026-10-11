@@ -52,21 +52,77 @@ export function workdayJobKey(href: string): string | null {
   return `${job.host}|${job.site.toLowerCase()}|${job.req.toLowerCase()}`
 }
 
-// Posting URL without /apply, search, or hash. Other hosts stay as given.
-export function canonicalMatchJobUrl(href: string): string {
-  const job = workdayJob(href)
-  if (!job) return href
-  return `${job.origin}${job.postingPath}`
+// Viewport, iframe, and campaign params change when the window resizes or the
+// link source changes. They are not part of the job. Identifying params such as
+// gh_jid, for, and token stay.
+const NOISE_PARAMS = new Set([
+  'mobile',
+  'width',
+  'height',
+  'in_iframe',
+  'iframe',
+  'bga',
+  'needsredirect',
+  'jan1offset',
+  'jun1offset',
+  'hashed',
+  'gh_src',
+  'fbclid',
+  'gclid',
+  'gbraid',
+  'wbraid',
+  'mc_cid',
+  'mc_eid',
+  'lever-origin',
+])
+
+function isNoiseParam(key: string): boolean {
+  const name = key.toLowerCase()
+  if (NOISE_PARAMS.has(name)) return true
+  if (name.startsWith('utm_')) return true
+  if (name.startsWith('lever-source')) return true
+  return false
 }
 
-// Stable id for in-flight and sent-set dedupe. Non-Workday URLs use the href.
+function stripNoise(href: string): string {
+  let url: URL
+  try {
+    url = new URL(href)
+  } catch {
+    return href
+  }
+  const host = url.hostname.toLowerCase()
+  // The job id is the path. Every query param on these portals is window chrome
+  // or a session token (mobile, width, height, in_iframe, hashed).
+  if (host === 'icims.com' || host.endsWith('.icims.com')) {
+    if (!url.search && !url.hash) return href
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  }
+  let dropped = false
+  for (const key of [...url.searchParams.keys()]) {
+    if (!isNoiseParam(key)) continue
+    url.searchParams.delete(key)
+    dropped = true
+  }
+  if (!dropped) return href
+  return url.toString()
+}
+
+// Posting URL without the apply step, window-size params, or tracking params.
+export function canonicalMatchJobUrl(href: string): string {
+  const job = workdayJob(href)
+  if (job) return `${job.origin}${job.postingPath}`
+  return stripNoise(href)
+}
+
+// Stable id for in-flight and sent-set dedupe.
 export function matchJobIdentity(href: string): string {
-  return workdayJobKey(href) ?? href
+  return workdayJobKey(href) ?? canonicalMatchJobUrl(href)
 }
 
 export function sameMatchJob(left: string, right: string): boolean {
   if (left === right) return true
-  const leftKey = workdayJobKey(left)
-  const rightKey = workdayJobKey(right)
-  return leftKey != null && leftKey === rightKey
+  return matchJobIdentity(left) === matchJobIdentity(right)
 }
