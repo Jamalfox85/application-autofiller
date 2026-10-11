@@ -5,6 +5,7 @@
 // reconciles on load: pull remote, push any local rows not yet there, rewrite the mirror.
 // Old rows are pruned server-side by a scheduled job and client-side (90d) by background.js.
 // History is per account (cleared as a whole); each row records the profile used.
+import { withSupabaseRecovery } from '../accessRecovery.ts'
 import { supabase } from '../supabase'
 import { getUserIdOrNull, makeClientIds, readMirror, writeMirror } from './shared'
 import { dedupeFillHistory, fillHistoryEntryKey } from './fillHistoryKey'
@@ -20,6 +21,10 @@ const MIRROR_KEY = 'fillHistory'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function fetchFillHistoryFromDb(userId: string): Promise<FillHistoryEntry[]> {
+  return withSupabaseRecovery(() => queryFillHistory(userId))
+}
+
+async function queryFillHistory(userId: string): Promise<FillHistoryEntry[]> {
   const { data, error } = await supabase
     .from('fill_history')
     .select('*')
@@ -98,6 +103,14 @@ export async function insertFillHistoryToDb(
   entries: FillHistoryEntry[],
   knownProfileIds?: ReadonlySet<string> | null,
 ): Promise<void> {
+  return withSupabaseRecovery(() => insertFillHistoryOnce(userId, entries, knownProfileIds))
+}
+
+async function insertFillHistoryOnce(
+  userId: string,
+  entries: FillHistoryEntry[],
+  knownProfileIds?: ReadonlySet<string> | null,
+): Promise<void> {
   if (!entries.length) return
   let rows = dedupeFillHistory(entries).map((e) => fillHistoryRow(userId, e, knownProfileIds))
   const insert = (batch: Record<string, unknown>[]) => supabase.from('fill_history').insert(batch)
@@ -132,6 +145,10 @@ export async function insertFillHistoryToDb(
 }
 
 export async function clearFillHistoryInDb(userId: string): Promise<void> {
+  return withSupabaseRecovery(() => clearFillHistoryOnce(userId))
+}
+
+async function clearFillHistoryOnce(userId: string): Promise<void> {
   const { error } = await supabase.from('fill_history').delete().eq('user_id', userId)
   if (error) throw error
 }
