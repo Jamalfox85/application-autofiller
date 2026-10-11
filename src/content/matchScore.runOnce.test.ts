@@ -243,11 +243,73 @@ test('Workday job page scores the description and does not fetch', async () => {
     assert.ok(scored)
     assert.equal(scored.ats, 'workday')
     assert.equal(scored.jdSource, 'dom')
+    assert.equal(scored.jobUrl, href)
     assert.equal(
       scored.jdText,
-      'This is an onsite position at the Austin, TX location.\nMeet the team.\nThe Hardware Engineering Group creates platforms.',
+      'Senior Hardware Engineering Program Manager\nThis is an onsite position at the Austin, TX location.\nMeet the team.\nThe Hardware Engineering Group creates platforms.\nBuild backend APIs for the hardware platform.',
     )
     assert.equal(messages.some((message) => message.action === 'fetchJobPosting'), false)
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
+})
+
+test('Workday apply redirect keeps the card and does not score again', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const href =
+    'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Austin-Texas-US/Senior-Hardware-Engineering-Program-Manager_2028178-1'
+  const apply = `${href}/apply/applyManually`
+  try {
+    const dom = new JSDOM(readFileSync(new URL('../../fixtures/pages/workday-job.html', import.meta.url), 'utf8'), {
+      url: href,
+    })
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+    const messages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+    const { resetMatchScoreForTests, runOnce, onMatchScoreRender, applyMatchScoreLocation } = await import(
+      './matchScore.ts'
+    )
+    resetMatchScoreForTests()
+    await runOnce()
+    assert.equal(messages.filter((message) => message.action === 'matchScore').length, 1)
+    onMatchScoreRender({
+      seq: 1,
+      jobUrl: href,
+      view: 'scored',
+      ats: 'workday',
+      jdSource: 'dom',
+      score: {
+        status: 'scored',
+        score: 40,
+        band: 'okay',
+        confidence: 'high',
+        strong_match: false,
+        matched: [{ label: 'APIs', kind: 'must' }],
+        suggestions: [],
+        dealbreakers: [],
+        notices: [],
+        score_version: 1,
+        requirements_version: 1,
+        cached_requirements: false,
+      },
+    })
+    assert.ok(document.getElementById('match-score'))
+    document.getElementById('match-score')?.remove()
+    dom.reconfigure({ url: apply })
+    assert.equal(applyMatchScoreLocation(href, apply), 'same')
+    assert.ok(document.getElementById('match-score'))
+    await runOnce()
+    assert.equal(messages.filter((message) => message.action === 'matchScore').length, 1)
+
+    document.querySelector('[aria-label="Dismiss job match"]')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    assert.equal(document.getElementById('match-score'), null)
+    assert.equal(applyMatchScoreLocation(apply, apply), 'same')
+    assert.equal(document.getElementById('match-score'), null)
+
+    const other =
+      'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/Software-Engineer--OpenShell_JR2020825'
+    assert.equal(applyMatchScoreLocation(apply, other), 'reset')
+    assert.equal(document.getElementById('match-score'), null)
   } finally {
     Object.assign(globalThis, { window: previousWindow, document: previousDocument })
   }

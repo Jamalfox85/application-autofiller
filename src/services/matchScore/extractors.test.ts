@@ -352,6 +352,8 @@ test('iCIMS reads the job content frame and not the shell, login, or candidate d
   assert.equal(extraction?.source, 'dom')
   assert.equal(extraction?.jobUrl, ICIMS_FRAME)
   assert.equal(extraction?.text.includes('Apply'), false)
+  assert.equal(extraction?.text.includes('Powered by'), false)
+  assert.ok(frame.document?.querySelector('.iCIMS_JobOptions'))
   assert.equal(extraction?.text.includes('Performance and Tools'), false)
   assert.deepEqual(await extractIcims(frame), extraction)
 
@@ -413,20 +415,25 @@ test('Workday job page reads the description and the apply step reads the postin
   assert.equal(matchScoreSurfaceReady(job.document, job.href), true)
   const extraction = await extractJobDescription('workday', job, fetchPosting)
   assert.equal(extraction?.source, 'dom')
+  assert.equal(extraction?.jobUrl, jobHref)
   assert.equal(
     extraction?.text,
-    'This is an onsite position at the Austin, TX location.\nMeet the team.\nThe Hardware Engineering Group creates platforms.',
+    'Senior Hardware Engineering Program Manager\nThis is an onsite position at the Austin, TX location.\nMeet the team.\nThe Hardware Engineering Group creates platforms.\nBuild backend APIs for the hardware platform.',
   )
-  assert.equal(extraction?.text.includes('Senior Hardware'), false)
+  assert.equal(extraction?.text.includes('Apply Manually'), false)
+  assert.equal(extraction?.text.includes('Similar jobs'), false)
 
-  const applyHref = `${jobHref}/apply`
+  const applyHref = `${jobHref}/apply/applyManually?source=job`
   const apply = fixturePage('workday-job-apply.html', applyHref)
   assert.equal(apply.document?.querySelector('[data-automation-id="jobPostingDescription"]'), null)
   assert.equal(matchScoreSurfaceReady(apply.document, apply.href), true)
   const applyExtraction = await extractJobDescription('workday', apply, fetchPosting)
   assert.equal(applyExtraction?.source, 'dom')
-  assert.equal(applyExtraction?.text, 'This is an onsite position at the Austin, TX location.\nMeet the team.')
-  assert.equal(applyExtraction?.text.includes('Senior Hardware'), false)
+  assert.equal(applyExtraction?.jobUrl, jobHref)
+  assert.equal(
+    applyExtraction?.text,
+    'Senior Hardware Engineering Program Manager\nThis is an onsite position at the Austin, TX location.\nMeet the team.',
+  )
   assert.equal(calls, 0)
 })
 
