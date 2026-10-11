@@ -2,7 +2,18 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { matchFieldToData } from './fieldMatch.ts'
 import { cloneDefaultPersonalInfo } from '../lib/personalInfoDefaults.ts'
+import { normalizeText } from '../utils/helpers.ts'
 import type { PersonalInfo } from '../types/index.ts'
+
+// Same signature constructFieldText + normalizeText produce for a control.
+function fieldSignature(name: string, label: string, type: string): string {
+  const fieldText = `${name} ${name}  ${label}   ${type}`
+    .toLowerCase()
+    .replace(/[_,-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return normalizeText(fieldText)
+}
 
 function profile(overrides: Partial<PersonalInfo> = {}): PersonalInfo {
   return { ...cloneDefaultPersonalInfo(), ...overrides }
@@ -183,4 +194,42 @@ test('a question that does ask for the applicant city still maps', () => {
   const info = profile({ city: 'Blue Bell' })
   assert.equal(matchFieldToData('whatcitydoyoulivein?', info, [])?.matchedValue, 'Blue Bell')
   assert.equal(matchFieldToData('city', info, [])?.matchedValue, 'Blue Bell')
+})
+
+test('Masterworks primary line of business does not receive the profile website', () => {
+  const info = profile({
+    website: 'https://ada.example',
+    linkedin: 'https://linkedin.com/in/ada',
+    github: 'https://github.com/ada',
+  })
+  const label =
+    "In reviewing the website www.masterworks.agency, what is Masterworks' primary line of business?"
+  const signature = fieldSignature('customQuestionAnswers.long_515', `${label}\u2009*`, 'textarea')
+  assert.match(signature, /website/)
+  assert.match(signature, /primarylineofbusiness/)
+  assert.equal(matchFieldToData(signature, info, []), null)
+  assert.equal(matchFieldToData("masterworks'primarylineofbusiness?", info, []), null)
+  assert.equal(
+    matchFieldToData('tellusaboutaportfolioofclientworkyouareproudof?', info, []),
+    null,
+  )
+})
+
+test('a real website field and a question that asks for it still receive the profile URL', () => {
+  const info = profile({
+    website: 'https://ada.example',
+    linkedin: 'https://linkedin.com/in/ada',
+  })
+  assert.equal(
+    matchFieldToData(fieldSignature('websiteUrl', 'Website, Blog or Portfolio', 'text'), info, [])?.matchedValue,
+    'https://ada.example',
+  )
+  assert.equal(matchFieldToData('website', info, [])?.matchedValue, 'https://ada.example')
+  assert.equal(matchFieldToData('portfolio', info, [])?.matchedValue, 'https://ada.example')
+  assert.equal(
+    matchFieldToData(fieldSignature('linkedinUrl', 'LinkedIn URL', 'text'), info, [])?.matchedValue,
+    'https://linkedin.com/in/ada',
+  )
+  assert.equal(matchFieldToData('whatisyourwebsite?', info, [])?.matchedValue, 'https://ada.example')
+  assert.equal(matchFieldToData('whatisyourlinkedinurl?', info, [])?.matchedValue, 'https://linkedin.com/in/ada')
 })

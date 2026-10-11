@@ -1,17 +1,22 @@
-import type { SiteRule, FieldMatch, FieldHandler } from '../../types/index.ts'
+import type { SiteRule, FieldMatch, FieldHandler, PersonalInfo } from '../../types/index.ts'
 import { fillNativeInput, fillBambooHRSelect, setReactInputValue } from '../inputHandlers.ts'
 import { reactSelectEeoFieldHandlers } from './eeoHandlers.ts'
+import { profileRequiresSponsorship } from './greenhouseValues.ts'
 import {
   assignResumeFile,
   bambooCountryLabel,
+  bambooRadioOptionLabel,
+  bambooRadioQuestion,
   bambooSelectToggle,
   bambooToggleLabel,
   bambooUploadRole,
+  bambooWorkQuestionKind,
   describeBambooUpload,
   isBambooCountryControl,
   isBambooStateControl,
   pickBambooCountryOption,
   pickBambooStateOption,
+  pickBambooWorkOption,
 } from './bamboohrFields.ts'
 import { requestBambooSavedResume } from './bamboohrResume.ts'
 
@@ -207,6 +212,43 @@ export default function bambooHrConfig(): SiteRule {
   }
 }
 
+function bambooRadioGroup(input: HTMLInputElement): HTMLInputElement[] {
+  const name = input.name
+  const doc = input.ownerDocument
+  if (!doc || !name) return [input]
+  const escaped = name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const found = Array.from(doc.querySelectorAll(`input[type="radio"][name="${escaped}"]`))
+  return found.length > 0 ? (found as HTMLInputElement[]) : [input]
+}
+
+function checkBambooRadio(target: HTMLInputElement) {
+  if (target.checked) return
+  target.click()
+  if (target.checked) return
+  target.checked = true
+  const View = target.ownerDocument?.defaultView
+  const EventCtor = View?.Event ?? Event
+  target.dispatchEvent(new EventCtor('input', { bubbles: true }))
+  target.dispatchEvent(new EventCtor('change', { bubbles: true }))
+}
+
+// Clicks the option the profile supports. "Yes" and "Yes, but I will need
+// sponsorship" are different answers; a citizen gets the plain Yes.
+function selectBambooWorkRadio(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, personalInfo: PersonalInfo): boolean {
+  if (input.tagName !== 'INPUT' || (input.type || '').toLowerCase() !== 'radio') return false
+  const radio = input as HTMLInputElement
+  const question = bambooRadioQuestion(input)
+  const radios = bambooRadioGroup(input)
+  const labels = radios.map((radio) => bambooRadioOptionLabel(radio))
+  const choice = pickBambooWorkOption(question, labels, personalInfo)
+  if (!choice) return false
+  const wanted = choice.trim().toLowerCase()
+  const target = radios.find((radio) => bambooRadioOptionLabel(radio).trim().toLowerCase() === wanted)
+  if (!target) return false
+  checkBambooRadio(target)
+  return target.checked === true
+}
+
 const fieldHandlers: Array<{
   match: FieldMatch
   handle: FieldHandler
@@ -260,14 +302,22 @@ const fieldHandlers: Array<{
     },
   },
   {
-    match: (_, fieldText) => fieldText.includes('sponsorship'),
+    // Radios are chosen from the legend, not from an option that happens to
+    // say "sponsorship". Typing Yes/No into the input never checks it.
+    match: (input) =>
+      (input.type || '').toLowerCase() === 'radio' &&
+      bambooWorkQuestionKind(bambooRadioQuestion(input)) != null,
+    handle: async (input, _, personalInfo) => selectBambooWorkRadio(input, personalInfo),
+  },
+  {
+    match: (input, fieldText) => {
+      const type = (input.type || '').toLowerCase()
+      if (type === 'radio' || type === 'checkbox') return false
+      return fieldText.includes('sponsorship')
+    },
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization && !personalInfo.sponsorshipRequired) return false
-      const requiresSponsorship = personalInfo.sponsorshipRequired
-        ? personalInfo.sponsorshipRequired === 'Yes'
-        : !['us_citizen', 'green_card', 'authorized_no_sponsorship'].includes(
-            personalInfo.workAuthorization ?? '',
-          )
+      const requiresSponsorship = profileRequiresSponsorship(personalInfo)
       fillNativeInput(input, requiresSponsorship ? 'Yes' : 'No')
       return true
     },

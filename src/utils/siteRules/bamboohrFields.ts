@@ -1,3 +1,10 @@
+import {
+  isAuthorizedToWork,
+  pickSponsorshipOption,
+  pickWorkAuthorizationOption,
+  profileRequiresSponsorship,
+} from './greenhouseValues.ts'
+
 // BambooHR address country is a Fabric select. The posting default (Norway on an
 // Oslo job, value 161) is already selected, and the real choices live in the
 // menu, not in the hidden <select>. Profile countries are snake_case keys.
@@ -127,6 +134,122 @@ export function pickBambooStateOption(optionTexts: string[], state?: string | nu
   const texts = optionTexts.map((text) => text.trim()).filter(Boolean)
   if (isBambooCountryMenu(texts)) return null
   return texts.find((text) => text.toLowerCase() === wanted) ?? null
+}
+
+// The question is the fieldset legend. An option such as "Yes, but I will need
+// sponsorship" is not the question, so that word must not reclassify the group.
+export function bambooRadioQuestion(input: Element): string {
+  const legend = input.closest('fieldset')?.querySelector('legend')
+  return (legend?.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+export function bambooRadioOptionLabel(input: Element): string {
+  const label = input.closest('label')
+  return (label?.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+export type BambooWorkKind = 'eligibility' | 'sponsorship'
+
+function compactQuestion(question: string): string {
+  return question.toLowerCase().replace(/[^a-z]/g, '')
+}
+
+// Eligibility is decided from the question, before any option text. "Are you
+// eligible to work in the United States?" stays eligibility even when one
+// choice is "Yes, but I will need sponsorship".
+export function bambooWorkQuestionKind(question: string): BambooWorkKind | null {
+  const norm = compactQuestion(question)
+  if (!norm) return null
+  if (
+    norm.includes('eligibletowork') ||
+    norm.includes('eligibilitytowork') ||
+    norm.includes('authorizedtowork') ||
+    norm.includes('authorisedtowork') ||
+    norm.includes('legallyauthorized') ||
+    norm.includes('legallyauthorised') ||
+    norm.includes('workauthorization') ||
+    (norm.includes('eligible') && norm.includes('work'))
+  ) {
+    return 'eligibility'
+  }
+  if (norm.includes('sponsor')) return 'sponsorship'
+  return null
+}
+
+function optionKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// A choice that says the applicant needs sponsorship. Plain "Yes" is not this.
+function needsSponsorshipSentence(label: string): boolean {
+  const key = optionKey(label)
+  if (!key.includes('sponsor')) return false
+  if (key.startsWith('no')) return false
+  if (key.includes('without') || key.includes('not require') || key.includes('no sponsor')) return false
+  return true
+}
+
+// "authorized to work without requiring sponsorship" is a yes only when the
+// profile is authorized and does not need sponsorship.
+function eligibilityBarsSponsorship(question: string): boolean {
+  const norm = compactQuestion(question)
+  if (norm.includes('withoutsponsor') || norm.includes('nosponsorship')) return true
+  if (norm.includes('without') && norm.includes('sponsor')) return true
+  return norm.includes('notrequire') && norm.includes('sponsor')
+}
+
+export type BambooWorkProfile = {
+  workAuthorization?: string | null
+  sponsorshipRequired?: string | null
+}
+
+// Eligibility: a citizen (or anyone authorized who does not need sponsorship)
+// gets the plain "Yes", never "Yes, but I will need sponsorship". Someone who
+// needs sponsorship gets that sentence when it is listed. A sponsorship
+// question uses the same Yes/No rule as the other boards.
+export function pickBambooWorkOption(
+  question: string,
+  optionTexts: string[],
+  info: BambooWorkProfile,
+): string | null {
+  const auth = (info.workAuthorization ?? '').trim()
+  const sponsorshipRequired = (info.sponsorshipRequired ?? '').trim()
+  if (!auth && !sponsorshipRequired) return null
+  const kind = bambooWorkQuestionKind(question)
+  if (!kind) return null
+  const profile = { workAuthorization: auth, sponsorshipRequired }
+
+  if (kind === 'sponsorship') {
+    return pickSponsorshipOption(optionTexts, profileRequiresSponsorship(profile))
+  }
+
+  if (auth === 'not_authorized') return pickWorkAuthorizationOption(optionTexts, auth)
+
+  const needsSponsorship = profileRequiresSponsorship(profile)
+  if (eligibilityBarsSponsorship(question)) {
+    if (isAuthorizedToWork(auth) && !needsSponsorship) {
+      return pickWorkAuthorizationOption(optionTexts, auth)
+    }
+    return pickWorkAuthorizationOption(optionTexts, 'not_authorized')
+  }
+
+  // Authorized, and sponsorship is not required: plain Yes. The longer
+  // "Yes, but I will need sponsorship" choice is a different answer.
+  if (isAuthorizedToWork(auth) && !needsSponsorship) {
+    return pickWorkAuthorizationOption(optionTexts, auth)
+  }
+
+  if (needsSponsorship) {
+    const sponsor = optionTexts.find((text) => needsSponsorshipSentence(text))
+    if (sponsor) return sponsor.trim()
+  }
+
+  if (!auth) return null
+  return pickWorkAuthorizationOption(optionTexts, auth)
 }
 
 // Exact menu label. The first visible row is not a match.
