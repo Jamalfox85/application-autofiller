@@ -53,6 +53,8 @@ export type FulfillRelay =
 export interface FulfillOutcome {
   relay: FulfillRelay
   persistRateLimit: boolean
+  // How long a 429 should hide this job. Null unless persistRateLimit is set.
+  rateLimitMs: number | null
   cacheValue: CachedMatchScore | null
   requested: boolean
 }
@@ -100,7 +102,7 @@ function cachedRelay(cached: CachedMatchScore, input: FulfillInput): FulfillRela
 }
 
 export async function fulfillMatchScore(input: FulfillInput): Promise<FulfillOutcome> {
-  const none = { persistRateLimit: false, cacheValue: null, requested: false }
+  const none = { persistRateLimit: false, rateLimitMs: null, cacheValue: null, requested: false }
   if (input.dismissed) return { ...none, relay: { view: 'hide', reason: 'dismissed' } }
   if (input.rateLimited && !input.rescore) {
     return { ...none, relay: { view: 'hide', reason: 'rate_limited' } }
@@ -133,11 +135,16 @@ export async function fulfillMatchScore(input: FulfillInput): Promise<FulfillOut
     timeoutMs: input.timeoutMs,
   })
   const latencyMs = Date.now() - started
-  const requested = { persistRateLimit: false, cacheValue: null, requested: true }
+  const requested = { persistRateLimit: false, rateLimitMs: null, cacheValue: null, requested: true }
 
   if (result.kind === 'rate_limited') {
     if (input.rescore) return { ...requested, relay: { view: 'keep' } }
-    return { ...requested, persistRateLimit: true, relay: { view: 'hide', reason: 'rate_limited' } }
+    return {
+      ...requested,
+      persistRateLimit: true,
+      rateLimitMs: result.retryAfterMs ?? null,
+      relay: { view: 'hide', reason: 'rate_limited' },
+    }
   }
   if (result.kind === 'unauthorized') {
     return { ...requested, relay: { view: 'hide', reason: 'signed_out' } }

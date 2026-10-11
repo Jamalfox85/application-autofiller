@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { cloneDefaultPersonalInfo } from '../../lib/personalInfoDefaults.ts'
+import { MATCH_SCORE_RATE_LIMIT_DEFAULT_MS, rateLimitActive, rateLimitUntil, retryAfterDelayMs } from './cache.ts'
 import { fulfillMatchScore, willRequestMatchScore } from './fulfill.ts'
 import { postMatchScoreDecline } from './contract.ts'
 import { matchScoreIntent } from './intent.ts'
@@ -77,6 +79,46 @@ test('429 hides a first score and a re-score is not stored as rate limited', asy
   assert.equal(again.persistRateLimit, false)
   assert.equal(willRequestMatchScore(input({ rateLimited: true })), false)
   assert.equal(willRequestMatchScore(input({ rateLimited: true, rescore: true })), true)
+})
+
+test('a 429 hides the job until Retry-After, or one hour when that header is absent', async () => {
+  const envelope = JSON.stringify({ success: false, error: { code: 'rate_limited', message: 'Slow down' } })
+  const now = 1_700_000_000_000
+  const withRetry = await fulfillMatchScore(
+    input({
+      now,
+      fetchImpl: async () => new Response(envelope, { status: 429, headers: { 'Retry-After': '120' } }),
+    }),
+  )
+  assert.equal(withRetry.relay.view, 'hide')
+  assert.equal(withRetry.persistRateLimit, true)
+  assert.equal(withRetry.rateLimitMs, 120_000)
+  const until = rateLimitUntil(now, withRetry.rateLimitMs)
+  assert.equal(until, now + 120_000)
+  assert.equal(rateLimitActive(until, now + 60_000), true)
+  assert.equal(willRequestMatchScore(input({ now: now + 60_000, rateLimited: true })), false)
+  assert.equal(rateLimitActive(until, until), false)
+  assert.equal(willRequestMatchScore(input({ now: until, rateLimited: rateLimitActive(until, until) })), true)
+
+  const fallback = await fulfillMatchScore(
+    input({
+      fetchImpl: async () => new Response(envelope, { status: 429 }),
+    }),
+  )
+  assert.equal(fallback.rateLimitMs, MATCH_SCORE_RATE_LIMIT_DEFAULT_MS)
+  assert.equal(rateLimitUntil(now, fallback.rateLimitMs), now + MATCH_SCORE_RATE_LIMIT_DEFAULT_MS)
+
+  const headerNow = Date.parse('Wed, 21 Oct 2015 07:27:00 GMT')
+  assert.equal(retryAfterDelayMs('Wed, 21 Oct 2015 07:28:00 GMT', headerNow), 60_000)
+  assert.equal(retryAfterDelayMs('Wed, 21 Oct 2015 07:26:00 GMT', headerNow), 0)
+  assert.equal(retryAfterDelayMs('not-a-date', now), MATCH_SCORE_RATE_LIMIT_DEFAULT_MS)
+  assert.equal(retryAfterDelayMs(null, now), MATCH_SCORE_RATE_LIMIT_DEFAULT_MS)
+  assert.equal(rateLimitActive(now - 60_000, now), false)
+
+  const worker = readFileSync(new URL('../matchScoreWorker.ts', import.meta.url), 'utf8')
+  assert.match(worker, /rateLimitActive\(stored\[rateKey\], deps\.now\(\)\)/)
+  assert.match(worker, /rateLimitUntil\(deps\.now\(\), outcome\.rateLimitMs\)/)
+  assert.doesNotMatch(worker, /stored\[rateKey\] != null/)
 })
 
 test('a 5xx is a single hide with no retry', async () => {

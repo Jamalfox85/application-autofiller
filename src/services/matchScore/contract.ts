@@ -1,4 +1,5 @@
 import { isPlanRequiredResponse } from '../billing/planRequired.ts'
+import { retryAfterDelayMs } from './cache.ts'
 import { proResumeHeaders, resumeApiBaseUrl } from '../billing/proApiContract.ts'
 import {
   JD_TEXT_MAX,
@@ -238,7 +239,9 @@ export async function postMatchScore(input: {
       signal: controller.signal,
     })
     const parsed = await readJson(response)
-    return parseMatchScoreBody(response.status, parsed)
+    const result = parseMatchScoreBody(response.status, parsed)
+    if (result.kind !== 'rate_limited') return result
+    return { kind: 'rate_limited', retryAfterMs: retryAfterDelayMs(response.headers.get('retry-after'), Date.now()) }
   } catch {
     return { kind: 'hide' }
   } finally {

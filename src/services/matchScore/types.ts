@@ -109,7 +109,7 @@ export type MatchScoreResult =
   | { kind: 'insufficient_profile'; missing: MissingProfile[] }
   | { kind: 'unsupported'; reason: UnsupportedReason }
   | { kind: 'plan_required' }
-  | { kind: 'rate_limited' }
+  | { kind: 'rate_limited'; retryAfterMs?: number }
   | { kind: 'unauthorized' }
   | { kind: 'hide' }
 
