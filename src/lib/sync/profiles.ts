@@ -4,7 +4,8 @@
 // to exactly one code, which this module turns into a ProfileError.
 //
 // No supabase-js import here: callers pass the client (src/lib/supabase.ts in the app, a
-// fake in tests).
+// fake in tests). A 401 "invalid or expired access token" refreshes the session once.
+import { withSupabaseRecovery } from '../accessRecovery.ts'
 
 export const MAX_PROFILES = 5
 
@@ -112,7 +113,7 @@ export interface RpcClient {
   ): PromiseLike<{ data: unknown; error: unknown }>
 }
 
-async function call<T>(client: RpcClient, fn: string, args?: Record<string, unknown>): Promise<T> {
+async function callOnce<T>(client: RpcClient, fn: string, args?: Record<string, unknown>): Promise<T> {
   let result: { data: unknown; error: unknown }
   try {
     result = await client.rpc(fn, args)
@@ -121,6 +122,10 @@ async function call<T>(client: RpcClient, fn: string, args?: Record<string, unkn
   }
   if (result.error) throw new ProfileError(profileErrorCode(result.error), result.error)
   return result.data as T
+}
+
+async function call<T>(client: RpcClient, fn: string, args?: Record<string, unknown>): Promise<T> {
+  return withSupabaseRecovery(() => callOnce<T>(client, fn, args))
 }
 
 function asSummary(row: Record<string, unknown>): ProfileSummary {

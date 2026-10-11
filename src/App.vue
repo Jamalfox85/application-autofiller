@@ -473,7 +473,7 @@ const handleOnboardingFinish = async (profile?: any) => {
   }
   if (profile) {
     try {
-      await savePersonalInfo(profile)
+      await savePersonalInfo(profile, { fromResumeParse: true })
     } catch (error) {
       // Saved to the local mirror already — Supabase sync will retry on the next save/open.
       console.error('Profile sync to Supabase failed during onboarding', describeSyncError(error))
@@ -487,10 +487,10 @@ const handleOnboardingFinish = async (profile?: any) => {
   await detectApplication()
 }
 
-const saveProfile = async (profile: any) => {
+const saveProfile = async (profile: any, opts?: { fromResumeParse?: boolean }) => {
   publishPersonalInfo(profile)
   try {
-    await savePersonalInfo(profile)
+    await savePersonalInfo(profile, opts)
     showNotification('Profile saved successfully', 'success')
   } catch (error) {
     console.error('Profile sync to Supabase failed', describeSyncError(error))
@@ -846,6 +846,10 @@ onMounted(async () => {
 })
 
 watch(authStatus, (next, previous) => {
+  if (next === 'signed-out') {
+    billing.value = null
+    planIsPro.value = null
+  }
   if (next === 'signed-in' && previous !== 'signed-in') {
     loadAppState()
   }
@@ -858,7 +862,7 @@ watch(authStatus, (next, previous) => {
       <div class="brand">
         <img class="logo-mark" src="/assets/logo/gofillr-icon-small.svg" alt="" width="20" height="20" />
         <span class="brand-name">GoFillr</span>
-        <span v-if="billing?.isPro" class="plan-badge">Pro</span>
+        <span v-if="authStatus === 'signed-in' && billing?.isPro" class="plan-badge">Pro</span>
       </div>
       <button v-if="authStatus === 'signed-in'" class="signout-btn" @click="handleSignOut">Sign out</button>
     </header>
@@ -985,7 +989,7 @@ watch(authStatus, (next, previous) => {
 
     <HistoryView v-else-if="activeView === 'history'" @back="activeView = 'main'" />
 
-    <footer v-if="activeView === 'main'" class="footer">
+    <footer v-if="authStatus === 'signed-in' && activeView === 'main'" class="footer">
       <template v-if="detection.detected">
         <span class="footer-note">{{ lastFillLabel }}</span>
       </template>
@@ -1014,6 +1018,7 @@ watch(authStatus, (next, previous) => {
     <UpdateLinksDialog
       :show="dialogs.links.value"
       :personalInfo="personalInfo"
+      :profileReady="personalInfoReady"
       @close="closeDialog('links')"
       @save="saveProfile"
       @review="startParsedReview"

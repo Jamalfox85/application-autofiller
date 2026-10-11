@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import type { Session, User } from '@supabase/supabase-js'
 import { getStoredSession, onAuthStateChanged, signOut as signOutOfSupabase } from '@/lib/auth'
-import { isSupabaseAuthStorageKey } from '@/lib/googleAuth'
+import { storedSessionAction } from '@/lib/sessionStorageChange'
 import { USER_ID_KEY } from '@/services/billing/entitlementStore'
 import { flushPendingProfilePlan } from '@/services/billing/profilePlan'
 import { withFillHistoryLock } from '@/lib/sync/fillHistory'
@@ -62,11 +62,12 @@ function onStoredSessionChanged(
   areaName: chrome.storage.AreaName,
 ) {
   if (areaName !== 'local') return
-  if (status.value === 'signed-in') return
-  const wroteSession = Object.entries(changes).some(
-    ([key, change]) => isSupabaseAuthStorageKey(key) && change.newValue != null,
-  )
-  if (!wroteSession) return
+  const action = storedSessionAction(status.value, changes)
+  if (action === 'sign-out') {
+    applySession(null)
+    return
+  }
+  if (action !== 'reread') return
   void getStoredSession().then(applySession)
 }
 
