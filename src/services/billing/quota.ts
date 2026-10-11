@@ -181,6 +181,10 @@ export function mergeServerFillCount(local: FillQuotaRecord, serverCount: number
     ...local,
     successfulFills: Math.max(local.successfulFills, count),
   }
+  // A positive server count means this account has already filled. Leaving
+  // firstFillEver false made the fill that reached 10 look like the install's
+  // first fill, so the nudge waited until the next one (11 used, 14 left).
+  if (count > 0) next.firstFillEver = true
   // The soft nudge is once per week. A count that already passed 10 on another
   // device does not show "10 of 25" again on this one.
   if (count >= SOFT_GATE_AT) next.softPaywallShownForWeek = true
@@ -232,7 +236,6 @@ export function applySuccessfulFill(
     return { quota, nudge: null }
   }
 
-  const wasFirstEver = !quota.firstFillEver
   const next: FillQuotaRecord = {
     ...quota,
     successfulFills: quota.successfulFills + 1,
@@ -240,13 +243,21 @@ export function applySuccessfulFill(
     greenhouseFillEver: quota.greenhouseFillEver || ats === 'greenhouse',
   }
 
+  // The install's first successful fill is the one that moves the counter off 0.
+  // A missing firstFillEver flag on a counter that is already 9 is not that fill:
+  // treating it as first skipped the nudge at 10 and showed it on the next fill.
+  // That next fill has already counted the in-flight one (11 used), so
+  // 25 - 11 = 14 while the locked title still says 10 of 25. The label uses this
+  // same post-increment count: 15 left when it first reaches 10.
+  const fillingTheInstallsFirst = quota.successfulFills === 0 && !quota.firstFillEver
+
   // Soft nudge once the week reaches fill #10. Never on fill #1. Never on Workday.
   // The fill is already committed; dismissing the nudge does not block it.
   // Copy is the locked "10 of 25" title and "N fills left this week" continue
   // label. The count is the fills still left after this fill (15 at fill 10).
   // Shown once per week.
   const showSoft =
-    !wasFirstEver &&
+    !fillingTheInstallsFirst &&
     ats !== 'workday' &&
     next.successfulFills >= SOFT_GATE_AT &&
     next.successfulFills < FREE_FILL_LIMIT &&

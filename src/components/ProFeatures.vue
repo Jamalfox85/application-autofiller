@@ -115,15 +115,6 @@ const onMatchingClick = async () => {
   color: #c4b5fd;
 }
 
-.pro-row.static {
-  cursor: default;
-}
-
-.pro-row.static:hover {
-  background: #17171b;
-  border-color: #22222a;
-}
-
 .toggle-track {
   position: relative;
   flex-shrink: 0;
@@ -160,5 +151,19 @@ const onMatchingClick = async () => {
 
 .toggle-track.active .toggle-knob {
   left: 14px;
+}
+</style>
+
+<style>
+/* DataVault publishes .section-row unscoped (pointer + hover). Unlimited Fills
+   is informational: Pro already includes it, and the other rows are the ones
+   that open a paywall or a modal. This has to beat that global hover. */
+.section-row.pro-row.static,
+.section-row.pro-row.static:hover,
+.section-row.pro-row.static:focus,
+.section-row.pro-row.static:focus-visible {
+  cursor: default;
+  background: #17171b;
+  border-color: #22222a;
 }
 </style>

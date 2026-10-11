@@ -1178,3 +1178,153 @@ test('Auth0 password fixture types the saved password without a prompt when conf
     },
   )
 })
+
+const APRILAIRE_LOGIN =
+  'https://careers-aprilaire.icims.com/jobs/2668/industrial-engineering-co-op/login?in_iframe=1'
+
+test('career login email step fills the saved iCIMS account on Auto-fill and not on load', async () => {
+  resetSavedPasswordFillConfirmation()
+  resetIcimsGateFillState()
+  let prompts = 0
+  setSavedPasswordPromptPresenter(() => {
+    prompts += 1
+  })
+  await withAuth0Page('icims-login-frame.html', APRILAIRE_LOGIN, async (dom) => {
+    const email = dom.window.document.getElementById('email') as HTMLInputElement
+    assert.equal(email.id, 'email')
+    assert.equal(email.name, 'css_loginName')
+    const saved = profile()
+    const { default: icimsConfig } = await import('./icims.ts')
+    const rule = icimsConfig()
+    const cleanup = rule.onMount?.(saved)
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    assert.equal(email.value, '')
+    const events: string[] = []
+    email.addEventListener('input', () => events.push('input'))
+    email.addEventListener('change', () => events.push('change'))
+    const { clicks, submitted } = await fillAuth0Document(dom, saved)
+    assert.equal(email.value, 'icims@example.com')
+    assert.notEqual(email.value, saved.email)
+    assert.equal(prompts, 0)
+    assert.deepEqual(events, ['input', 'change'])
+    assert.deepEqual(clicks, [])
+    assert.equal(submitted, 0)
+    if (typeof cleanup === 'function') cleanup()
+  })
+})
+
+test('career login password step fills the account email and holds the password for confirmation', async () => {
+  resetSavedPasswordFillConfirmation()
+  resetIcimsGateFillState()
+  let confirm: (() => void) | null = null
+  let prompts = 0
+  setSavedPasswordPromptPresenter((onConfirm) => {
+    prompts += 1
+    confirm = onConfirm
+  })
+  await withAuth0Page('icims-password-frame.html', APRILAIRE_LOGIN, async (dom) => {
+    const doc = dom.window.document
+    const email = doc.getElementById('email') as HTMLInputElement
+    const password = doc.getElementById('password') as HTMLInputElement
+    const saved = profile()
+    const { default: icimsConfig } = await import('./icims.ts')
+    const rule = icimsConfig()
+    rule.onMount?.(saved)
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    assert.equal(email.value, '')
+    assert.equal(password.value, '')
+    const { clicks, submitted } = await fillAuth0Document(dom, saved)
+    assert.equal(prompts, 1)
+    assert.equal(email.value, 'icims@example.com')
+    assert.equal(password.value, '')
+    confirm?.()
+    assert.equal(password.value, 'Correct horse')
+    assert.equal((doc.getElementById('passwordConfirm') as HTMLInputElement).value, 'Correct horse')
+    assert.deepEqual(clicks, [])
+    assert.equal(submitted, 0)
+  })
+})
+
+test('career login email uses the native setter when the page setter does not stick', async () => {
+  resetSavedPasswordFillConfirmation()
+  resetIcimsGateFillState()
+  await withAuth0Page('icims-login-frame.html', APRILAIRE_LOGIN, async (dom) => {
+    const email = dom.window.document.getElementById('email') as HTMLInputElement
+    const proto = dom.window.HTMLInputElement.prototype
+    const original = Object.getOwnPropertyDescriptor(proto, 'value')
+    assert.ok(original?.set && original.get)
+    Object.defineProperty(proto, 'value', {
+      configurable: true,
+      enumerable: original.enumerable,
+      get() {
+        return original.get!.call(this)
+      },
+      set() {
+        // Page-world setter from the other realm. It does not write.
+      },
+    })
+    const isolatedProto = {}
+    Object.defineProperty(isolatedProto, 'value', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return original.get!.call(this)
+      },
+      set(value: string) {
+        original.set!.call(this, value)
+      },
+    })
+    const previousCtor = (globalThis as { HTMLInputElement?: unknown }).HTMLInputElement
+    function IsolatedInput() {}
+    Object.defineProperty(IsolatedInput, 'prototype', { value: isolatedProto })
+    ;(globalThis as { HTMLInputElement?: unknown }).HTMLInputElement = IsolatedInput
+    try {
+      const { clicks, submitted } = await fillAuth0Document(dom, profile())
+      assert.equal(email.value, 'icims@example.com')
+      assert.deepEqual(clicks, [])
+      assert.equal(submitted, 0)
+    } finally {
+      Object.defineProperty(proto, 'value', original)
+      if (previousCtor === undefined) {
+        delete (globalThis as { HTMLInputElement?: unknown }).HTMLInputElement
+      } else {
+        ;(globalThis as { HTMLInputElement?: unknown }).HTMLInputElement = previousCtor
+      }
+    }
+  })
+})
+
+test('a career login email that does not stick is not reported as filled', async () => {
+  resetSavedPasswordFillConfirmation()
+  resetIcimsGateFillState()
+  await withAuth0Page('icims-login-frame.html', APRILAIRE_LOGIN, async (dom) => {
+    const email = dom.window.document.getElementById('email') as HTMLInputElement
+    const proto = dom.window.HTMLInputElement.prototype
+    const original = Object.getOwnPropertyDescriptor(proto, 'value')
+    assert.ok(original?.get)
+    Object.defineProperty(proto, 'value', {
+      configurable: true,
+      enumerable: original.enumerable,
+      get() {
+        return original.get!.call(this)
+      },
+      set() {},
+    })
+    const previousCtor = (globalThis as { HTMLInputElement?: unknown }).HTMLInputElement
+    ;(globalThis as { HTMLInputElement?: unknown }).HTMLInputElement = dom.window.HTMLInputElement
+    try {
+      const { default: icimsConfig } = await import('./icims.ts')
+      const rule = icimsConfig()
+      const result = await rule.apply(email, 'email css_loginname', profile() as never)
+      assert.equal(email.value, '')
+      assert.equal(result, 'skip')
+    } finally {
+      Object.defineProperty(proto, 'value', original!)
+      if (previousCtor === undefined) {
+        delete (globalThis as { HTMLInputElement?: unknown }).HTMLInputElement
+      } else {
+        ;(globalThis as { HTMLInputElement?: unknown }).HTMLInputElement = previousCtor
+      }
+    }
+  })
+})

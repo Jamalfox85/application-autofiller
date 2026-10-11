@@ -12,11 +12,27 @@ type ReactTrackedField = (HTMLInputElement | HTMLTextAreaElement) & {
 // plain `input.value = …` plus an input event never reaches the component.
 export function setReactInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const view = input.ownerDocument?.defaultView ?? window
-  const proto =
-    input.tagName === 'TEXTAREA' ? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype
-  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+  const textarea = input.tagName === 'TEXTAREA'
+  const viewProto = textarea ? view.HTMLTextAreaElement?.prototype : view.HTMLInputElement?.prototype
+  const viewSetter = viewProto ? Object.getOwnPropertyDescriptor(viewProto, 'value')?.set : undefined
   const previous = input.value
-  setter?.call(input, value)
+  viewSetter?.call(input, value)
+  // A career-portal iframe can expose the page's value setter, which is a no-op
+  // from this realm. The element stays empty and the toast still said "Filled".
+  // The setter on this realm's prototype is the native one and does write.
+  if (input.value !== value) {
+    const ownCtor = textarea
+      ? typeof HTMLTextAreaElement !== 'undefined'
+        ? HTMLTextAreaElement
+        : undefined
+      : typeof HTMLInputElement !== 'undefined'
+        ? HTMLInputElement
+        : undefined
+    const ownProto = ownCtor?.prototype
+    if (ownProto && ownProto !== viewProto) {
+      Object.getOwnPropertyDescriptor(ownProto, 'value')?.set?.call(input, value)
+    }
+  }
   const tracker = (input as ReactTrackedField)._valueTracker
   if (tracker) tracker.setValue(previous)
   const InputEventCtor = view.InputEvent ?? InputEvent

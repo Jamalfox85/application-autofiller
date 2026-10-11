@@ -131,3 +131,18 @@ test('popup wires the count, the editor refresh, and the plan gate', () => {
   assert.match(loader, /shouldWriteProfileLoad/)
   assert.match(loader, /noteCustomResponses/)
 })
+
+test('Unlimited Fills is informational and does not use the clickable row treatment', () => {
+  const features = readFileSync(new URL('./../components/ProFeatures.vue', import.meta.url), 'utf8')
+  const unlimitedAt = features.indexOf('Unlimited Fills')
+  assert.ok(unlimitedAt > 0)
+  const before = features.slice(Math.max(0, unlimitedAt - 240), unlimitedAt)
+  assert.match(before, /<div class="section-row pro-row static">/)
+  assert.doesNotMatch(before, /<button/)
+  const unscoped = features.slice(features.lastIndexOf('<style>'))
+  assert.match(unscoped, /\.section-row\.pro-row\.static:hover/)
+  assert.match(unscoped, /\.section-row\.pro-row\.static:focus/)
+  assert.match(unscoped, /cursor:\s*default/)
+  assert.doesNotMatch(unscoped, /cursor:\s*pointer/)
+  assert.match(features, /<button[^>]*class="section-row pro-row"/)
+})
