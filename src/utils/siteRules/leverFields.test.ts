@@ -11,6 +11,9 @@ import {
   leverPhoneValue,
   leverPlan,
   pickLeverDegreeOption,
+  leverSelectedLocationValue,
+  parseLeverLocationResults,
+  pickLeverLocationHit,
   pickLeverLocationOption,
   summarizeLeverEeo,
   type LeverProfile,
@@ -144,8 +147,39 @@ describe('Lever contact fields', () => {
       leverPlan({ name: 'urls[Portfolio]', type: 'text', label: 'Portfolio URL' }, profile),
       null,
     )
+    assert.deepEqual(
+      leverPlan(
+        { name: 'urls[GitHub]', type: 'text', label: 'GitHub URL' },
+        { ...profile, github: 'http://github.com/ada' },
+      ),
+      { action: 'text', value: 'https://github.com/ada' },
+    )
+    assert.deepEqual(
+      leverPlan(
+        { name: 'urls[GitHub]', type: 'text', label: 'GitHub URL' },
+        { ...profile, github: 'github.com/ada' },
+      ),
+      { action: 'text', value: 'https://github.com/ada' },
+    )
+    assert.deepEqual(
+      leverPlan(
+        { name: 'urls[GitHub]', type: 'text', label: 'GitHub URL' },
+        { ...profile, github: 'https://github.com/ada/repo' },
+      ),
+      { action: 'text', value: 'https://github.com/ada/repo' },
+    )
+    assert.deepEqual(
+      leverPlan(
+        { name: 'urls[GitHub]', type: 'text', label: 'GitHub URL' },
+        { ...profile, github: 'http://portfolio.example/ada' },
+      ),
+      { action: 'text', value: 'http://portfolio.example/ada' },
+    )
     assert.equal(
-      leverPlan({ name: 'urls[GitHub]', type: 'text', label: 'GitHub URL' }, profile),
+      leverPlan(
+        { name: 'cards[a][field0]', type: 'radio', label: 'GitHub URL', optionLabel: 'Yes' },
+        { ...profile, github: 'github.com/ada' },
+      ),
       null,
     )
     assert.equal(leverPlan({ name: 'resume', type: 'file', label: 'Resume/CV' }, profile), null)
@@ -195,6 +229,23 @@ describe('Lever location', () => {
         profile,
       ),
       'San Francisco, CA, USA',
+    )
+  })
+
+  it('picks Blue Bell, PA and stores the location id the form submits', () => {
+    const hits = parseLeverLocationResults([
+      { name: 'Blue Bell, PA, USA', id: '5742fcc76bd5ee679f315015f769d36b9b4625e2' },
+      {
+        name: 'Blue Bell, Township of Northampton, PA, USA',
+        id: '7d27284308e6f076dccd39f882bf08694a3d596f',
+      },
+    ])
+    const info = { ...profile, city: 'Blue Bell', state: 'Pennsylvania', country: 'united_states' }
+    const hit = pickLeverLocationHit(hits, info)
+    assert.equal(hit?.name, 'Blue Bell, PA, USA')
+    assert.equal(
+      leverSelectedLocationValue(hit!),
+      '{"name":"Blue Bell, PA, USA","id":"5742fcc76bd5ee679f315015f769d36b9b4625e2"}',
     )
   })
 

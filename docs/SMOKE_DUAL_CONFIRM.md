@@ -110,7 +110,7 @@ Essays, referrals, and portfolio beyond LinkedIn (`website`, `github`, `otherLin
 
 ### Load unpacked
 
-1. `npm run build` (or use an existing `dist/`)
+1. `npm run build` (or use an existing `dist/`). A release build fails unless `VITE_RESUME_API_URL` is the production `https` API and `VITE_RESUME_API_KEY` is set to a non-placeholder key. The build does not print the key. `npm run build:dev` is the local-API opt-out and does not require the key.
 2. `chrome://extensions` → Developer mode → **Load unpacked** → select `dist/`
 
 ### Seed the mirror (service worker console)
