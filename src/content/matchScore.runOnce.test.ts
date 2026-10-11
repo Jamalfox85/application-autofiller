@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
 import { cloneDefaultPersonalInfo } from '../lib/personalInfoDefaults.ts'
@@ -85,6 +86,41 @@ test('Match Score runOnce proceeds when profiles exist even without profileSetup
   resetMatchScoreForTests()
   await runOnce()
   assert.equal(messages.some((message) => message.action === 'matchScore'), true)
+})
+
+test('iCIMS job content frame scores the description and the shell does not', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const frameHref = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job?in_iframe=1'
+  const shellHref = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job'
+  try {
+    const frame = new JSDOM(readFileSync(new URL('../../fixtures/pages/icims-job-frame.html', import.meta.url), 'utf8'), {
+      url: frameHref,
+    })
+    Object.assign(globalThis, { window: frame.window, document: frame.window.document })
+    const frameMessages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+    const { resetMatchScoreForTests, runOnce } = await import('./matchScore.ts')
+    resetMatchScoreForTests()
+    await runOnce()
+    const scored = frameMessages.find((message) => message.action === 'matchScore')
+    assert.ok(scored)
+    assert.equal(scored.ats, 'icims')
+    assert.equal(scored.jdText, 'Build performance tooling.')
+    assert.equal(scored.jdSource, 'dom')
+    assert.equal(frameMessages.some((message) => message.action === 'fetchJobPosting'), false)
+
+    const shell = new JSDOM(readFileSync(new URL('../../fixtures/pages/icims-job-shell.html', import.meta.url), 'utf8'), {
+      url: shellHref,
+    })
+    Object.assign(globalThis, { window: shell.window, document: shell.window.document })
+    const shellMessages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+    resetMatchScoreForTests()
+    await runOnce()
+    assert.equal(shellMessages.some((message) => message.action === 'matchScore'), false)
+    assert.equal(shellMessages.some((message) => message.action === 'fetchJobPosting'), false)
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
 })
 
 test('Match Score runOnce stays quiet on first-run onboarding', async () => {

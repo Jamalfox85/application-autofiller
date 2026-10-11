@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { openProCheckout, openProLogin } from '@/services/billing/client'
-import { PAYWALL_COPY } from '@/services/billing/copy'
+import { PAYWALL_COPY, softContinueFreeLabel } from '@/services/billing/copy'
 import type { CheckoutSource, HardPaywallCta, SoftPaywallCta } from '@/services/billing/plans'
 import {
   PAID_EVENT,
@@ -106,6 +106,10 @@ async function checkout(plan: 'monthly' | 'annual', cta: SoftPaywallCta | HardPa
   emit('close')
 }
 
+function continueFreeLabel(): string {
+  return softContinueFreeLabel(counts().fillsRemaining)
+}
+
 async function continueFree() {
   const ctx = await paidEventContext(counts())
   await trackPaid(PAID_EVENT.softCta, softPaywallCtaProps({ ...ctx, ...counts(), cta: 'continue_free' }))
@@ -130,7 +134,7 @@ async function restore() {
           {{ PAYWALL_COPY.soft.primary }}
         </button>
         <button class="paywall-secondary" type="button" @click="continueFree">
-          {{ PAYWALL_COPY.soft.secondary }}
+          {{ continueFreeLabel() }}
         </button>
         <button class="paywall-text" type="button" @click="checkout('annual', 'see_annual')">
           {{ PAYWALL_COPY.soft.tertiary }}

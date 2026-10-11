@@ -1,9 +1,14 @@
-// Per-ATS switches. Greenhouse, Ashby, Lever, and Workable default on because
-// their extractors are covered by fixtures against documented response shapes.
-// Jobvite stays off: no public unauthenticated posting host was confirmed.
-// BambooHR, iCIMS, and Workday stay off for this launch.
+// Per-ATS switches. Default on only when a captured fixture shows the description
+// and the extractor returns that text. Fetched postings stay on the documented
+// response shapes and the posting-host allowlist. A title, an apply form, or an
+// iframe shell is not a description. A missing description returns null, so the
+// card stays hidden.
+// Greenhouse, Ashby, Lever, and Workable: documented posting responses.
+// iCIMS: .iCIMS_JobContent on the job content frame. The shell document does not
+// contain it. Jobvite, BambooHR, and Workday stay off: captured apply/job pages
+// have no description body, and no unauthenticated posting host is confirmed.
 
-const DEFAULT_ON = new Set(['greenhouse', 'ashby', 'lever', 'workable'])
+const DEFAULT_ON = new Set(['greenhouse', 'ashby', 'lever', 'workable', 'icims'])
 
 function flagString(read: () => unknown): string | undefined {
   try {

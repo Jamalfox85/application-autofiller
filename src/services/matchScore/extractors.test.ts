@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { JSDOM } from 'jsdom'
 import { JD_TEXT_MAX } from './types.ts'
 import { atsExtractorEnabled, matchScoreEnabled } from './flags.ts'
 import { extractJobDescription } from './extractors/index.ts'
+import { extractBambooHr } from './extractors/bamboohr.ts'
 import { extractGreenhouse } from './extractors/greenhouse.ts'
+import { extractIcims } from './extractors/icims.ts'
 import { extractJobvite } from './extractors/jobvite.ts'
-import type { ExtractDocument } from './extractors/page.ts'
+import type { ExtractDocument, ExtractPage } from './extractors/page.ts'
+import { matchScoreSurfaceReady } from './extractors/surface.ts'
+import { extractWorkday } from './extractors/workday.ts'
 
 function pageDoc(map: Record<string, { text?: string; src?: string }>): ExtractDocument {
   return {
@@ -68,16 +74,23 @@ const workableFixture = {
   ],
 }
 
+function fixturePage(file: string, href: string): ExtractPage {
+  const html = readFileSync(new URL(`../../../fixtures/pages/${file}`, import.meta.url), 'utf8')
+  const dom = new JSDOM(html, { url: href })
+  return { href, hostname: new URL(href).hostname, document: dom.window.document }
+}
+
 test('feature flags default on for proven extractors and off for the rest', () => {
   assert.equal(matchScoreEnabled(), true)
   assert.equal(matchScoreEnabled('false'), false)
-  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable']) {
+  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable', 'icims']) {
     assert.equal(atsExtractorEnabled(ats), true, ats)
   }
-  for (const ats of ['jobvite', 'bamboohr', 'icims', 'workday']) {
+  for (const ats of ['jobvite', 'bamboohr', 'workday']) {
     assert.equal(atsExtractorEnabled(ats), false, ats)
   }
   assert.equal(atsExtractorEnabled('greenhouse', 'false'), false)
+  assert.equal(atsExtractorEnabled('icims', 'false'), false)
 })
 
 test('hosted Greenhouse uses the job description element and ignores other page text', async () => {
@@ -220,28 +233,106 @@ test('Workable uses the documented accounts endpoint and the job description', a
   assert.equal(extraction?.text.includes('Account level blurb'), false)
 })
 
-test('Jobvite, BambooHR, iCIMS, and Workday do not fetch', async () => {
+const ICIMS_JOB = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job'
+const ICIMS_FRAME = `${ICIMS_JOB}?in_iframe=1`
+
+test('iCIMS reads the job content frame and not the shell, login, or candidate documents', async () => {
   let calls = 0
   const fetchPosting = async () => {
     calls += 1
     return '{}'
   }
-  assert.equal(await extractJobvite(), null)
+  const frame = fixturePage('icims-job-frame.html', ICIMS_FRAME)
+  const extraction = await extractJobDescription('icims', frame, fetchPosting)
+  assert.equal(extraction?.text, 'Build performance tooling.')
+  assert.equal(extraction?.source, 'dom')
+  assert.equal(extraction?.jobUrl, ICIMS_FRAME)
+  assert.equal(extraction?.text.includes('Apply'), false)
+  assert.equal(extraction?.text.includes('Performance and Tools'), false)
+  assert.deepEqual(await extractIcims(frame), extraction)
+
+  const shell = fixturePage('icims-job-shell.html', ICIMS_JOB)
+  assert.match(shell.document?.querySelector('#icims_content_iframe')?.getAttribute('src') ?? '', /in_iframe=1/)
+  assert.equal(shell.document?.querySelector('.iCIMS_JobContent'), null)
+  assert.equal(await extractJobDescription('icims', shell, fetchPosting), null)
+  assert.equal(matchScoreSurfaceReady(frame.document), true)
+  assert.equal(matchScoreSurfaceReady(shell.document), false)
+
+  const quiet = [
+    fixturePage('icims-application.html', 'https://careers-kemin.icims.com/jobs/12279/global-erp-business-analyst/candidate?in_iframe=1'),
+    fixturePage('icims-candidate-frame.html', 'https://careers-peraton.icims.com/jobs/168754/iam-software-engineer/candidate?in_iframe=1'),
+    fixturePage('icims-login-frame.html', 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/login?in_iframe=1'),
+    fixturePage('icims-password-frame.html', 'https://careers-powerschool.icims.com/jobs/53014/senior-software-engineer-i/login?in_iframe=1'),
+  ]
+  for (const page of quiet) {
+    assert.equal(page.document?.querySelector('.iCIMS_JobContent'), null, page.href)
+    assert.equal(matchScoreSurfaceReady(page.document), true, page.href)
+    assert.equal(await extractIcims(page), null, page.href)
+    assert.equal(await extractJobDescription('icims', page, fetchPosting), null, page.href)
+  }
+  assert.equal(calls, 0)
+})
+
+test('Jobvite, BambooHR, and Workday captured pages have no readable description and do not fetch', async () => {
+  let calls = 0
+  const fetchPosting = async () => {
+    calls += 1
+    return '{}'
+  }
+
+  const jobviteShell = fixturePage('jobvite-apply-shell.html', 'https://jobs.jobvite.com/uplight/job/oPTRAfwT/apply')
+  assert.match(jobviteShell.document?.querySelector('.jv-header')?.textContent ?? '', /Software Engineer/)
+  assert.equal(await extractJobvite(jobviteShell), null)
+  assert.equal(await extractJobDescription('jobvite', jobviteShell, fetchPosting), null)
   assert.equal(
-    await extractJobDescription(
-      'jobvite',
-      { href: 'https://jobs.jobvite.com/uplight/job/oPTRAfwT/apply', hostname: 'jobs.jobvite.com' },
-      fetchPosting,
+    await extractJobvite(fixturePage('jobvite-application.html', 'https://jobs.jobvite.com/uplight/job/oPTRAfwT/apply')),
+    null,
+  )
+  assert.equal(await extractJobvite(fixturePage('jobvite-board.html', 'https://jobs.jobvite.com/uplight')), null)
+
+  const bambooApply = fixturePage('bamboohr-application.html', 'https://acme.bamboohr.com/careers/42')
+  assert.equal(await extractBambooHr(bambooApply), null)
+  assert.equal(await extractJobDescription('bamboohr', bambooApply, fetchPosting), null)
+  assert.equal(await extractBambooHr(fixturePage('bamboohr-listing.html', 'https://acme.bamboohr.com/careers')), null)
+  const bambooEmpty = new JSDOM('<!doctype html><body><div id="root"></div></body>', {
+    url: 'https://acme.bamboohr.com/careers/42',
+  })
+  assert.equal(
+    await extractBambooHr({
+      href: 'https://acme.bamboohr.com/careers/42',
+      hostname: 'acme.bamboohr.com',
+      document: bambooEmpty.window.document,
+    }),
+    null,
+  )
+
+  const workdayApply = fixturePage(
+    'workday-application.html',
+    'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Software-Engineer_2019787/apply',
+  )
+  assert.equal(workdayApply.document?.querySelector('[data-automation-id="applyFlowPage"]') != null, true)
+  assert.equal(await extractWorkday(workdayApply), null)
+  assert.equal(await extractJobDescription('workday', workdayApply, fetchPosting), null)
+  assert.equal(
+    await extractWorkday(
+      fixturePage(
+        'workday-search.html',
+        'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Software-Engineer_2019787',
+      ),
     ),
     null,
   )
-  for (const ats of ['bamboohr', 'icims', 'workday']) {
-    assert.equal(
-      await extractJobDescription(ats, { href: 'https://example.com/apply', hostname: 'example.com' }, fetchPosting),
-      null,
-      ats,
-    )
-  }
+  const workdaySpa = new JSDOM('<!doctype html><body><div id="root"></div></body>', {
+    url: 'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Software-Engineer_2019787/apply',
+  })
+  assert.equal(
+    await extractWorkday({
+      href: 'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Software-Engineer_2019787/apply',
+      hostname: 'cisco.wd5.myworkdayjobs.com',
+      document: workdaySpa.window.document,
+    }),
+    null,
+  )
   assert.equal(calls, 0)
 })
 

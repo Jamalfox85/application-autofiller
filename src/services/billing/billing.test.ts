@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { PAYWALL_COPY } from './copy.ts'
+import { PAYWALL_COPY, softContinueFreeLabel } from './copy.ts'
 import {
   applySuccessfulFill,
   calendarWeekKey,
   decideFill,
   decideFillWithRefresh,
   emptyQuota,
+  fillsRemaining,
   mergeQuotaRecords,
   type FillQuotaRecord,
 } from './quota.ts'
@@ -144,13 +145,16 @@ test('pro fills do not consume the free counter', () => {
 
 test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this week')
-  assert.equal(
-    PAYWALL_COPY.soft.body,
-    'Go Pro for unlimited autofills, plus score matching and up to 5 profiles.',
-  )
+  assert.equal(PAYWALL_COPY.soft.body, 'Go Pro for unlimited autofills.')
   assert.equal(PAYWALL_COPY.soft.primary, 'Upgrade to Pro \u2014 $5.99/mo')
-  assert.equal(PAYWALL_COPY.soft.secondary, 'Continue free (15 fills left)')
+  assert.equal(softContinueFreeLabel(fillsRemaining(SOFT_GATE_AT)), 'Continue free (15 fills left this week)')
+  assert.equal(softContinueFreeLabel(4), 'Continue free (4 fills left this week)')
   assert.equal(PAYWALL_COPY.soft.tertiary, 'See annual \u2014 $49/yr')
+  const popup = readFileSync('src/components/PaywallDialog.vue', 'utf8')
+  const onPage = readFileSync('src/content/fillPaywall.ts', 'utf8')
+  assert.match(popup, /softContinueFreeLabel\(counts\(\)\.fillsRemaining\)/)
+  assert.match(onPage, /softContinueFreeLabel\(ctx\.fillsRemaining\)/)
+  assert.doesNotMatch(`${popup}\n${onPage}`, /Continue free \(15 fills left\)/)
   assert.equal(PAYWALL_COPY.hard.title, 'You\u2019ve hit your free fill limit')
   assert.equal(
     PAYWALL_COPY.hard.body,
@@ -162,7 +166,7 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.resumeAi.cta, 'Upgrade to Pro')
   assert.equal(PAYWALL_COPY.multiProfile.title, 'Up to 5 profiles, each with its own resume, are a Pro feature.')
   assert.equal(PAYWALL_COPY.lockedProfile.title, 'Resubscribe to use this profile again.')
-  const paywallText = JSON.stringify(PAYWALL_COPY).toLowerCase()
+  const paywallText = `${JSON.stringify(PAYWALL_COPY)} ${softContinueFreeLabel(15)}`.toLowerCase()
   assert.equal(paywallText.includes('match score'), false)
   assert.equal(paywallText.includes('ats score'), false)
   for (const ats of ['workday', 'greenhouse', 'lever', 'ashby', 'icims', 'bamboohr', 'jobvite', 'workable']) {
