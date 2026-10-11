@@ -246,6 +246,61 @@ test('work authorization, sponsorship, and work status stay within known options
   )
 })
 
+test('Work Authorization selects the authorized sentence, and Yes/No wording stays Yes', () => {
+  // Live Egnyte menu (jobs.jobvite.com/egnyte/job/o8RUAfwd/apply): not Yes/No.
+  const egnyte = [
+    { text: 'Select an option', value: '' },
+    {
+      text: 'I am authorized to work in the country in which this job will be performed',
+      value: 'I am authorized to work in the country in which this job will be performed',
+    },
+    {
+      text: 'I will require visa sponsorship to work in the country in which this job will be performed',
+      value: 'I will require visa sponsorship to work in the country in which this job will be performed',
+    },
+  ]
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Work Authorization', type: 'select-one', options: egnyte }), profile),
+    {
+      action: 'select',
+      optionText: 'I am authorized to work in the country in which this job will be performed',
+    },
+  )
+  assert.deepEqual(
+    jobvitePlan(
+      field({ label: 'Work Authorization', type: 'select-one', options: egnyte }),
+      { ...profile, workAuthorization: 'need_sponsorship' },
+    ),
+    {
+      action: 'select',
+      optionText: 'I will require visa sponsorship to work in the country in which this job will be performed',
+    },
+  )
+  assert.deepEqual(
+    jobvitePlan(
+      field({
+        label: 'Are you legally authorized to work in the United States?',
+        type: 'select-one',
+        options: [
+          { text: 'Select an option', value: '' },
+          { text: 'Yes', value: 'Yes' },
+          { text: 'No', value: 'No' },
+        ],
+      }),
+      profile,
+    ),
+    { action: 'select', optionText: 'Yes' },
+  )
+  assert.deepEqual(
+    jobvitePlan(field({ label: 'Work Authorization', type: 'select-one', options: workStatusOptions }), profile),
+    { action: 'select', optionText: 'US Citizen' },
+  )
+  assert.deepEqual(jobvitePlan(field({ label: 'Work Status', type: 'select-one', options: workStatusOptions }), profile), {
+    action: 'select',
+    optionText: 'US Citizen',
+  })
+})
+
 test('authorized_no_sponsorship maps a citizenship Work Status menu to US Citizen', () => {
   // Live Internet Brands menu (jobs.jobvite.com/internetbrands/job/oH9MAfwW/apply):
   // None, US Citizen, Permanent Resident, H1 Visa, TN Visa, F1 Visa, Decline to Self Identify.

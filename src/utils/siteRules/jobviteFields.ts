@@ -10,6 +10,7 @@
 // into the form.
 
 import { experienceForFill } from '../../lib/sync/profileRows.ts'
+import { pickWorkAuthorizationOption } from './greenhouseValues.ts'
 
 export type JobviteSection = 'apply' | 'eeo' | 'ofccp' | 'prescreen'
 
@@ -800,6 +801,40 @@ function isSpecificVisaOption(norm: string): boolean {
   return /h1|tnvisa|^tn$|f1visa|^f1$|opt|cpt/.test(norm)
 }
 
+function pickVisaSponsorshipSentence(field: JobviteField): string | null {
+  return (
+    optionRows(field).find((row) => {
+      if (
+        row.norm.includes('notrequire') ||
+        row.norm.includes('withoutsponsor') ||
+        row.norm.includes('nosponsor')
+      ) {
+        return false
+      }
+      return (
+        row.norm.includes('visasponsor') ||
+        row.norm.includes('requiresponsor') ||
+        row.norm.includes('needsponsor')
+      )
+    })?.text || null
+  )
+}
+
+// Yes/No and "authorized to work…" sentences come from the saved work
+// authorization. Citizenship menus (US Citizen, Permanent Resident) stay on
+// pickWorkStatus. A combined menu whose only negative choice is "I will
+// require visa sponsorship…" is that sentence when the profile is not authorized.
+function pickWorkAuthSelect(field: JobviteField, info: JobviteProfile): string | null {
+  const auth = info.workAuthorization || ''
+  const labels = optionRows(field).map((row) => row.text || row.value)
+  const sentence = pickWorkAuthorizationOption(labels, auth)
+  if (sentence) return sentence
+  const status = pickWorkStatus(field, auth)
+  if (status) return status
+  if (authorizedAnswer(info) === 'no') return pickVisaSponsorshipSentence(field)
+  return null
+}
+
 function pickWorkStatus(field: JobviteField, auth: string): string | null {
   const rows = optionRows(field).filter((row) => row.norm !== 'none' && !isDeclineLabel(row.text))
   const find = (pred: (norm: string) => boolean) => rows.find((row) => pred(row.norm))?.text || null
@@ -1011,10 +1046,8 @@ export function jobvitePlan(
     if (!answer) return skip()
     const type = fieldType(field)
     if (type === 'select' || type.startsWith('select')) {
-      const yesNo = pickJobviteOption(field, [answer === 'yes' ? 'Yes' : 'No'])
-      if (yesNo) return { action: 'select', optionText: yesNo }
-      const status = pickWorkStatus(field, info.workAuthorization || '')
-      return status ? { action: 'select', optionText: status } : skip()
+      const picked = pickWorkAuthSelect(field, info)
+      return picked ? { action: 'select', optionText: picked } : skip()
     }
     return choicePlan(field, null, answer)
   }

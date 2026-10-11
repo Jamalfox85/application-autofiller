@@ -17,6 +17,7 @@ import {
 } from './icimsAccountNotice.ts'
 import {
   applyIcimsPlan,
+  commitIcimsPhoneCountryCode,
   consumeIcimsHcaptchaStop,
   controlFromElement,
   fillIcimsLocationMenus,
@@ -211,6 +212,12 @@ export default function icimsConfig(): SiteRule {
       ) {
         noteSkippedAccountPassword()
         return 'skip'
+      }
+      if (plan.action === 'select' && plan.mode === 'phone-country') {
+        // The hidden value input is aria-hidden. Selecting still has to land
+        // on the visible country-code face. Do not type into the search box
+        // and do not submit.
+        return commitIcimsPhoneCountryCode(input, personalInfo) ? true : 'skip'
       }
       if (control.concealed) return 'skip'
       if (plan.action === 'leave' && plan.reason === 'confirm-password') {

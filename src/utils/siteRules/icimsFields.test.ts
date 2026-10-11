@@ -14,6 +14,8 @@ import {
   ICIMS_HCAPTCHA_STOP_MESSAGE,
   applyIcimsPlan,
   classifyIcimsControl,
+  commitIcimsPhoneCountryCode,
+  pickIcimsPhoneCountryCodeOption,
   consumeIcimsHcaptchaStop,
   fillIcimsLocationMenus,
   fillIcimsLoginGate,
@@ -383,6 +385,111 @@ test('contact fields map name, email, phone, address, and LinkedIn, and skip str
   assert.equal(phoneType.action, 'leave')
 })
 
+test('phone country code selects the profile country and leaves the phone number alone', () => {
+  const info = profile({ country: 'united_states', phoneCountryCode: '+1', phone: '555-0100' })
+  const options = [
+    { value: '-1', label: '— Make a Selection —' },
+    { value: 'CA', label: '(+1) Canada' },
+    { value: 'US', label: '(+1) United States' },
+    { value: 'UM', label: '(+1) United States Minor Outlying Islands' },
+    { value: 'UK', label: '(+44) United Kingdom' },
+  ]
+  const hidden = planIcimsFill(
+    control({
+      id: 'selectedCountryCode',
+      name: 'countryCodeSelect',
+      concealed: true,
+      fieldText: 'Phone Country Code',
+    }),
+    info,
+  )
+  assert.equal(hidden.action, 'select')
+  if (hidden.action !== 'select') return
+  assert.equal(hidden.field, 'phoneCountry')
+  assert.equal(hidden.mode, 'phone-country')
+  assert.equal(hidden.query, '+1')
+  assert.equal(hidden.text, 'United States')
+  assert.equal(resolveIcimsSelect(hidden, options), 'US')
+
+  const search = planIcimsFill(
+    control({ id: 'countryCode', name: 'countryCodeSearch', fieldText: 'Phone Country Code' }),
+    info,
+  )
+  assert.equal(search.action, 'select')
+  if (search.action === 'select') assert.equal(search.mode, 'phone-country')
+
+  const listed = planIcimsFill(
+    control({
+      tagName: 'SELECT',
+      type: 'select',
+      id: 'rcf3601',
+      fieldText: 'Phone Country Code',
+    }),
+    info,
+  )
+  assert.equal(listed.action, 'select')
+  if (listed.action === 'select') assert.equal(resolveIcimsSelect(listed, options), 'US')
+
+  assert.equal(textValue(planIcimsFill(control({ id: 'phoneNumber', name: 'css_phoneNumber', fieldText: 'Number' }), info)), '555-0100')
+  assert.equal(textValue(planIcimsFill(control({ id: 'PersonProfileFields.AddressCountry' }), info)), 'United States')
+  assert.equal(pickIcimsPhoneCountryCodeOption(options, { country: 'canada', phoneCountryCode: '+1' }), 'CA')
+  assert.equal(pickIcimsPhoneCountryCodeOption(options, { country: 'united_kingdom', phoneCountryCode: '+44' }), 'UK')
+  assert.equal(pickIcimsPhoneCountryCodeOption(options, { country: '', phoneCountryCode: '' }), null)
+  const missing = planIcimsFill(
+    control({ id: 'countryCode', name: 'countryCodeSearch', fieldText: 'Phone Country Code' }),
+    profile({ country: '', phoneCountryCode: '' }),
+  )
+  assert.deepEqual(missing, { field: 'phoneCountry', action: 'leave', reason: 'no-vault-value' })
+})
+
+test('phone country code list commits United States and does not submit', () => {
+  const dom = new JSDOM(`<!doctype html><form id="enterEmailForm">
+    <label for="email">Email</label>
+    <input id="email" name="css_loginName" type="email" value="" />
+    <div class="country-phone-group">
+      <div class="country-code">
+        <label for="countryCode">Phone Country Code</label>
+        <div class="country-code">
+          <input id="selectedCountryCode" name="countryCodeSelect" type="text" value="" aria-hidden="true" />
+          <a id="dropdown" class="dropdown-select" role="combobox" aria-label="Country Code — Make a Selection —">
+            <span class="dropdown-text"><span class="dropdown-placeholder">— Make a Selection —</span></span>
+          </a>
+          <div id="dropdownOptions" class="dropdown-container hidden">
+            <input id="countryCode" name="countryCodeSearch" type="text" value="" />
+            <ul class="dropdown-results">
+              <li class="dropdown-result" role="option" value="-1" dropdown-result="-1" aria-label="— Make a Selection —">— Make a Selection —</li>
+              <li class="dropdown-result" role="option" value="CA" dropdown-result="CA" aria-label="(+1) Canada">(+1) Canada</li>
+              <li class="dropdown-result" role="option" value="US" dropdown-result="US" aria-label="(+1) United States">(+1) United States</li>
+              <li class="dropdown-result" role="option" value="UM" dropdown-result="UM" aria-label="(+1) United States Minor Outlying Islands">(+1) United States Minor Outlying Islands</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="phone-number">
+        <label for="phoneNumber">Number</label>
+        <input id="phoneNumber" name="css_phoneNumber" type="text" value="" />
+      </div>
+    </div>
+    <input id="enterEmailSubmitButton" type="submit" value="Next" />
+  </form>`)
+  const doc = dom.window.document
+  let submitted = false
+  doc.getElementById('enterEmailForm')?.addEventListener('submit', (event) => {
+    event.preventDefault()
+    submitted = true
+  })
+  const hidden = doc.getElementById('selectedCountryCode') as HTMLInputElement
+  const wrote = commitIcimsPhoneCountryCode(hidden, { country: 'united_states', phoneCountryCode: '+1' })
+  assert.equal(wrote, true)
+  assert.equal(hidden.value, 'US')
+  assert.equal(doc.querySelector('.dropdown-text')?.textContent, '(+1) United States')
+  assert.equal((doc.getElementById('countryCode') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('phoneNumber') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('email') as HTMLInputElement).value, '')
+  assert.equal(submitted, false)
+  assert.equal((doc.getElementById('enterEmailSubmitButton') as HTMLInputElement).value, 'Next')
+})
+
 test('state and country selects use the profile alias, and text country uses the display label', () => {
   const info = profile()
   const state = planIcimsFill(
@@ -576,6 +683,53 @@ test('site rule apply fills the login-gate email from the iCIMS account and stil
     }
     assert.equal(await rule.apply(street2 as unknown as HTMLInputElement, 'addressstreet2', profile() as never), true)
     assert.equal(street2.value, 'leave-me')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('site rule selects Phone Country Code on the login list and does not submit', async () => {
+  const previousWindow = globalThis.window
+  const dom = new JSDOM(
+    `<!doctype html><form id="enterEmailForm">
+      <input id="selectedCountryCode" name="countryCodeSelect" type="text" value="" aria-hidden="true" />
+      <a id="dropdown" role="combobox"><span class="dropdown-text">— Make a Selection —</span></a>
+      <ul class="dropdown-results">
+        <li class="dropdown-result" role="option" value="US" aria-label="(+1) United States">(+1) United States</li>
+        <li class="dropdown-result" role="option" value="UM" aria-label="(+1) United States Minor Outlying Islands">(+1) United States Minor Outlying Islands</li>
+      </ul>
+      <input id="phoneNumber" name="css_phoneNumber" type="text" value="" />
+      <input type="submit" value="Next" />
+    </form>`,
+    { url: 'https://staff-emory.icims.com/jobs/174923/login?in_iframe=1' },
+  )
+  const form = dom.window.document.getElementById('enterEmailForm')
+  form?.classList.add('country-phone-group')
+  Object.assign(globalThis, { window: dom.window })
+  let submitted = false
+  form?.addEventListener('submit', (event) => {
+    event.preventDefault()
+    submitted = true
+  })
+  try {
+    const { default: icimsConfig } = await import('./icims.ts')
+    const rule = icimsConfig()
+    const hidden = dom.window.document.getElementById('selectedCountryCode') as HTMLInputElement
+    const result = await rule.apply(
+      hidden,
+      'phone country code',
+      profile({ country: 'united_states', phoneCountryCode: '+1' }) as never,
+    )
+    assert.equal(result, true)
+    assert.equal(hidden.value, 'US')
+    assert.equal(dom.window.document.querySelector('.dropdown-text')?.textContent, '(+1) United States')
+    const phone = dom.window.document.getElementById('phoneNumber') as HTMLInputElement
+    assert.equal(
+      await rule.apply(phone, 'number', profile({ country: 'united_states', phoneCountryCode: '+1', phone: '555-0100' }) as never),
+      true,
+    )
+    assert.equal(phone.value, '555-0100')
+    assert.equal(submitted, false)
   } finally {
     globalThis.window = previousWindow
   }
