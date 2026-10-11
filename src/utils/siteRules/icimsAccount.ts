@@ -1,4 +1,5 @@
 import type { PersonalInfo } from '../../types/index.ts'
+import { accountIdPasswordLocked } from '../../lib/accountPasswordFill.ts'
 
 // Portal value saved by ApplicationAccountFormDialog ("iCIMS"). Match is case-insensitive
 // so "icims" or " ICIMS " still resolve.
@@ -180,6 +181,18 @@ export function icimsAccountRequiresConfirmation(
   personalInfo: Partial<PersonalInfo> | null | undefined,
 ): boolean {
   return resolveIcimsAccount(personalInfo)?.requireConfirmation === true
+}
+
+// The iCIMS row's password was sealed and did not open. Legacy accountPassword
+// is not an iCIMS login, so a locked Workday password does not trip this.
+export function icimsSavedPasswordLocked(
+  personalInfo: Partial<PersonalInfo> | null | undefined,
+): boolean {
+  if (present(getIcimsAccount(personalInfo).password).trim()) return false
+  const icimsAccounts = (personalInfo?.applicationAccounts ?? []).filter(
+    (account) => account.portal?.trim().toLowerCase() === ICIMS_ACCOUNT_PORTAL,
+  )
+  return icimsAccounts.some((account) => accountIdPasswordLocked(personalInfo, account.id))
 }
 
 export function hasIcimsAccountCredentials(

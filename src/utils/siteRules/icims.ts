@@ -1,6 +1,8 @@
 import type { PersonalInfo, SiteRule } from '../../types/index.ts'
+import { noteSkippedAccountPassword } from '../../lib/accountPasswordFill.ts'
 import {
   hasIcimsAccountCredentials,
+  icimsSavedPasswordLocked,
   isIcimsAccountCreationEmailStep,
   isIcimsCandidateHost,
   isIcimsLoginSurface,
@@ -99,6 +101,10 @@ function syncIcimsLogin(personalInfo: PersonalInfo | null | undefined) {
   void (async () => {
     if (!emailStep) emailStepWritten = false
     const latest = await readPersonalInfoForIcims(personalInfo)
+    if (icimsSavedPasswordLocked(latest)) {
+      noteSkippedAccountPassword()
+      return
+    }
     if (!hasIcimsAccountCredentials(latest)) {
       if (plan.warnIfMissing) await maybeWarnMissingIcimsAccount(latest, page)
       return
@@ -166,6 +172,14 @@ export default function icimsConfig(): SiteRule {
         loginSurface: isIcimsCandidateHost(page.hostname) && isIcimsLoginSurface(page),
       })
       if (plan.action === 'leave' && plan.reason === 'resume-autofill') return 'skip'
+      if (
+        plan.action === 'leave' &&
+        plan.field === 'gatePassword' &&
+        icimsSavedPasswordLocked(personalInfo)
+      ) {
+        noteSkippedAccountPassword()
+        return 'skip'
+      }
       if (plan.action === 'file') {
         // Select the saved resume on this file input. Do not click it, and do
         // not submit. An "Autofill with resume" control never reaches this branch.

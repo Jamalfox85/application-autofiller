@@ -1,4 +1,5 @@
 import type { PersonalInfo } from '../../types/index.ts'
+import { accountIdPasswordLocked, legacyAccountPasswordLocked } from '../../lib/accountPasswordFill.ts'
 
 // Portal value saved by ApplicationAccountFormDialog. Match is case-insensitive so older
 // rows stored as "workday" or "WORKDAY" still resolve.
@@ -58,6 +59,17 @@ export function getWorkdayAccount(personalInfo: Partial<PersonalInfo> | null | u
   const email = present(saved?.email).trim() || present(personalInfo?.accountEmail).trim()
   const password = present(saved?.password) || present(personalInfo?.accountPassword)
   return { email, password }
+}
+
+// The password Workday would type was sealed and did not open. A password that
+// did open still fills. Another portal failing does not lock this form.
+export function workdaySavedPasswordLocked(
+  personalInfo: Partial<PersonalInfo> | null | undefined,
+): boolean {
+  if (present(getWorkdayAccount(personalInfo).password).trim()) return false
+  const rows = workdayAccountRows(personalInfo)
+  if (rows.some((row) => accountIdPasswordLocked(personalInfo, row.id))) return true
+  return legacyAccountPasswordLocked(personalInfo)
 }
 
 export function hasWorkdayAccountCredentials(

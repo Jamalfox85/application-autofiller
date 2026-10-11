@@ -29,6 +29,12 @@ import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
 import { openStoredPersonalInfo } from '../lib/openStoredPersonalInfo.ts'
+import {
+  isGenericAccountPasswordField,
+  legacyAccountPasswordLocked,
+  noteSkippedAccountPassword,
+  resetSkippedAccountPasswordNote,
+} from '../lib/accountPasswordFill.ts'
 import { withTimeout } from '../utils/withTimeout.ts'
 import {
   SUBMITTED_APPLICATIONS_KEY,
@@ -214,6 +220,7 @@ export function pageNavigated() {
 }
 
 export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_clicked_button') {
+  resetSkippedAccountPasswordNote()
   // No fill without a user click. A detection-triggered call must not write, count or
   // record history; a resync is only a continuation of a fill the user already started.
   if (triggerSource === 'auto_on_detect' || (triggerSource === 'resync' && !userStartedFillOnPage)) {
@@ -354,6 +361,16 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
         filledCount++
         fillRecords.push({ input, ...snapshot })
         if (reviewHighlightEnabled) highlightFilledField(input)
+        continue
+      }
+
+      // A sealed legacy account password that did not open is not a match and
+      // is not a successful fill. Skip the field and keep the status to one line.
+      if (
+        legacyAccountPasswordLocked(personalInfo) &&
+        isGenericAccountPasswordField(input)
+      ) {
+        noteSkippedAccountPassword()
         continue
       }
 

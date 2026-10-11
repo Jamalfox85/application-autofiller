@@ -18,7 +18,7 @@ import { persistUploadedResume, resumeParseFilePart } from './src/services/resum
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
 import { deliverIcimsPageDropdown } from './src/utils/siteRules/icimsPageDropdownCommand.js'
 import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
-import { ensureAccountKeyInSession } from './src/services/accountKeyWorker.js'
+import { ensureAccountKeyInSession, openAccountKeySession } from './src/services/accountKeyWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
 import {
@@ -33,6 +33,12 @@ import {
   extensionSuperProperties,
   finalizeTrackedProperties,
 } from './src/services/mixpanelConfig.js'
+
+// chrome.storage.session is trusted-contexts only until this runs. Every
+// service-worker start, including after Chrome kills and restarts the worker,
+// evaluates this file from the top, so this runs before the key is cached.
+// Content scripts (isolated world) can then read the key. Page JavaScript cannot.
+void openAccountKeySession()
 
 startExtensionPay()
 
