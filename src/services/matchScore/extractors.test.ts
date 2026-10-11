@@ -197,6 +197,24 @@ test('Lever uses description and lists from the documented posting', async () =>
   assert.ok(eu?.text)
 })
 
+test('Lever overview can start from the posting description and still uses the posting API', async () => {
+  const page = fixturePage('lever-job-overview.html', `https://jobs.lever.co/wealthfront/${leverId}`)
+  assert.equal(page.document?.querySelector('form'), null)
+  assert.match(page.document?.querySelector('[data-qa="job-description"]')?.textContent ?? '', /Android apps/)
+  assert.equal(matchScoreSurfaceReady(page.document, page.href), true)
+  const urls: string[] = []
+  const extraction = await extractJobDescription('lever', page, async (url) => {
+    urls.push(url)
+    return JSON.stringify(leverFixture)
+  })
+  assert.deepEqual(urls, [`https://api.lever.co/v0/postings/wealthfront/${leverId}`])
+  assert.equal(extraction?.source, 'fetched')
+  assert.equal(extraction?.text, 'Build Android apps. Requirements Kotlin')
+  assert.equal(extraction?.text.includes('salary range'), false)
+  const board = fixturePage('lever-board.html', 'https://jobs.lever.co/wealthfront')
+  assert.equal(matchScoreSurfaceReady(board.document, board.href), false)
+})
+
 test('Ashby picks the job id from the public job board', async () => {
   const urls: string[] = []
   const extraction = await extractJobDescription(
