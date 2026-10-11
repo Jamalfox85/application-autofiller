@@ -403,6 +403,34 @@ test('BambooHR job page scores the description and does not fetch', async () => 
   }
 })
 
+test('an extraction limit shows on the card and other errors stay hidden', async () => {
+  installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+  const { resetMatchScoreForTests, onMatchScoreRender } = await import('./matchScore.ts')
+  resetMatchScoreForTests()
+  onMatchScoreRender({
+    seq: 1,
+    jobUrl: 'https://job-boards.greenhouse.io/greenhouse/jobs/8234044',
+    view: 'limited',
+    retryAfterMs: 120_000,
+  })
+  const card = document.getElementById('match-score')
+  assert.ok(card)
+  assert.match(card?.textContent ?? '', /Job match limit reached for today/)
+  assert.match(card?.textContent ?? '', /Try again in 2 minutes/)
+  onMatchScoreRender({ seq: 2, jobUrl: 'https://job-boards.greenhouse.io/greenhouse/jobs/8234044', view: 'hide', reason: 'error' })
+  assert.equal(document.getElementById('match-score'), null)
+
+  resetMatchScoreForTests()
+  onMatchScoreRender({
+    seq: 1,
+    jobUrl: 'https://job-boards.greenhouse.io/greenhouse/jobs/8234044',
+    view: 'limited',
+    retryAfterMs: null,
+  })
+  assert.match(document.getElementById('match-score')?.textContent ?? '', /Try again later/)
+  assert.equal(document.getElementById('match-score')?.textContent?.includes('minute'), false)
+})
+
 test('Match Score runOnce stays quiet on first-run onboarding', async () => {
   const messages = installChrome({
     [ACTIVE_PROFILE_KEY]: { id: 'primary', name: 'Primary', profileCount: 1 },

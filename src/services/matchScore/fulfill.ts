@@ -12,6 +12,10 @@ export interface FulfillInput {
   isPro: boolean
   dismissed: boolean
   rateLimited: boolean
+  // The stored cooldown is the daily extraction cap, not a generic slow-down.
+  extractionLimit?: boolean
+  // Remaining wait when the server sent Retry-After. Null means "later".
+  extractionRetryMs?: number | null
   rescore: boolean
   cached: CachedMatchScore | null
   now: number
@@ -32,6 +36,7 @@ export interface FulfillInput {
 export type FulfillRelay =
   | { view: 'hide'; reason: 'dismissed' | 'rate_limited' | 'signed_out' | 'unsupported' | 'error' }
   | { view: 'keep' }
+  | { view: 'limited'; retryAfterMs: number | null }
   | { view: 'locked'; ats: MatchAts; jdSource: JdSource }
   | {
       view: 'insufficient'
@@ -53,6 +58,9 @@ export type FulfillRelay =
 export interface FulfillOutcome {
   relay: FulfillRelay
   persistRateLimit: boolean
+  // Daily extraction cap. A generic 429 stays a plain timestamp and stays hidden.
+  extractionLimit?: boolean
+  retrySpecified?: boolean
   // How long a 429 should hide this job. Null unless persistRateLimit is set.
   rateLimitMs: number | null
   cacheValue: CachedMatchScore | null
@@ -105,6 +113,12 @@ export async function fulfillMatchScore(input: FulfillInput): Promise<FulfillOut
   const none = { persistRateLimit: false, rateLimitMs: null, cacheValue: null, requested: false }
   if (input.dismissed) return { ...none, relay: { view: 'hide', reason: 'dismissed' } }
   if (input.rateLimited && !input.rescore) {
+    if (input.extractionLimit) {
+      return {
+        ...none,
+        relay: { view: 'limited', retryAfterMs: input.extractionRetryMs ?? null },
+      }
+    }
     return { ...none, relay: { view: 'hide', reason: 'rate_limited' } }
   }
   if (!input.jdText.trim()) return { ...none, relay: { view: 'hide', reason: 'error' } }
@@ -137,6 +151,17 @@ export async function fulfillMatchScore(input: FulfillInput): Promise<FulfillOut
   const latencyMs = Date.now() - started
   const requested = { persistRateLimit: false, rateLimitMs: null, cacheValue: null, requested: true }
 
+  if (result.kind === 'extraction_limit') {
+    const retryAfterMs = result.retrySpecified ? result.retryAfterMs ?? null : null
+    return {
+      ...requested,
+      persistRateLimit: !input.rescore,
+      extractionLimit: !input.rescore,
+      retrySpecified: result.retrySpecified,
+      rateLimitMs: result.retryAfterMs ?? null,
+      relay: { view: 'limited', retryAfterMs },
+    }
+  }
   if (result.kind === 'rate_limited') {
     if (input.rescore) return { ...requested, relay: { view: 'keep' } }
     return {

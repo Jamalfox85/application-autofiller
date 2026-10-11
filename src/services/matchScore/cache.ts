@@ -28,8 +28,41 @@ export function retryAfterDelayMs(header: string | null | undefined, now: number
   return Math.max(0, date - now)
 }
 
+export interface ExtractionLimitRecord {
+  until: number
+  reason: 'extraction'
+  // True when the server sent Retry-After. A default cooldown still waits, but
+  // the card does not invent a clock time the response never gave.
+  specified: boolean
+}
+
+export function extractionLimitRecord(until: number, specified: boolean): ExtractionLimitRecord {
+  return { until, reason: 'extraction', specified }
+}
+
+export function readRateLimit(stored: unknown): {
+  until: number | null
+  extraction: boolean
+  specified: boolean
+} {
+  if (typeof stored === 'number' && Number.isFinite(stored)) {
+    return { until: stored, extraction: false, specified: false }
+  }
+  if (!stored || typeof stored !== 'object') return { until: null, extraction: false, specified: false }
+  const record = stored as { until?: unknown; reason?: unknown; specified?: unknown }
+  if (typeof record.until !== 'number' || !Number.isFinite(record.until)) {
+    return { until: null, extraction: false, specified: false }
+  }
+  return {
+    until: record.until,
+    extraction: record.reason === 'extraction',
+    specified: record.specified === true,
+  }
+}
+
 export function rateLimitActive(stored: unknown, now: number): boolean {
-  return typeof stored === 'number' && Number.isFinite(stored) && stored > now
+  const until = readRateLimit(stored).until
+  return typeof until === 'number' && until > now
 }
 
 export function rateLimitUntil(now: number, delayMs: number | null | undefined): number {

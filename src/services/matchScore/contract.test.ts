@@ -96,6 +96,15 @@ test('insufficient, unsupported, plan_required, and rate limit map to their kind
     'rate_limited',
   )
   assert.equal(parseMatchScoreBody(429, { ...scored, score: 99 }).kind, 'rate_limited')
+  assert.equal(
+    parseMatchScoreBody(429, { error: 'match score extraction limit reached' }).kind,
+    'extraction_limit',
+  )
+  assert.equal(
+    parseMatchScoreBody(429, { error: { message: 'Match score extraction limit reached' } }).kind,
+    'extraction_limit',
+  )
+  assert.equal(parseMatchScoreBody(500, { error: 'match score extraction limit reached' }).kind, 'hide')
   assert.equal(parseMatchScoreBody(200, { status: 'rate_limited' }).kind, 'hide')
   assert.equal(parseMatchScoreBody(401, scored).kind, 'unauthorized')
   assert.equal(parseMatchScoreBody(503, {}).kind, 'hide')

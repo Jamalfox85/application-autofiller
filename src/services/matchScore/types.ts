@@ -110,6 +110,7 @@ export type MatchScoreResult =
   | { kind: 'unsupported'; reason: UnsupportedReason }
   | { kind: 'plan_required' }
   | { kind: 'rate_limited'; retryAfterMs?: number }
+  | { kind: 'extraction_limit'; retryAfterMs?: number; retrySpecified: boolean }
   | { kind: 'unauthorized' }
   | { kind: 'hide' }
 
@@ -131,6 +132,26 @@ export const STRONG_MATCH_COPY = "You're a strong match"
 export const INSUFFICIENT_COPY = 'Complete your profile to get a job match score'
 export const MATCH_SCORE_FOOTNOTE = 'Scored against your GoFillr profile, not your resume file'
 export const MATCH_SCORE_LOADING = 'Checking match…'
+export const MATCH_SCORE_LIMIT_COPY = 'Job match limit reached for today. Try again later.'
+
+// Retry-After is optional. Without it the card stays on "later" instead of
+// naming the client's default cooldown.
+export function matchScoreLimitCopy(retryAfterMs?: number | null): string {
+  const when = formatLimitRetry(retryAfterMs)
+  if (!when) return MATCH_SCORE_LIMIT_COPY
+  return `Job match limit reached for today. Try again in ${when}.`
+}
+
+function formatLimitRetry(retryAfterMs?: number | null): string | null {
+  if (typeof retryAfterMs !== 'number' || !Number.isFinite(retryAfterMs) || retryAfterMs <= 0) return null
+  const minutes = Math.ceil(retryAfterMs / 60_000)
+  if (minutes <= 1) return '1 minute'
+  if (minutes < 60) return `${minutes} minutes`
+  const hours = Math.round(minutes / 60)
+  if (hours <= 1) return '1 hour'
+  if (hours <= 36) return `${hours} hours`
+  return null
+}
 export const MATCH_SCORE_HOW_LABEL = 'How is this score calculated'
 export const MATCH_SCORE_HOW_COPY = `The score compares your saved GoFillr profile with this job, not your resume file. Pieces the job doesn\u2019t mention are left out, and the rest still add up to 100.
 

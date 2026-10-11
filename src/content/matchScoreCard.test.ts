@@ -7,7 +7,9 @@ import {
   MATCH_SCORE_FOOTNOTE,
   MATCH_SCORE_HOW_COPY,
   MATCH_SCORE_HOW_LABEL,
+  MATCH_SCORE_LIMIT_COPY,
   MATCH_SCORE_LOADING,
+  matchScoreLimitCopy,
   STRONG_MATCH_COPY,
   type ScoredMatch,
 } from '../services/matchScore/types.ts'
@@ -178,6 +180,19 @@ Industry, 5.
   for (const card of [loading, locked, insufficient]) {
     assert.equal(card.textContent?.includes(MATCH_SCORE_HOW_LABEL), false)
   }
+})
+
+test('the extraction limit uses the job match card and names Retry-After when present', () => {
+  assert.equal(matchScoreLimitCopy(null), MATCH_SCORE_LIMIT_COPY)
+  assert.equal(matchScoreLimitCopy(0), MATCH_SCORE_LIMIT_COPY)
+  const later = render({ kind: 'limited', message: matchScoreLimitCopy(null) })
+  assert.match(later.textContent ?? '', /Job match limit reached for today\. Try again later\./)
+  assert.equal(later.querySelector('[aria-label="Dismiss job match"]') != null, true)
+  assert.equal(later.textContent?.includes('Open profile'), false)
+
+  const soon = render({ kind: 'limited', message: matchScoreLimitCopy(120_000) })
+  assert.match(soon.textContent ?? '', /Try again in 2 minutes\./)
+  assert.equal(matchScoreLimitCopy(3_600_000), 'Job match limit reached for today. Try again in 1 hour.')
 })
 
 test('loading, locked, and insufficient states hide the number', () => {
