@@ -176,7 +176,7 @@ export function parseMatchScoreBody(status: number, body: unknown): MatchScoreRe
   const confidence = body.confidence
   if (
     score == null ||
-    score < 1 ||
+    score < 0 ||
     score > 100 ||
     scoreVersion == null ||
     requirementsVersion == null ||

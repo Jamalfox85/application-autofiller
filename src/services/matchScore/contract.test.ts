@@ -53,6 +53,23 @@ test('parse keeps the frozen scored shape and drops unknown enums', () => {
   assert.equal(result.score.score_version, 1)
 })
 
+test('a score of 0 is scored and stays inside 0-100', () => {
+  const zero = parseMatchScoreBody(200, { ...scored, score: 0, band: 'weak' })
+  const one = parseMatchScoreBody(200, { ...scored, score: 1, band: 'weak' })
+  const top = parseMatchScoreBody(200, { ...scored, score: 100, band: 'very_strong' })
+  assert.equal(zero.kind, 'scored')
+  assert.equal(one.kind, 'scored')
+  assert.equal(top.kind, 'scored')
+  if (zero.kind !== 'scored' || one.kind !== 'scored' || top.kind !== 'scored') return
+  assert.equal(zero.score.score, 0)
+  assert.equal(zero.score.band, 'weak')
+  assert.equal(one.score.score, 1)
+  assert.equal(one.score.band, 'weak')
+  assert.equal(top.score.score, 100)
+  assert.equal(parseMatchScoreBody(200, { ...scored, score: -1 }).kind, 'hide')
+  assert.equal(parseMatchScoreBody(200, { ...scored, score: 101 }).kind, 'hide')
+})
+
 test('strong_match is copied and not recomputed from the score', () => {
   const low = parseMatchScoreBody(200, { ...scored, score: 40, strong_match: true, suggestions: [], dealbreakers: [] })
   const high = parseMatchScoreBody(200, { ...scored, score: 96, strong_match: false })
