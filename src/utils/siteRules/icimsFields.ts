@@ -3,6 +3,7 @@ import type { Education, Experience, PersonalInfo } from '../../types/index.ts'
 import { bestOptionIndex } from '../optionMatch.ts'
 import { RELATIVE_MATCHES } from '../relativeMatches.ts'
 import { setReactInputValue } from '../inputHandlers.ts'
+import { phoneDialingCodeTarget } from './greenhouseFields.ts'
 import {
   countrySearchValues,
   degreeSearchValues,
@@ -66,6 +67,7 @@ export type IcimsFieldKind =
   | 'custom'
   | 'resumeFile'
   | 'phoneType'
+  | 'phoneCountry'
   | 'firstName'
   | 'lastName'
   | 'middleName'
@@ -115,6 +117,7 @@ export type IcimsLeaveReason =
 export type IcimsSelectMode =
   | 'state'
   | 'country'
+  | 'phone-country'
   | 'degree'
   | 'work-auth'
   | 'sponsorship'
@@ -342,9 +345,27 @@ function isAuth0UsernameField(control: IcimsControl): boolean {
   return name === 'username' || id === 'username'
 }
 
+// Login and profile "Phone Country Code" menus. Address country is a different
+// control (PersonProfileFields.AddressCountry) and must stay on the country plan.
+function isPhoneCountryCodeBlob(blob: string): boolean {
+  if (!blob || blob.includes('addresscountry') || blob.includes('county')) return false
+  if (blob.includes('phonetype') || blob.includes('phonedevicetype')) return false
+  return (
+    blob.includes('phonecountrycode') ||
+    blob.includes('phonecountry') ||
+    blob.includes('countrycodeselect') ||
+    blob.includes('countrycodesearch') ||
+    blob.includes('selectedcountrycode') ||
+    blob.includes('countrycode')
+  )
+}
+
 export function classifyIcimsControl(control: IcimsControl, loginSurface: boolean): IcimsFieldKind {
   const blob = controlBlob(control)
   const type = controlType(control)
+  // The value input is aria-hidden. It still has to be recognized so the
+  // visible "— Make a Selection —" face can be set to the profile country.
+  if (isPhoneCountryCodeBlob(blob)) return 'phoneCountry'
   if (control.concealed) return 'unknown'
   if (!blob) return 'unknown'
   if (isCaptchaField(blob)) return 'captcha'
@@ -581,6 +602,14 @@ export function planIcimsFill(
     return { field, action: 'file' }
   }
   if (field === 'phoneType') return { field, action: 'leave', reason: 'phone-type' }
+  if (field === 'phoneCountry') {
+    const target = phoneDialingCodeTarget({
+      country: personalInfo?.country,
+      phoneCountryCode: personalInfo?.phoneCountryCode,
+    })
+    if (!target) return { field, action: 'leave', reason: 'no-vault-value' }
+    return selectPlan(field, 'phone-country', target.dialCode, target.label)
+  }
 
   if (field === 'gatePassword') {
     // requireConfirmation is "Ask before entering this password". The same
@@ -898,6 +927,50 @@ function disabilityLabel(labels: string[], status: string): string | null {
   return needleLabel(labels, groups[status] || [])
 }
 
+function phoneCountryParts(label: string): { dial: string; name: string } {
+  const text = label.replace(/\s+/g, ' ').trim()
+  const leading = text.match(/^\(\+?(\d+)\)\s+(.+)$/)
+  if (leading) return { dial: `+${leading[1]}`, name: leading[2].trim().toLowerCase() }
+  const trailing = text.match(/^(.+?)\s+\(\+?(\d+)\)$/) || text.match(/^(.+?)\s+\+(\d+)$/)
+  if (trailing) return { dial: `+${trailing[2]}`, name: trailing[1].trim().toLowerCase() }
+  return { dial: '', name: text.toLowerCase() }
+}
+
+// "(+1) United States" on the login/profile list, or "United States (+1)" on a
+// native select. Shared +1 codes (Canada, US Minor Outlying Islands) lose to the
+// profile country name. A dial-only menu is used only when that code is unique.
+export function pickIcimsPhoneCountryCodeOption(
+  options: IcimsOption[],
+  info: { country?: string | null; phoneCountryCode?: string | null },
+): string | null {
+  const target = phoneDialingCodeTarget(info)
+  if (!target) return null
+  const wantName = target.label.toLowerCase()
+  const wantDial = target.dialCode
+  const rows = options
+    .map((option) => {
+      const label = option.label.replace(/\s+/g, ' ').trim()
+      return { option, label, ...phoneCountryParts(label) }
+    })
+    .filter((row) => row.label && row.option.value !== '-1' && !isIcimsMenuPlaceholder(row.label))
+
+  const named = rows.find((row) => {
+    if (row.name !== wantName) return false
+    return !row.dial || row.dial === wantDial
+  })
+  if (named) return named.option.value || named.label
+
+  const america = rows.find((row) => {
+    if (row.dial && row.dial !== wantDial) return false
+    return row.name === `${wantName} of america`
+  })
+  if (america) return america.option.value || america.label
+
+  const dialHits = rows.filter((row) => row.dial === wantDial)
+  if (dialHits.length === 1) return dialHits[0].option.value || dialHits[0].label
+  return null
+}
+
 export function resolveIcimsSelect(
   plan: Extract<IcimsFillPlan, { action: 'select' }>,
   options: IcimsOption[],
@@ -910,6 +983,12 @@ export function resolveIcimsSelect(
   let label: string | null = null
   if (plan.mode === 'state') label = aliasLabel(labels, plan.query, 'state')
   else if (plan.mode === 'country') label = aliasLabel(labels, plan.query, 'country') || aliasLabel(labels, plan.text || '', 'country')
+  else if (plan.mode === 'phone-country') {
+    return pickIcimsPhoneCountryCodeOption(options, {
+      country: plan.text,
+      phoneCountryCode: plan.query,
+    })
+  }
   else if (plan.mode === 'degree') label = pickDegreeOption(labels, degreeSearchValues(plan.query))
   else if (plan.mode === 'school') label = pickSchoolLabel(labels, plan.query)
   else if (plan.mode === 'month' || plan.mode === 'year' || plan.mode === 'label') {
@@ -1039,6 +1118,95 @@ type SelectLike = GateElement & {
     getElementById?: (id: string) => { textContent?: string | null } | null
     querySelectorAll?: (selector: string) => ArrayLike<SelectLike>
   } | null
+}
+
+type PhoneCountryNode = {
+  id?: string
+  name?: string
+  tagName?: string
+  value?: string
+  textContent?: string | null
+  classList?: { contains: (token: string) => boolean }
+  getAttribute?: (name: string) => string | null
+  setAttribute?: (name: string, value: string) => void
+  querySelector?: (selector: string) => PhoneCountryNode | null
+  querySelectorAll?: (selector: string) => ArrayLike<PhoneCountryNode>
+  closest?: (selector: string) => PhoneCountryNode | null
+  ownerDocument?: { querySelector?: (selector: string) => PhoneCountryNode | null } | null
+  options?: ArrayLike<{ value?: string; text?: string; label?: string }>
+  dispatchEvent?: (event: Event) => boolean
+}
+
+function phoneCountryListOptions(root: PhoneCountryNode): IcimsOption[] {
+  const nodes = root.querySelectorAll?.('li.dropdown-result, [role="option"]')
+  if (!nodes) return []
+  const options: IcimsOption[] = []
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    if (!node) continue
+    const value = node.getAttribute?.('value') || node.getAttribute?.('dropdown-result') || ''
+    const label = (node.getAttribute?.('aria-label') || node.getAttribute?.('title') || node.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!value && !label) continue
+    options.push({ value, label: label || value })
+  }
+  return options
+}
+
+function phoneCountryRoot(input: PhoneCountryNode): PhoneCountryNode | null {
+  const closest = input.closest?.('.country-phone-group, .country-code')
+  if (closest?.querySelector?.('li.dropdown-result, [role="option"]')) return closest
+  const docHit = input.ownerDocument?.querySelector?.('.country-phone-group, .country-code')
+  if (docHit?.querySelector?.('li.dropdown-result, [role="option"]')) return docHit
+  return null
+}
+
+// Sets the country-code list the way the page's own option click does: the
+// hidden selectedCountryCode value and the visible face. Does not open the
+// menu, click Next, or submit.
+export function commitIcimsPhoneCountryCode(
+  input: PhoneCountryNode,
+  info: { country?: string | null; phoneCountryCode?: string | null },
+): boolean {
+  const tag = (input.tagName || '').toUpperCase()
+  if (tag === 'SELECT') {
+    const options = readIcimsOptions(input)
+    const value = pickIcimsPhoneCountryCodeOption(options, info)
+    if (!value) return false
+    if ((input.value || '') === value) return true
+    input.value = value
+    try {
+      input.dispatchEvent?.(new Event('input', { bubbles: true }))
+      input.dispatchEvent?.(new Event('change', { bubbles: true }))
+    } catch {
+      // Fake controls used in tests have no event target.
+    }
+    return (input.value || '') === value
+  }
+
+  const root = phoneCountryRoot(input)
+  if (!root) return false
+  const options = phoneCountryListOptions(root)
+  const value = pickIcimsPhoneCountryCodeOption(options, info)
+  if (!value) return false
+  const chosen = options.find((option) => option.value === value || option.label === value)
+  if (!chosen) return false
+  const hidden =
+    root.querySelector?.('#selectedCountryCode') ||
+    root.querySelector?.('input[name="countryCodeSelect"]')
+  const face = root.querySelector?.('.dropdown-text')
+  if (hidden) hidden.value = chosen.value
+  if (face) {
+    face.textContent = chosen.label
+    face.setAttribute?.('title', chosen.label)
+  }
+  const trigger = root.querySelector?.('#dropdown, [role="combobox"]')
+  trigger?.setAttribute?.('aria-label', chosen.label)
+  if (input === hidden || input.id === 'selectedCountryCode' || input.name === 'countryCodeSelect') {
+    input.value = chosen.value
+  }
+  return (hidden?.value || input.value || '') === chosen.value
 }
 
 export function readIcimsOptions(input: {
