@@ -21,11 +21,12 @@ import {
   profileCreatedProps,
 } from '@/services/profileEvents'
 import { trackProfileEvent } from '@/services/trackProfileEvent'
+import { newProfileAction, rosterCountLabel } from '@/lib/popupPlanGate'
 import { ICON_LOCK } from '@/utils/icons'
 
 const props = defineProps<{
   show: boolean
-  isPro: boolean
+  isPro: boolean | null
 }>()
 
 const emit = defineEmits<{
@@ -52,6 +53,8 @@ const confirmDelete = ref<ProfileSummary | null>(null)
 const profiles = computed(() => store.profiles.value)
 const atLimit = computed(() => profiles.value.length >= MAX_PROFILES)
 const lockedCount = computed(() => profiles.value.filter((p) => p.locked).length)
+const rosterStatus = computed(() => rosterCountLabel(store.loaded.value, profiles.value.length, MAX_PROFILES))
+const newProfileLabel = computed(() => (props.isPro === false ? 'New profile · Pro' : 'New profile'))
 
 const resetView = () => {
   view.value = 'list'
@@ -174,21 +177,24 @@ const submitRename = async (profile: ProfileSummary) => {
 }
 
 const openCreate = () => {
-  if (!props.isPro) {
+  const action = newProfileAction(props.isPro, atLimit.value)
+  if (action === 'wait' || action === 'limit') return
+  if (action === 'paywall') {
     emit('upgrade', 'multi_profile')
     return
   }
-  if (atLimit.value) return
   createError.value = ''
   view.value = 'create'
 }
 
 const duplicate = async (profile: ProfileSummary) => {
-  if (!props.isPro) {
+  const action = newProfileAction(props.isPro, atLimit.value)
+  if (action === 'wait') return
+  if (action === 'paywall') {
     emit('upgrade', 'multi_profile')
     return
   }
-  if (atLimit.value) {
+  if (action === 'limit') {
     error.value = PROFILE_ERROR_COPY.profile_limit
     return
   }
@@ -274,7 +280,7 @@ const subtitle = (profile: ProfileSummary) =>
 
 <template>
   <FullScreenSheet :show="show" :title="view === 'create' ? 'New profile' : 'Profiles'" @close="view === 'create' ? (view = 'list') : emit('close')">
-    <template #status>{{ profiles.length }} of {{ MAX_PROFILES }}</template>
+    <template #status>{{ rosterStatus }}</template>
 
     <CreateProfile
       v-if="view === 'create'"
@@ -359,13 +365,18 @@ const subtitle = (profile: ProfileSummary) =>
     </template>
 
     <template v-if="view === 'list'" #footer>
-      <button type="button" class="btn-primary-dialog" :disabled="loading || (isPro && atLimit)" @click="openCreate">
-        {{ isPro ? 'New profile' : 'New profile · Pro' }}
+      <button
+        type="button"
+        class="btn-primary-dialog"
+        :disabled="loading || isPro == null || (isPro === true && atLimit)"
+        @click="openCreate"
+      >
+        {{ newProfileLabel }}
       </button>
     </template>
   </FullScreenSheet>
 
-  <p v-if="show && view === 'list' && isPro && atLimit" class="limit-note">You can have up to 5 profiles.</p>
+  <p v-if="show && view === 'list' && isPro === true && atLimit" class="limit-note">You can have up to 5 profiles.</p>
 
   <ConfirmDeleteDialog
     :show="confirmDelete !== null"

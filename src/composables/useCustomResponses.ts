@@ -25,10 +25,34 @@ function invalidateCustomResponses() {
 
 onMirrorReset(invalidateCustomResponses)
 
+// The profile summary reads this list. Profile loads and mirror writes update it
+// directly so the count does not stay at zero until the dialog is opened.
+export function noteCustomResponses(responses: unknown, id: string | null) {
+  if (!Array.isArray(responses)) return
+  customResponses.value = responses as CustomResponse[]
+  profileId = id
+  memoryValid = true
+}
+
+if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+  void readMirror<CustomResponse[]>(CUSTOM_RESPONSES_KEY)
+    .then((local) => {
+      if (!memoryValid || profileId) return
+      if (Array.isArray(local)) customResponses.value = local
+    })
+    .catch(() => {})
+}
+
 if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, CUSTOM_RESPONSES_KEY)) return
-    if (changes[CUSTOM_RESPONSES_KEY].newValue == null) invalidateCustomResponses()
+    if (changes[CUSTOM_RESPONSES_KEY].newValue == null) {
+      invalidateCustomResponses()
+      return
+    }
+    if (!memoryValid) return
+    const next = changes[CUSTOM_RESPONSES_KEY].newValue
+    if (Array.isArray(next)) customResponses.value = next as CustomResponse[]
   })
 }
 

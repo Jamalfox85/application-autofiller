@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { SECTIONS } from '@/utils/infocards.ts'
+import { computed } from 'vue'
+import { SECTIONS, type SectionCounts } from '@/utils/infocards.ts'
 import type { PersonalInfo } from '../types/index.ts'
 
 const props = defineProps<{
   personalInfo: PersonalInfo
+  customResponseCount?: number
 }>()
-const emit = defineEmits<{
+defineEmits<{
   openDialog: [dialogName: string]
 }>()
+
+const counts = computed<SectionCounts>(() => ({ customResponses: props.customResponseCount ?? 0 }))
 </script>
 <template>
   <div class="section-list">
@@ -19,8 +23,8 @@ const emit = defineEmits<{
     >
       <span class="section-num">{{ section.num }}</span>
       <span class="section-label">{{ section.title }}</span>
-      <span class="section-meta">{{ section.meta(personalInfo) }}</span>
-      <span class="section-dot" :class="{ done: section.done(personalInfo) }"></span>
+      <span class="section-meta">{{ section.meta(personalInfo, counts) }}</span>
+      <span class="section-dot" :class="{ done: section.done(personalInfo, counts) }"></span>
     </button>
   </div>
 </template>

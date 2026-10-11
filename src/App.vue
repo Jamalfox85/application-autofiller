@@ -55,6 +55,9 @@ import {
 import { collectFrameDetections, detectWithRetry, NOT_DETECTED } from '@/utils/detectionRetry.ts'
 import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
 import { EMPTY_PROFILE_FILL_MESSAGE, profileHasAutofillData } from '@/utils/fillValue.ts'
+import { completePersonalInfo } from '@/lib/personalInfoDefaults.ts'
+import type { PersonalInfo } from '@/types'
+import { useCustomResponses } from './composables/useCustomResponses'
 
 const NOTIFICATION_ICONS: Record<string, string> = {
   success: '✓',
@@ -65,6 +68,7 @@ const NOTIFICATION_ICONS: Record<string, string> = {
 
 // Composables
 const { loadPersonalInfo, savePersonalInfo, loadedProfileId } = usePersonalInfo()
+const { customResponses } = useCustomResponses()
 const profilesStore = useProfiles()
 const { notification, showNotification } = useNotification()
 const { fillHistory, loadFillHistory } = useFillHistory()
@@ -85,6 +89,10 @@ const signedInScreen = computed(() =>
 const autofillState = ref<'idle' | 'filling' | 'done'>('idle')
 const lastFillCount = ref<{ filled: number; total: number } | null>(null)
 const billing = ref<BillingState | null>(null)
+// null until the entitlement cache or the billing worker answers. Never treat that as free.
+const planIsPro = ref<boolean | null>(null)
+// Profile id published together with personalInfo, so an open editor sees one swap.
+const editingProfileId = ref<string | null>(null)
 type PaywallMode = 'soft' | 'hard' | 'resume_ai' | 'multi_profile' | 'locked_profile'
 const paywall = ref<{
   mode: PaywallMode
@@ -94,8 +102,29 @@ const paywall = ref<{
   profileCount?: number
 } | null>(null)
 
+const seedPlanFromCache = async () => {
+  try {
+    const stored = await chrome.storage.local.get(ENTITLEMENT_KEY)
+    const cached = entitlementFromStorage(stored[ENTITLEMENT_KEY])
+    if (cached && planIsPro.value == null) planIsPro.value = cached.isPro
+  } catch {
+    // Leave the plan unknown. Rows stay on the loading label until billing answers.
+  }
+}
+
 const refreshBilling = async () => {
   billing.value = await fetchBillingState()
+  planIsPro.value = billing.value.isPro
+}
+
+const publishPersonalInfo = (info: PersonalInfo, profileId: string | null = loadedProfileId.value) => {
+  personalInfo.value = info
+  editingProfileId.value = profileId
+}
+
+const adoptLoadedPersonalInfo = (loaded: PersonalInfo | null) => {
+  if (!loaded) return
+  publishPersonalInfo(loaded, loadedProfileId.value)
 }
 
 // Pro already has unlimited fills. The home-screen Upgrade button is only for
@@ -142,16 +171,20 @@ const autofillLabel = computed(() => autofillButtonLabel(activeProfileMirror.val
 
 // Loads the active profile into the popup and rewrites the fill mirrors. Coalesced: a swap
 // triggers both the explicit reload and the activeProfile storage listener.
-let reloadInFlight: Promise<void> | null = null
+let reloadInFlight: { id: string | null; promise: Promise<void> } | null = null
 const reloadActiveProfile = () => {
-  if (!reloadInFlight) {
-    reloadInFlight = (async () => {
-      personalInfo.value = await loadPersonalInfo(profilesStore.activeMirror.value)
-    })().finally(() => {
-      reloadInFlight = null
-    })
-  }
-  return reloadInFlight
+  const requested = profilesStore.activeMirror.value
+  const id = requested?.id ?? null
+  if (reloadInFlight?.id === id) return reloadInFlight.promise
+  const promise = (async () => {
+    const loaded = await loadPersonalInfo(requested)
+    if ((profilesStore.activeMirror.value?.id ?? null) !== id) return
+    adoptLoadedPersonalInfo(loaded)
+  })().finally(() => {
+    if (reloadInFlight?.promise === promise) reloadInFlight = null
+  })
+  reloadInFlight = { id, promise }
+  return promise
 }
 
 const onActiveProfileChanged = async (payload: {
@@ -176,10 +209,12 @@ const onStartFromResume = async (payload: { file: File; name: string }) => {
 }
 
 const onProfilesUpgrade = (mode: 'multi_profile' | 'locked_profile') => {
+  if (planIsPro.value == null) return
   openPaywall(mode, { profileCount: profilesStore.profileCount.value })
 }
 
 const onProUpgrade = (source: 'resume_ai' | 'multi_profile') => {
+  if (planIsPro.value == null) return
   openPaywall(source, { profileCount: profilesStore.profileCount.value })
 }
 
@@ -397,7 +432,7 @@ const handleOnboardingFinish = async (profile?: any) => {
   }
   welcomeFile.value = null
   if (profile) {
-    personalInfo.value = profile
+    publishPersonalInfo(profile)
     try {
       await savePersonalInfo(profile)
     } catch (error) {
@@ -408,14 +443,14 @@ const handleOnboardingFinish = async (profile?: any) => {
   } else {
     // No reviewed profile handed back (user skipped, or the parse-wait timed out and the API
     // wrote the profile server-side) — pull whatever Supabase has now.
-    personalInfo.value = await loadPersonalInfo(profilesStore.activeMirror.value)
+    adoptLoadedPersonalInfo(await loadPersonalInfo(profilesStore.activeMirror.value))
   }
   activeView.value = 'main'
   await detectApplication()
 }
 
 const saveProfile = async (profile: any) => {
-  personalInfo.value = profile
+  publishPersonalInfo(profile)
   try {
     await savePersonalInfo(profile)
     showNotification('Profile saved successfully', 'success')
@@ -590,6 +625,9 @@ function publishPopupGate(setupCompletedAt: number | null, personalInfoLoaded: b
 // Loads the account-gated app state — run once we know a signed-in session exists, whether
 // that was already true on mount or the user just completed sign-in.
 const loadAppState = async () => {
+  // Know the plan before the home screen can paint Pro rows. A cache hit is a known
+  // plan; no cache leaves planIsPro null so the rows stay on the loading label.
+  await seedPlanFromCache()
   // One-time lift of any pre-Supabase local data into the user's account. No-op after it has
   // run once (or if there was nothing local to move).
   const userId = await getUserIdOrNull()
@@ -633,7 +671,7 @@ const loadAppState = async () => {
   }
 
   try {
-    personalInfo.value = await loadPersonalInfo(active)
+    adoptLoadedPersonalInfo(await loadPersonalInfo(active))
   } catch (error) {
     console.error('Failed to load personal info', error)
   }
@@ -671,7 +709,14 @@ const onPersonalInfoStored = (
   if (areaName !== 'local' || !changes.personalInfo?.newValue) return
   const next = changes.personalInfo.newValue
   if (!next || typeof next !== 'object') return
-  personalInfo.value = { ...personalInfo.value, ...(next as object) }
+  const storedActive = Object.prototype.hasOwnProperty.call(changes, ACTIVE_PROFILE_KEY)
+    ? parseActiveProfile(changes[ACTIVE_PROFILE_KEY].newValue)
+    : null
+  const expectedId = profilesStore.activeMirror.value?.id ?? editingProfileId.value
+  // A load for the previous profile can finish its storage write after a swap.
+  // Applying it would put that profile back on the open form.
+  if (storedActive && expectedId && storedActive.id !== expectedId) return
+  personalInfo.value = completePersonalInfo(next as PersonalInfo)
 }
 
 // Checkout closes this popup. When ExtensionPay marks the install Pro, apply
@@ -688,7 +733,9 @@ const onEntitlementStored = (
     const next = applyEntitlementToBilling(billing.value, stored)
     if (next !== billing.value) billing.value = next
   }
-  if (entitlementFromStorage(stored)?.isPro) paywall.value = null
+  const parsed = entitlementFromStorage(stored)
+  if (parsed) planIsPro.value = parsed.isPro
+  if (parsed?.isPro) paywall.value = null
 }
 
 const onPopupFocus = () => {
@@ -831,7 +878,7 @@ watch(authStatus, (next, previous) => {
         <span class="section-header-label">Pro</span>
       </div>
       <ProFeatures
-        :isPro="billing?.isPro === true"
+        :isPro="planIsPro"
         :activeProfileName="activeProfileMirror?.name"
         :profileCount="profilesStore.profileCount.value"
         @upgrade="onProUpgrade"
@@ -841,7 +888,11 @@ watch(authStatus, (next, previous) => {
       <div class="section-header-row">
         <span class="section-header-label">Your information</span>
       </div>
-      <DataVault :personalInfo="personalInfo" @openDialog="openDialog" />
+      <DataVault
+        :personalInfo="personalInfo"
+        :customResponseCount="customResponses.length"
+        @openDialog="openDialog"
+      />
     </div>
 
     <HistoryView v-else-if="activeView === 'history'" @back="activeView = 'main'" />
@@ -868,6 +919,7 @@ watch(authStatus, (next, previous) => {
     <UpdatePersonalInfoDialog
       :show="dialogs.personalInfo.value"
       :personalInfo="personalInfo"
+      :profileId="editingProfileId"
       @close="closeDialog('personalInfo')"
       @save="saveProfile"
     />
@@ -923,7 +975,7 @@ watch(authStatus, (next, previous) => {
     <ProfilesModal
       v-if="authStatus === 'signed-in'"
       :show="showProfiles"
-      :isPro="billing?.isPro === true"
+      :isPro="planIsPro"
       @close="showProfiles = false"
       @activeChanged="onActiveProfileChanged"
       @startFromResume="onStartFromResume"
