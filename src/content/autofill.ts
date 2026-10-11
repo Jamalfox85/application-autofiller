@@ -315,16 +315,11 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       }
     }
 
-    // The worker refreshes the account weekly count (max of this device and the
-    // server) before the gate. A storage or worker failure must not block a
+    // Free weekly quota is extension-local. A storage failure must not block a
     // claim-safe Greenhouse fill, and this path never calls the Resume API.
-    // quotaCountedPages is this document; the worker session claim covers a reload.
     let access: Awaited<ReturnType<typeof evaluateFillAccess>> | null = null
     try {
-      const pageKey = quotaPageKey(window.location.href) || window.location.href.split('#')[0]
-      access = await evaluateFillAccess(fillContext, {
-        alreadyCountedApplication: quotaCountedPages.has(pageKey),
-      })
+      access = await evaluateFillAccess(fillContext)
     } catch (error) {
       console.error('[billing] quota check failed', error)
     }

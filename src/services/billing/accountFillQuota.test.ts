@@ -73,6 +73,12 @@ test('server count 25 with an empty local counter blocks Greenhouse and Lever', 
   assert.equal(local.firstFillEver, false)
   assert.equal(local.greenhouseFillEver, false)
 
+  const underCap = mergeServerFillCount(local, 9)
+  assert.equal(underCap.successfulFills, 9)
+  assert.equal(underCap.firstFillEver, true)
+  assert.equal(underCap.greenhouseFillEver, false)
+  assert.equal(decideFill({ quota: underCap, isPro: false, ats: 'greenhouse' }), 'allow')
+
   const atCap = mergeServerFillCount(local, 25)
   assert.equal(atCap.successfulFills, 25)
   assert.equal(atCap.firstFillEver, true)
@@ -83,17 +89,7 @@ test('server count 25 with an empty local counter blocks Greenhouse and Lever', 
   assert.equal(decideFill({ quota: atCap, isPro: true, ats: 'greenhouse' }), 'allow')
   assert.equal(decideFill({ quota: atCap, isPro: true, ats: 'lever' }), 'allow')
 
-  // The same application was already counted this week. It still fills.
-  assert.equal(
-    decideFill({ quota: atCap, isPro: false, ats: 'greenhouse', alreadyCountedApplication: true }),
-    'allow',
-  )
-  assert.equal(
-    decideFill({ quota: atCap, isPro: false, ats: 'lever', alreadyCountedApplication: true }),
-    'allow',
-  )
-
-  // Server unreachable: the empty local counter is the gate, and the first fill stays open.
+  // Server unreachable: the empty local counter stays empty, and the first fill stays open.
   const offline = mergeServerFillCount(local, null)
   assert.equal(offline.successfulFills, 0)
   assert.equal(offline.greenhouseFillEver, false)
@@ -257,9 +253,4 @@ test('the account total is wired to the migration, the worker, and sign-out', ()
   assert.match(background, /syncRecordedFill/)
   assert.match(access, /billingAction: 'readFillQuota'/)
   assert.match(access, /return readFillQuota\(\)/)
-  assert.match(access, /action: 'fillQuotaCounted'/)
-  assert.match(access, /alreadyCountedApplication/)
-  assert.match(autofill, /alreadyCountedApplication: quotaCountedPages\.has\(pageKey\)/)
-  assert.match(background, /request\.action === 'fillQuotaCounted'/)
-  assert.match(background, /const counted = Boolean\(pageKey\) && claims\[pageKey\] === calendarWeekKey/)
 })
