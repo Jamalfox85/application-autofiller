@@ -2,8 +2,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
+  ACCESS_TOKEN_REFRESH_MARGIN_MS,
+  accessTokenNeedsRefresh,
   classifyRefreshFailure,
   isInvalidOrExpiredAccessTokenError,
+  isRevokedRefreshTokenError,
   recoverHttp401,
 } from './accessRecovery.ts'
 import { storedSessionAction } from './sessionStorageChange.ts'
@@ -95,12 +98,30 @@ test('a rejected refresh signs out; a 5xx or network failure does not', async ()
     },
   )
   assert.equal(stillRejected.reason, 'http_401')
-  assert.equal(signedOut, 2)
+  assert.equal(signedOut, 1)
   assert.deepEqual(profile, { phone: '(215) 555-0100', address: '1 Analytical Engine', zip: '19104' })
 })
 
-test('refresh classification keeps the session on 5xx and network errors', () => {
-  assert.deepEqual(classifyRefreshFailure(null, 'jwt'), { ok: true, token: 'jwt' })
+test('an expired access token and a refresh rotation race do not sign out', () => {
+  const expiredAccess = { status: 401, message: 'invalid or expired access token' }
+  assert.equal(isRevokedRefreshTokenError(expiredAccess), false)
+  assert.deepEqual(classifyRefreshFailure(expiredAccess, null), { ok: false, transient: true })
+
+  const alreadyUsed = { status: 400, message: 'Invalid Refresh Token: Already Used' }
+  assert.equal(isRevokedRefreshTokenError(alreadyUsed), false)
+  assert.deepEqual(classifyRefreshFailure(alreadyUsed, null), { ok: false, transient: true })
+
+  const discarded = {
+    status: 409,
+    message: 'Refresh result discarded: session state changed mid-flight (e.g., concurrent signOut)',
+  }
+  assert.equal(isRevokedRefreshTokenError(discarded), false)
+  assert.deepEqual(classifyRefreshFailure(discarded, null), { ok: false, transient: true })
+
+  const revoked = { status: 400, message: 'Invalid Refresh Token: Refresh Token Not Found' }
+  assert.equal(isRevokedRefreshTokenError(revoked), true)
+  assert.deepEqual(classifyRefreshFailure(revoked, null), { ok: false, transient: false })
+
   assert.deepEqual(classifyRefreshFailure({ status: 500, message: 'upstream' }, null), {
     ok: false,
     transient: true,
@@ -109,18 +130,26 @@ test('refresh classification keeps the session on 5xx and network errors', () =>
     ok: false,
     transient: true,
   })
-  assert.deepEqual(classifyRefreshFailure({ status: 401, message: 'Invalid Refresh Token' }, null), {
-    ok: false,
-    transient: false,
-  })
-  assert.deepEqual(classifyRefreshFailure(null, null), { ok: false, transient: false })
+  assert.deepEqual(classifyRefreshFailure(null, 'jwt'), { ok: true, token: 'jwt' })
+  assert.deepEqual(classifyRefreshFailure(null, null), { ok: false, transient: true })
 })
 
-test('clearing the stored session signs the popup out without a new sign-in read', () => {
-  assert.equal(storedSessionAction('signed-in', { 'sb-abc-auth-token': { newValue: undefined } }), 'sign-out')
+test('the access token is refreshed inside five minutes, including after it has expired', () => {
+  const now = Date.parse('2026-10-11T18:00:00Z')
+  assert.equal(ACCESS_TOKEN_REFRESH_MARGIN_MS, 5 * 60 * 1000)
+  assert.equal(accessTokenNeedsRefresh(Math.floor(now / 1000) + 4 * 60, now), true)
+  assert.equal(accessTokenNeedsRefresh(Math.floor(now / 1000) + 6 * 60, now), false)
+  assert.equal(accessTokenNeedsRefresh(Math.floor(now / 1000) - 30, now), true)
+  assert.equal(accessTokenNeedsRefresh(null, now), false)
+})
+
+test('a storage clear re-reads the session instead of signing the popup out', () => {
+  assert.equal(storedSessionAction('signed-in', { 'sb-abc-auth-token': { newValue: undefined } }), 'reread')
+  assert.equal(storedSessionAction('loading', { 'sb-abc-auth-token': { newValue: undefined } }), 'reread')
   assert.equal(storedSessionAction('signed-out', { 'sb-abc-auth-token': { newValue: undefined } }), 'ignore')
   assert.equal(storedSessionAction('signed-out', { 'sb-abc-auth-token': { newValue: { access_token: 'x' } } }), 'reread')
   assert.equal(storedSessionAction('signed-in', { personalInfo: { newValue: { phone: '1' } } }), 'ignore')
+  assert.equal(storedSessionAction('signed-in', { 'sb-abc-auth-token': { newValue: { access_token: 'fresh' } } }), 'ignore')
 })
 
 test('expired-session cleanup does not wipe the local profile, and the popup drops Pro and Synced', () => {
@@ -147,4 +176,19 @@ test('expired-session cleanup does not wipe the local profile, and the popup dro
   assert.match(history, /withSupabaseRecovery\(\(\) => queryFillHistory/)
   assert.match(history, /withSupabaseRecovery\(\(\) => insertFillHistoryOnce/)
   assert.match(history, /withSupabaseRecovery\(\(\) => clearFillHistoryOnce/)
+
+  const client = readFileSync(new URL('./supabase.ts', import.meta.url), 'utf8')
+  assert.match(client, /lock: navigatorLock/)
+  const token = readFileSync(new URL('./api.ts', import.meta.url), 'utf8')
+  assert.match(token, /refreshSessionIfExpiring/)
+  assert.doesNotMatch(token, /60_000/)
+  const worker = readFileSync(new URL('../services/extensionPayWorker.ts', import.meta.url), 'utf8')
+  assert.match(worker, /refreshSessionIfExpiring/)
+  assert.match(worker, /handleAuthRefreshMessage/)
+  const background = readFileSync(new URL('../../background.js', import.meta.url), 'utf8')
+  assert.match(background, /refreshSupabaseSession/)
+  const resume = readFileSync(new URL('../utils/savedResumeFile.ts', import.meta.url), 'utf8')
+  assert.match(resume, /requestRefresh/)
+  const auth = readFileSync(new URL('./auth.ts', import.meta.url), 'utf8')
+  assert.match(auth, /readPersistedSession/)
 })

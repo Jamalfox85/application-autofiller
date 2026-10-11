@@ -12,7 +12,7 @@ import {
   isAttributionHost,
   mergeInstallSource,
 } from './src/services/installAttribution.js'
-import { handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
+import { handleAuthRefreshMessage, handleBillingMessage, startExtensionPay } from './src/services/extensionPayWorker.js'
 import { signInWithGoogleInWorker } from './src/services/googleSignInWorker.js'
 import { persistUploadedResume, resumeParseFilePart } from './src/services/resumeVaultWorker.js'
 import { deliverAutofillCommand } from './src/utils/contentScriptConnection.js'
@@ -737,6 +737,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // personalInfo mirror or an old resume parse.
   if (request.action === 'loadActiveProfileForFill') {
     loadActiveProfileForFillWorker()
+      .then((result) => sendResponse(result))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
+  if (request.action === 'refreshSupabaseSession') {
+    handleAuthRefreshMessage()
       .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false }))
     return true
