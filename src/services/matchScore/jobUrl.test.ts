@@ -14,7 +14,7 @@ test('Workday overview, apply, and applyManually share one requisition', () => {
   const manual = `${CISCO}/apply/applyManually?source=job#form`
   assert.equal(workdayJobKey(CISCO), workdayJobKey(apply))
   assert.equal(workdayJobKey(CISCO), workdayJobKey(manual))
-  assert.equal(matchJobIdentity(manual), workdayJobKey(CISCO))
+  assert.equal(matchJobIdentity(manual), `workday|${workdayJobKey(CISCO)}`)
   assert.equal(canonicalMatchJobUrl(apply), CISCO)
   assert.equal(canonicalMatchJobUrl(manual), CISCO)
   assert.equal(sameMatchJob(CISCO, manual), true)
@@ -51,6 +51,23 @@ test('window-size params are not part of the job url', () => {
     canonicalMatchJobUrl('https://jobs.lever.co/wealthfront/abc?utm_campaign=spring&lever-origin=applied'),
     'https://jobs.lever.co/wealthfront/abc',
   )
+})
+
+test('encoded and decoded Workday location slugs share a requisition', () => {
+  const plain =
+    'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/US-Remote/Software-Engineer_JR2020825'
+  const encoded =
+    'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/US%2C-Remote/Software-Engineer_JR2020825'
+  const manual = `${encoded}/apply/applyManually`
+  assert.equal(workdayJobKey(plain), workdayJobKey(encoded))
+  assert.equal(matchJobIdentity(plain), matchJobIdentity(manual))
+  assert.equal(sameMatchJob(plain, manual), true)
+  assert.equal(
+    matchJobIdentity(plain),
+    'workday|nvidia.wd5.myworkdayjobs.com|nvidiaexternalcareersite|jr2020825',
+  )
+  assert.equal(canonicalMatchJobUrl(manual).includes('/apply'), false)
+  assert.equal(canonicalMatchJobUrl(encoded).includes('%2C'), false)
 })
 
 test('other hosts are not folded together', () => {

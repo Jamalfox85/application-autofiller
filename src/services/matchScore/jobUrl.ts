@@ -41,8 +41,21 @@ function workdayJob(href: string): WorkdayJob | null {
     host,
     site: segments[jobAt - 1],
     req,
-    postingPath: `/${segments.slice(0, jobAt + 1).concat(jobSegments).join('/')}`,
+    postingPath: `/${segments.slice(0, jobAt + 1).concat(jobSegments).map(decodePathSegment).join('/')}`,
   }
+}
+
+// %2C and a comma are the same location slug. A slash or query marker stays
+// encoded so a segment cannot rewrite the path.
+function decodePathSegment(segment: string): string {
+  let decoded = segment
+  try {
+    decoded = decodeURIComponent(segment)
+  } catch {
+    return segment
+  }
+  if (/[/?#]/.test(decoded)) return segment
+  return decoded
 }
 
 // host|site|requisition. Null when the URL is not a Workday job.
@@ -117,9 +130,13 @@ export function canonicalMatchJobUrl(href: string): string {
   return stripNoise(href)
 }
 
-// Stable id for in-flight and sent-set dedupe.
+// Stable id for in-flight and sent-set dedupe. Workday keys on the requisition,
+// so an encoded location slug (US%2C-Remote) and the decoded slug share one id
+// with the overview and /apply/applyManually.
 export function matchJobIdentity(href: string): string {
-  return workdayJobKey(href) ?? canonicalMatchJobUrl(href)
+  const workday = workdayJobKey(href)
+  if (workday) return `workday|${workday}`
+  return canonicalMatchJobUrl(href)
 }
 
 export function sameMatchJob(left: string, right: string): boolean {

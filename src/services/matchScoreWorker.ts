@@ -14,6 +14,7 @@ import { buildMatchProfile, profileHash } from './matchScore/profile.ts'
 import { persistSkillChange } from './matchScore/skills.ts'
 import { canonicalMatchJobUrl, matchJobIdentity } from './matchScore/jobUrl.ts'
 import { deliverToTopFrame } from './matchScore/relay.ts'
+import { beginSingleFlight } from './matchScore/singleFlight.ts'
 import { isMatchAts, type JdSource, type MatchAts } from './matchScore/types.ts'
 
 interface MatchSender {
@@ -108,8 +109,7 @@ async function score(
   const jobUrl = canonicalMatchJobUrl(asString(request.jobUrl))
   const identity = matchJobIdentity(jobUrl)
   const rescore = request.rescore === true
-  const tabId = sender.tab?.id ?? 0
-  const remembered = rememberedJd.get(`${tabId}:${identity}`)
+  const remembered = rememberedJd.get(identity)
   let ats = asString(request.ats)
   let jdText = asString(request.jdText)
   let jdSource: JdSource | '' = request.jdSource === 'fetched' ? 'fetched' : request.jdSource === 'dom' ? 'dom' : ''
@@ -124,34 +124,21 @@ async function score(
   }
   const atsName: MatchAts = ats
   const source: JdSource = jdSource
-  rememberedJd.set(`${tabId}:${identity}`, { jdText, jdSource: source, ats: atsName })
+  rememberedJd.set(identity, { jdText, jdSource: source, ats: atsName })
 
-  const flightKey = `${tabId}:${identity}`
-  if (!rescore) {
-    const existing = inflight.get(flightKey)
-    if (existing) {
-      // The overview request is already running. Wait for its cache write, then
-      // paint this page from that cache instead of posting again.
-      await existing
-      await scoreWithProfile(sender, deps, { jobUrl, ats: atsName, jdText, jdSource: source, rescore })
-      return { ok: true, deduped: true }
-    }
-    let release = () => {}
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    inflight.set(flightKey, gate)
-    try {
-      await scoreWithProfile(sender, deps, { jobUrl, ats: atsName, jdText, jdSource: source, rescore })
-    } finally {
-      release()
-      inflight.delete(flightKey)
-    }
+  if (rescore) {
+    await scoreWithProfile(sender, deps, { jobUrl, ats: atsName, jdText, jdSource: source, rescore })
     return { ok: true }
   }
 
-  await scoreWithProfile(sender, deps, { jobUrl, ats: atsName, jdText, jdSource: source, rescore })
-  return { ok: true }
+  // Register before the request. A second frame, a second content-script
+  // instance, or the apply redirect joins this promise and does not post.
+  const flight = beginSingleFlight(identity, () =>
+    scoreWithProfile(sender, deps, { jobUrl, ats: atsName, jdText, jdSource: source, rescore: false }),
+  )
+  const message = await flight.result
+  if (!flight.leader && message) await relay(deps, sender, message)
+  return { ok: true, deduped: flight.leader ? undefined : true }
 }
 
 async function scoreWithProfile(
@@ -163,7 +150,7 @@ async function scoreWithProfile(
   const profile = buildMatchProfile(info)
   const hash = await profileHash(profile)
   const profileId = await readActiveProfileId(deps.storage)
-  await runScore({}, sender, deps, { ...input, hash, profile, profileId })
+  return runScore({}, sender, deps, { ...input, hash, profile, profileId })
 }
 
 async function runScore(
@@ -180,10 +167,11 @@ async function runScore(
     profile: ReturnType<typeof buildMatchProfile>
     profileId: string | null
   },
-) {
-  const cacheKey = matchScoreCacheKey(input.jobUrl, input.hash)
-  const dismissedKey = matchScoreDismissedKey(input.jobUrl)
-  const rateKey = matchScoreRateLimitKey(input.jobUrl)
+): Promise<Record<string, unknown>> {
+  const identity = matchJobIdentity(input.jobUrl)
+  const cacheKey = matchScoreCacheKey(identity, input.hash)
+  const dismissedKey = matchScoreDismissedKey(identity)
+  const rateKey = matchScoreRateLimitKey(identity)
   const stored = await deps.storage.get([cacheKey, dismissedKey, rateKey])
   const cached = stored[cacheKey] as CachedMatchScore | undefined
   const isPro = await deps.isPro()
@@ -227,13 +215,15 @@ async function runScore(
   if (outcome.cacheValue) {
     await deps.storage.set({ [cacheKey]: outcome.cacheValue })
   }
-  await relay(deps, sender, {
+  const message: Record<string, unknown> = {
     action: 'matchScoreRender',
     seq: ++seq,
     jobUrl: input.jobUrl,
     requested: false,
     ...outcome.relay,
-  })
+  }
+  await relay(deps, sender, message)
+  return message
 }
 
 async function changeSkill(
@@ -274,7 +264,7 @@ async function decline(
     if (jobUrl) {
       const info = await readProfile(deps.storage)
       const hash = await profileHash(buildMatchProfile(info))
-      await deps.storage.remove(matchScoreCacheKey(jobUrl, hash))
+      await deps.storage.remove(matchScoreCacheKey(matchJobIdentity(jobUrl), hash))
     }
   }
   return result
