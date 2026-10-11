@@ -22,6 +22,7 @@ import {
   fileFromBambooSavedResumeMessage,
   fileFromSavedResumeMessage,
   loadSavedResumeFile,
+  resumeMimeType,
 } from './bamboohrResume.ts'
 
 const require = createRequire(import.meta.url)
@@ -352,6 +353,22 @@ test('resume, upload, and choose-file controls are the resume input; cover lette
   )
 })
 
+test('a resume file keeps its extension type when storage labels the download as JSON', () => {
+  assert.equal(resumeMimeType('test-resume.pdf', 'application/json'), 'application/pdf')
+  assert.equal(
+    resumeMimeType('test-resume.docx', 'text/plain'),
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  )
+  assert.equal(resumeMimeType('notes.txt', 'text/plain'), 'text/plain')
+  assert.equal(
+    resumeMimeType(
+      'admin-resume.docx',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ),
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  )
+})
+
 test('a saved resume is assigned to the BambooHR resume file input only', async () => {
   const savedBytes = new TextEncoder().encode('%PDF saved resume bytes')
   const calls: string[] = []
@@ -361,8 +378,11 @@ test('a saved resume is assigned to the BambooHR resume file input only', async 
     nowMs: 1_700_000_000_000,
     readStorage: async () => storedSession(),
     readActiveProfileId: async () => PROFILE_ID,
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, init) => {
       calls.push(url)
+      const accept = new Headers(init?.headers).get('accept')
+      if (url.includes('/rest/v1/')) assert.equal(accept, 'application/json')
+      if (url.includes('/storage/')) assert.equal(accept, '*/*')
       if (url.includes('/rest/v1/candidate_profiles')) {
         return new Response(
           JSON.stringify([

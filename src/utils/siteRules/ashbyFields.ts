@@ -188,9 +188,18 @@ export function ashbyLocationQueries(info: AshbyProfile): string[] {
   const city = (info.city || '').trim()
   const state = (info.state || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
   const country = countryLabel(info.country)
+  const cityName = city.split(',')[0]?.trim() || ''
   const queries: string[] = []
-  if (city && state) queries.push(`${city}, ${state}`)
-  if (city) queries.push(city)
+  // A vault city that is already "Philadelphia, Pennsylvania, United States" is the
+  // option label, not a city. Search that label, then the city token. "City, State"
+  // is the specific query when the city itself has no comma.
+  if (city.includes(',')) {
+    queries.push(city)
+    if (cityName && cityName !== city) queries.push(cityName)
+  } else {
+    if (city && state) queries.push(`${city}, ${state}`)
+    if (city) queries.push(city)
+  }
   if (state && country) queries.push(`${state}, ${country}`)
   if (country) queries.push(country)
   return unique(queries)
@@ -207,7 +216,7 @@ export function ashbyLocationText(info: AshbyProfile): string {
 // foreign homonym. Prefer the vault country and state; return null when no row
 // is that place so the fill can leave the field blank instead of clicking it.
 export function pickAshbyLocationOption(optionTexts: string[], info: AshbyProfile): string | null {
-  const city = normalizeAshbyPlace(info.city)
+  const city = normalizeAshbyPlace((info.city || '').split(',')[0] || '')
   const stateForms = ashbyStateForms(info.state)
   const tokens = ashbyCountryTokens(info.country)
   let best: { text: string; score: number } | null = null

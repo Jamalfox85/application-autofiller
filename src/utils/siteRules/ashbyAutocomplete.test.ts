@@ -102,6 +102,7 @@ function installTypeahead(input: HTMLInputElement, optionsFor: (query: string) =
   }
 
   input.addEventListener('input', () => {
+    if (input.value === '' && input.dataset.committed) input.dataset.wiped = '1'
     view.clearTimeout(timer)
     timer = view.setTimeout(() => show(input.value), 10)
   })
@@ -141,6 +142,7 @@ function installTypeahead(input: HTMLInputElement, optionsFor: (query: string) =
 function resetCombobox(input: HTMLInputElement) {
   input.value = ''
   delete input.dataset.committed
+  delete input.dataset.wiped
   delete input.dataset.rejectClicks
   delete input.dataset.forceInvalid
   input.removeAttribute('aria-invalid')
@@ -171,9 +173,14 @@ for (const button of Array.from(doc.querySelectorAll<HTMLButtonElement>('button[
   button.addEventListener('click', () => {
     const group = button.parentElement
     if (!group) return
+    const wasPressed = button.getAttribute('aria-pressed') === 'true'
     for (const peer of Array.from(group.querySelectorAll('button'))) peer.setAttribute('aria-pressed', 'false')
-    button.setAttribute('aria-pressed', 'true')
     const box = group.querySelector<HTMLInputElement>('input')
+    if (wasPressed) {
+      if (box) box.checked = false
+      return
+    }
+    button.setAttribute('aria-pressed', 'true')
     if (box) box.checked = true
   })
 }
@@ -206,6 +213,7 @@ describe('Ashby location and school typeahead', () => {
     assert.equal(filled, true)
     assert.equal(locationInput.value, 'Philadelphia, Pennsylvania, United States')
     assert.equal(locationInput.dataset.committed, 'Philadelphia, Pennsylvania, United States')
+    assert.equal(locationInput.dataset.wiped, undefined)
     assert.equal(locationInput.getAttribute('aria-expanded'), 'false')
     assert.notEqual(doc.activeElement, locationInput)
     const alert = locationInput.closest('[data-field-path]')?.querySelector('[role="alert"]')
@@ -265,6 +273,17 @@ describe('Ashby yes/no buttons', () => {
       disabilityStatus: 'no',
     } as PersonalInfo)
     assert.equal(filled, true)
+    assert.equal(pressed('age-18', 'yes'), 'true')
+    assert.equal(pressed('age-18', 'no'), 'false')
+    assert.equal(
+      await rule.apply(checkbox('age-18'), '', {
+        age18OrOlder: 'yes',
+        sponsorshipRequired: 'No',
+        workAuthorization: 'us_citizen',
+        disabilityStatus: 'no',
+      } as PersonalInfo),
+      true,
+    )
     assert.equal(pressed('age-18', 'yes'), 'true')
     assert.equal(pressed('age-18', 'no'), 'false')
 

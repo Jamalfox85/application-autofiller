@@ -57,6 +57,13 @@ export default function ashbyConfig(): SiteRule {
     prepareFill: () => {
       eeoTally = freshAshbyEeoTally()
       resetAshbySavedResumeRequest()
+      // A later click on this page may press a Yes/No button again. The marker
+      // only stops a second input in the same pass from toggling it off.
+      if (typeof document !== 'undefined') {
+        for (const button of Array.from(document.querySelectorAll('button[data-gofillr-yes]'))) {
+          button.removeAttribute('data-gofillr-yes')
+        }
+      }
     },
     fillTelemetry: () => ashbyEeoTelemetry(eeoTally),
     apply: async (input, _fieldText, personalInfo) => {
@@ -355,9 +362,9 @@ type AshbyAutocompleteTiming = {
 }
 
 const ASHBY_AUTOCOMPLETE_TIMING: AshbyAutocompleteTiming = {
-  suggestionTimeoutMs: 2000,
+  suggestionTimeoutMs: 3200,
   verifyDelayMs: 200,
-  typeDelayMs: 12,
+  typeDelayMs: 0,
 }
 
 let ashbyAutocompleteTiming: AshbyAutocompleteTiming = { ...ASHBY_AUTOCOMPLETE_TIMING }
@@ -372,11 +379,25 @@ async function fillAshbyAutocomplete(
   pickOption?: (optionTexts: string[]) => string | null,
 ): Promise<boolean> {
   if (!(input instanceof HTMLInputElement)) return false
+  if (pickOption && (await ashbyPlaceAlreadySaved(input, pickOption))) return true
   for (const query of queries) {
     if (await commitAshbyQuery(input, query, pickOption)) return true
   }
-  clearAshbyTypeahead(input)
+  await clearAshbyTypeahead(input, !!pickOption)
   return false
+}
+
+// The combobox shows the saved place as plain text. Clicking it does not open a
+// list. Skip another pass when the page already stored that place's id.
+async function ashbyPlaceAlreadySaved(
+  input: HTMLInputElement,
+  pickOption: (optionTexts: string[]) => string | null,
+): Promise<boolean> {
+  const saved = await readAshbyLocationState(input)
+  if (!saved?.providerLocationId) return false
+  const text = collapseText(saved.text || saved.value)
+  if (!text) return false
+  return pickOption([text]) === text
 }
 
 // Click the best row, then confirm the label survived blur. One retry uses the
@@ -387,42 +408,48 @@ async function commitAshbyQuery(
   query: string,
   pickOption?: (optionTexts: string[]) => string | null,
 ): Promise<boolean> {
+  const requireLocationId = !!pickOption
   for (let attempt = 0; attempt < 2; attempt++) {
     await typeAshbyQuery(input, query)
     const options = await waitForAshbyOptions(input)
     if (options.length === 0) {
-      clearAshbyTypeahead(input)
+      await clearAshbyTypeahead(input, requireLocationId)
       return false
     }
     const texts = options.map((option) => collapseText(option.textContent))
     const chosen = pickOption ? pickOption(texts) : defaultAshbyOption(texts, query)
     const option = chosen ? options.find((node) => collapseText(node.textContent) === collapseText(chosen)) : undefined
     if (!chosen || !option) {
-      clearAshbyTypeahead(input)
+      await clearAshbyTypeahead(input, requireLocationId)
       return false
     }
-    if (attempt === 0) clickAshbyOption(option)
+    if (attempt === 0) await clickAshbyOption(input, option, chosen)
     else await keyboardChooseAshbyOption(input, chosen)
-    if (await ashbySelectionCommitted(input, chosen)) return true
-    clearAshbyTypeahead(input)
+    if (await ashbySelectionCommitted(input, chosen, requireLocationId)) return true
   }
+  await clearAshbyTypeahead(input, requireLocationId)
   return false
 }
 
+// One non-empty write. Ashby treats '' as "clear the saved place" and posts
+// value null. A shorter nudge is only used when the box already shows this query,
+// so the widget opens the list again.
 async function typeAshbyQuery(input: HTMLInputElement, query: string) {
   const view = viewOf(input)
   input.focus()
   input.dispatchEvent(new view.FocusEvent('focus', { bubbles: true }))
-  setReactInputValue(input, '')
-  let current = ''
-  for (const char of query) {
-    current += char
-    const code = char === ' ' ? 'Space' : /^[a-zA-Z]$/.test(char) ? `Key${char.toUpperCase()}` : char
-    dispatchKey(input, 'keydown', char, code)
-    setReactInputValue(input, current)
-    dispatchKey(input, 'keyup', char, code)
+  const typed = await askAshbyLocationPage(input, 'typeAshbyLocation', { query })
+  if (typed?.typed === true) {
     if (ashbyAutocompleteTiming.typeDelayMs > 0) await delay(ashbyAutocompleteTiming.typeDelayMs)
+    return
   }
+  const wanted = collapseText(query)
+  if (collapseText(input.value) === wanted) {
+    const nudge = wanted.length > 1 ? wanted.slice(0, -1) : `${wanted} `
+    if (nudge) setReactInputValue(input, nudge)
+  }
+  setReactInputValue(input, query)
+  if (ashbyAutocompleteTiming.typeDelayMs > 0) await delay(ashbyAutocompleteTiming.typeDelayMs)
 }
 
 async function waitForAshbyOptions(input: HTMLInputElement): Promise<HTMLElement[]> {
@@ -467,15 +494,24 @@ function defaultAshbyOption(texts: string[], query: string): string | null {
   return index >= 0 ? texts[index] : null
 }
 
-function clickAshbyOption(option: HTMLElement) {
+async function clickAshbyOption(input: HTMLInputElement, option: HTMLElement, label: string) {
+  const chosen = await askAshbyLocationPage(input, 'chooseAshbyLocation', { label, mode: 'click' })
+  if (chosen?.chose === true) return
   const view = viewOf(option)
   const init: MouseEventInit = { bubbles: true, cancelable: true, view }
+  const Pointer = (view as Window & { PointerEvent?: typeof PointerEvent }).PointerEvent
+  if (typeof Pointer === 'function') {
+    option.dispatchEvent(new Pointer('pointerdown', init))
+    option.dispatchEvent(new Pointer('pointerup', init))
+  }
   option.dispatchEvent(new view.MouseEvent('mousedown', init))
   option.dispatchEvent(new view.MouseEvent('mouseup', init))
   option.click()
 }
 
 async function keyboardChooseAshbyOption(input: HTMLInputElement, label: string) {
+  const chosen = await askAshbyLocationPage(input, 'chooseAshbyLocation', { label, mode: 'keyboard' })
+  if (chosen?.chose === true) return
   input.focus()
   for (let step = 0; step < 16; step++) {
     if (input.getAttribute('aria-expanded') !== 'true') return
@@ -492,14 +528,32 @@ async function keyboardChooseAshbyOption(input: HTMLInputElement, label: string)
   }
 }
 
-// The visible value has to still be the chosen place after blur, and the field
-// must not be showing a validation error. Uncommitted text is gone by then.
-async function ashbySelectionCommitted(input: HTMLInputElement, label: string): Promise<boolean> {
+// A committed place has a providerLocationId in the page. The input can show the
+// same words as plain text with no id, and clicking that box opens nothing.
+// Fixtures have no page fiber, so the visible label after blur still counts.
+async function ashbySelectionCommitted(
+  input: HTMLInputElement,
+  label: string,
+  requireLocationId: boolean,
+): Promise<boolean> {
   await delay(ashbyAutocompleteTiming.verifyDelayMs)
-  if (collapseText(input.value) !== collapseText(label)) return false
+  const wanted = collapseText(label)
+  const saved = requireLocationId ? await readAshbyLocationState(input) : null
+  if (saved) {
+    const text = collapseText(saved.text || saved.value)
+    if (!saved.providerLocationId || text !== wanted) return false
+  } else if (collapseText(input.value) !== wanted) {
+    return false
+  }
   blurAshbyInput(input)
   await delay(ashbyAutocompleteTiming.verifyDelayMs)
-  if (collapseText(visibleAshbyValue(input)) !== collapseText(label)) return false
+  const after = requireLocationId ? await readAshbyLocationState(input) : null
+  if (after) {
+    const text = collapseText(after.text || after.value || visibleAshbyValue(input))
+    if (!after.providerLocationId || text !== wanted) return false
+  } else if (collapseText(visibleAshbyValue(input)) !== wanted) {
+    return false
+  }
   if (input.getAttribute('aria-invalid') === 'true') return false
   return !ashbyFieldHasError(input)
 }
@@ -521,7 +575,17 @@ function ashbyFieldHasError(input: HTMLInputElement): boolean {
   return false
 }
 
-function clearAshbyTypeahead(input: HTMLInputElement) {
+async function clearAshbyTypeahead(input: HTMLInputElement, requireLocationId = false) {
+  if (requireLocationId) {
+    const saved = await readAshbyLocationState(input)
+    if (saved?.providerLocationId) return
+  }
+  const cleared = requireLocationId ? await askAshbyLocationPage(input, 'clearAshbyLocation', {}) : null
+  if (cleared?.providerLocationId) return
+  if (cleared?.cleared === true) {
+    blurAshbyInput(input)
+    return
+  }
   setReactInputValue(input, '')
   dispatchKey(input, 'keydown', 'Escape', 'Escape')
   dispatchKey(input, 'keyup', 'Escape', 'Escape')
@@ -555,16 +619,66 @@ function delay(ms: number) {
 
 function clickYesNo(root: Element, choice: AshbyYesNo): boolean {
   const marked = root.querySelector<HTMLButtonElement>(`button[data-option="${choice}"]`)
-  if (marked) {
-    marked.click()
-    return true
-  }
   const fallback = Array.from(root.querySelectorAll('button')).find(
     (button) => button.textContent?.trim().toLowerCase() === choice,
   )
-  if (!fallback) return false
-  fallback.click()
+  const button = marked || fallback
+  if (!button) return false
+  // Ashby Yes/No toggles. A second click sets the value back to empty and does
+  // not save again, so the button looks unselected while the first answer remains.
+  if (button.getAttribute('aria-pressed') === 'true') return true
+  if (button.getAttribute('data-gofillr-yes') === choice) return true
+  button.setAttribute('data-gofillr-yes', choice)
+  button.click()
   return true
+}
+
+type AshbyLocationReply = {
+  found?: boolean
+  typed?: boolean
+  chose?: boolean
+  cleared?: boolean
+  text?: string
+  value?: string
+  providerLocationId?: string
+}
+
+function ashbyLocationToken(): string {
+  return `l${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.replace(/[^a-z0-9]/g, '').slice(0, 40)
+}
+
+function ashbyPageMessaging(): ((message: unknown) => Promise<unknown>) | null {
+  const runtime = (globalThis as { chrome?: { runtime?: { id?: string; sendMessage?: (message: unknown) => Promise<unknown> } } })
+    .chrome?.runtime
+  if (!runtime?.id || typeof runtime.sendMessage !== 'function') return null
+  return (message) => runtime.sendMessage!(message)
+}
+
+async function askAshbyLocationPage(
+  input: HTMLInputElement,
+  action: 'typeAshbyLocation' | 'chooseAshbyLocation' | 'readAshbyLocation' | 'clearAshbyLocation',
+  extra: { query?: string; label?: string; mode?: 'click' | 'keyboard' },
+): Promise<AshbyLocationReply | null> {
+  const send = ashbyPageMessaging()
+  if (!send) return null
+  const token = ashbyLocationToken()
+  if (!/^[a-z0-9]{8,64}$/.test(token)) return null
+  input.setAttribute('data-gofillr-location', token)
+  try {
+    const reply = await send({ action, token, ...extra })
+    if (!reply || typeof reply !== 'object') return null
+    return reply as AshbyLocationReply
+  } catch {
+    return null
+  } finally {
+    input.removeAttribute('data-gofillr-location')
+  }
+}
+
+async function readAshbyLocationState(input: HTMLInputElement): Promise<AshbyLocationReply | null> {
+  const reply = await askAshbyLocationPage(input, 'readAshbyLocation', {})
+  if (!reply || reply.found !== true) return null
+  return reply
 }
 
 function clickChoice(input: HTMLInputElement) {
