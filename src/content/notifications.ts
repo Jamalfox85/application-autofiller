@@ -17,6 +17,12 @@ import {
   fillToastSubtitle,
   parseActiveProfile,
 } from '../lib/sync/activeProfile.ts'
+import { isWorkableApplyPage } from '../utils/siteRules/workable.ts'
+import {
+  watchWorkableApplication,
+  workableApplicationFailed,
+  WORKABLE_PAGE_FAILED_MESSAGE,
+} from '../utils/siteRules/workablePage.ts'
 
 // Shared "on-page toast" chrome: a dark card with a colored accent bar on the left, sized to
 // stay legible when injected into an arbitrary page's own styles/zoom level. Uses the system
@@ -98,6 +104,14 @@ function removeFillToasts() {
 }
 
 export function showAutofillNotification(summary?: { fieldsCount?: number; totalCount?: number; repeatFill?: boolean }) {
+  // Workable can replace the apply form a few seconds after the writes return.
+  // Showing "Filled" on that error page is a false success.
+  if (isWorkableApplyPage() && workableApplicationFailed(document)) {
+    removeFillToasts()
+    showErrorNotification(WORKABLE_PAGE_FAILED_MESSAGE)
+    return
+  }
+
   removeFillToasts()
 
   const card = document.createElement('div')
@@ -138,6 +152,7 @@ export function showAutofillNotification(summary?: { fieldsCount?: number; total
   // If the page rebuilds the body right after the fill (hydration), put the toast back.
   for (const delayMs of [300, 1200, 2500]) {
     setTimeout(() => {
+      if (workableApplicationFailed(document)) return
       if (!card.isConnected && card.style.opacity !== '0') mountInToastStack(card)
     }, delayMs)
   }
@@ -207,6 +222,15 @@ export function showAutofillNotification(summary?: { fieldsCount?: number; total
     undoLastFill()
     dismiss()
   })
+
+  if (isWorkableApplyPage()) {
+    watchWorkableApplication(document, () => {
+      if (hideTimer) clearInterval(hideTimer)
+      card.style.opacity = '0'
+      card.remove()
+      showErrorNotification(WORKABLE_PAGE_FAILED_MESSAGE)
+    })
+  }
 }
 
 export function showErrorNotification(
