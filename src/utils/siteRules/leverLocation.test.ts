@@ -233,20 +233,23 @@ describe('hosted location autocomplete', { concurrency: 1 }, () => {
     }
   })
 
-  it('fills github and linkedin with https and leaves a portfolio URL blank', async () => {
+  it('fills each link field from its own profile value', async () => {
     const { view, doc } = locationDom()
     const restore = adoptDom(view)
     const github = doc.getElementById('github') as HTMLInputElement
     const linkedin = doc.getElementById('linkedin') as HTMLInputElement
     const portfolio = doc.getElementById('portfolio') as HTMLInputElement
+    const other = doc.getElementById('other-website') as HTMLInputElement
     beginLeverFill()
     try {
       assert.equal(await leverConfig().apply(github, '', profile), true)
       assert.equal(github.value, 'https://github.com/ada')
       assert.equal(await leverConfig().apply(linkedin, '', profile), true)
       assert.equal(linkedin.value, 'https://www.linkedin.com/in/ada')
-      assert.equal(await leverConfig().apply(portfolio, '', profile), false)
-      assert.equal(portfolio.value, '')
+      assert.equal(await leverConfig().apply(portfolio, '', profile), true)
+      assert.equal(portfolio.value, 'http://portfolio.example/ada')
+      assert.equal(await leverConfig().apply(other, '', profile), true)
+      assert.equal(other.value, '')
     } finally {
       restore()
     }

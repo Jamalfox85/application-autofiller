@@ -143,9 +143,13 @@ describe('Lever contact fields', () => {
   })
 
   it('leaves portfolio, essays, referrals, and the resume file alone', () => {
-    assert.equal(
+    assert.deepEqual(
       leverPlan({ name: 'urls[Portfolio]', type: 'text', label: 'Portfolio URL' }, profile),
-      null,
+      { action: 'claim' },
+    )
+    assert.deepEqual(
+      leverPlan({ name: 'urls[Other]', type: 'text', label: 'Other website' }, profile),
+      { action: 'claim' },
     )
     assert.deepEqual(
       leverPlan(
@@ -205,6 +209,65 @@ describe('Lever contact fields', () => {
         profile,
       ),
       null,
+    )
+  })
+
+  it('writes a different url to portfolio and other website unless both are stored', () => {
+    const portfolio = { name: 'urls[Portfolio]', type: 'text', label: 'Portfolio URL' }
+    const other = { name: 'urls[Other]', type: 'text', label: 'Other website' }
+    const github = { name: 'urls[GitHub]', type: 'text', label: 'GitHub URL' }
+    const linkedin = { name: 'urls[LinkedIn]', type: 'text', label: 'LinkedIn URL' }
+    const links = {
+      ...profile,
+      website: 'http://portfolio.example/ada',
+      github: 'http://github.com/ada',
+      linkedin: 'https://linkedin.com/in/ada',
+      otherLinks: [{ label: 'Other', url: 'blog.example/ada' }],
+    }
+    assert.deepEqual(leverPlan(portfolio, links), {
+      action: 'text',
+      value: 'http://portfolio.example/ada',
+    })
+    assert.deepEqual(leverPlan(other, links), {
+      action: 'text',
+      value: 'https://blog.example/ada',
+    })
+    assert.deepEqual(leverPlan(github, links), { action: 'text', value: 'https://github.com/ada' })
+    assert.deepEqual(leverPlan(linkedin, links), {
+      action: 'text',
+      value: 'https://linkedin.com/in/ada',
+    })
+    assert.deepEqual(
+      leverPlan(other, { ...profile, website: 'https://ada.dev' }),
+      { action: 'claim' },
+    )
+    assert.deepEqual(leverPlan(portfolio, { ...profile, website: 'https://ada.dev' }), {
+      action: 'text',
+      value: 'https://ada.dev',
+    })
+    assert.deepEqual(
+      leverPlan(other, {
+        ...profile,
+        website: 'https://ada.dev',
+        otherLinks: [{ label: 'Other', url: 'https://ada.dev' }],
+      }),
+      { action: 'text', value: 'https://ada.dev' },
+    )
+    assert.deepEqual(
+      leverPlan(other, {
+        ...profile,
+        website: 'https://ada.dev',
+        otherLinks: [{ label: 'Dribbble', url: 'https://dribbble.com/ada' }],
+      }),
+      { action: 'text', value: 'https://dribbble.com/ada' },
+    )
+    assert.deepEqual(
+      leverPlan(other, {
+        ...profile,
+        website: 'https://ada.dev',
+        otherLinks: [{ label: 'Dribbble', url: 'https://ada.dev' }],
+      }),
+      { action: 'claim' },
     )
   })
 })

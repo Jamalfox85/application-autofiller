@@ -19,6 +19,7 @@ export type LeverProfile = {
   linkedin?: string | null
   github?: string | null
   website?: string | null
+  otherLinks?: Array<{ label?: string | null; url?: string | null }> | null
   eeoAnswersEnabled?: boolean | null
   gender?: string | null
   raceEthnicity?: string | null
@@ -964,23 +965,8 @@ export function leverPlan(
     return value ? { action: 'text', value } : null
   }
 
-  if (
-    name.toLowerCase().includes('linkedin') ||
-    (normalized.includes('linkedin') && !isOutOfScopeLabel(normalized))
-  ) {
-    if (!isUrlText(type)) return null
-    const value = leverProfileUrl(info.linkedin)
-    return value ? { action: 'text', value } : null
-  }
-
-  if (
-    name.toLowerCase().includes('github') ||
-    (normalized.includes('github') && !isOutOfScopeLabel(normalized))
-  ) {
-    if (!isUrlText(type)) return null
-    const value = leverProfileUrl(info.github)
-    return value ? { action: 'text', value } : null
-  }
+  const linkPlan = leverLinkPlan(field, info)
+  if (linkPlan) return linkPlan
 
   if (repeatKey === 'company' || repeatKey === 'title') {
     const entry = info.experience?.[index]
@@ -1116,6 +1102,114 @@ function datePlan(
     return choice ? { action: 'select', optionText: choice } : null
   }
   return { action: 'text', value: clean(source) }
+}
+
+type LeverLinkKind = 'linkedin' | 'github' | 'portfolio' | 'other'
+
+// Portfolio, Other website, GitHub, and LinkedIn are separate questions. Each one
+// reads its own profile value. An empty match is claimed so the generic matcher
+// cannot copy the portfolio URL into a second link field.
+function leverLinkPlan(field: LeverField, info: LeverProfile): LeverPlan | null {
+  const kind = leverLinkKind(field)
+  if (!kind) return null
+  const value =
+    kind === 'linkedin'
+      ? leverProfileUrl(info.linkedin)
+      : kind === 'github'
+        ? leverProfileUrl(info.github)
+        : kind === 'portfolio'
+          ? leverPortfolioUrl(info)
+          : leverOtherWebsiteUrl(info)
+  if (!value) return { action: 'claim' }
+  return { action: 'text', value }
+}
+
+function leverLinkKind(field: LeverField): LeverLinkKind | null {
+  if (!isUrlText(fieldType(field))) return null
+  const slot = leverUrlSlot(fieldName(field))
+  if (slot === 'linkedin' || slot === 'github' || slot === 'portfolio' || slot === 'other') return slot
+  const label = normalizeLeverLabel(field.label)
+  if (!label || isOutOfScopeLabel(label)) return null
+  if (label.includes('linkedin')) return 'linkedin'
+  if (label.includes('github')) return 'github'
+  if (label.includes('portfolio')) return 'portfolio'
+  if (label === 'otherwebsite' || (label.includes('other') && label.includes('website'))) return 'other'
+  return null
+}
+
+function leverUrlSlot(name: string): string {
+  const match = /urls\[([^\]]+)\]/i.exec(name)
+  return match ? match[1].toLowerCase().replace(/[^a-z0-9]+/g, '') : ''
+}
+
+function leverPortfolioUrl(info: LeverProfile): string {
+  const dedicated = leverProfileUrl(info.website)
+  if (dedicated) return dedicated
+  return otherLinkUrl(info, (label) => label === 'portfolio' || label === 'portfoliourl')
+}
+
+// Other website reads an additional link, not the portfolio value. The same URL
+// is written only when that link is stored separately and happens to match.
+function leverOtherWebsiteUrl(info: LeverProfile): string {
+  const taken = new Set(
+    [leverPortfolioUrl(info), leverProfileUrl(info.linkedin), leverProfileUrl(info.github)]
+      .map(canonicalProfileUrl)
+      .filter(Boolean),
+  )
+  const links = collectOtherLinks(info).filter((link) => !isDedicatedProfileLinkLabel(link.label))
+  const preferred = links.find((link) => isOtherWebsiteLabel(link.label))
+  if (preferred) return preferred.url
+  const distinct = links.find((link) => !taken.has(canonicalProfileUrl(link.url)))
+  return distinct?.url ?? ''
+}
+
+function otherLinkUrl(info: LeverProfile, matches: (label: string) => boolean): string {
+  return collectOtherLinks(info).find((link) => matches(link.label))?.url ?? ''
+}
+
+function collectOtherLinks(info: LeverProfile): Array<{ label: string; url: string }> {
+  const links: Array<{ label: string; url: string }> = []
+  for (const link of info.otherLinks ?? []) {
+    const url = leverProfileUrl(link?.url)
+    if (!url) continue
+    links.push({ label: normalizeLeverLabel(link?.label), url })
+  }
+  return links
+}
+
+function isOtherWebsiteLabel(label: string): boolean {
+  return (
+    label === 'other' ||
+    label === 'website' ||
+    label === 'otherwebsite' ||
+    label === 'personalwebsite' ||
+    label === 'personalsite' ||
+    label === 'homepage' ||
+    (label.includes('other') && label.includes('website'))
+  )
+}
+
+function isDedicatedProfileLinkLabel(label: string): boolean {
+  return (
+    label.includes('linkedin') ||
+    label.includes('github') ||
+    label.includes('portfolio') ||
+    label.includes('twitter')
+  )
+}
+
+function canonicalProfileUrl(value: string): string {
+  const raw = leverProfileUrl(value).trim()
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    if (url.protocol === 'http:') url.protocol = 'https:'
+    url.hash = ''
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '')
+    return url.href.replace(/\/$/, '').toLowerCase()
+  } catch {
+    return raw.replace(/\/+$/, '').toLowerCase()
+  }
 }
 
 function isUrlText(type: string): boolean {
