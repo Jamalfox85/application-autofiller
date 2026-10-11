@@ -1,19 +1,16 @@
 import { matchFieldToData } from './fieldMatch.ts'
 import { embeddedIcimsFillableFields } from '../utils/siteRules/icimsFrameAutofill.js'
 import { icimsSelectNeedsFill } from '../utils/siteRules/icimsFields.ts'
-import {
-  EMPTY_PROFILE_FILL_MESSAGE,
-  coerceFillText,
-  profileHasAutofillData,
-} from '../utils/fillValue.ts'
+import { coerceFillText, refuseAutofill } from '../utils/fillValue.ts'
+import { hasStoredSession } from '../lib/storedSession.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 import { isWorkdayApplyHost } from '../utils/siteRules/workdayAccount.ts'
 import { fillWorkdayApplicationQuestions, fillWorkdayWorkExperience } from '../utils/siteRules/workday.ts'
 import { beginLeverFill, readLeverEeoTelemetry } from '../utils/siteRules/lever.ts'
 import {
+  presentFillFailure,
   showAutofillNotification,
   showAutofillPrompt,
-  showErrorNotification,
 } from './notifications.ts'
 import {
   comboboxSearchIsUncommitted,
@@ -242,27 +239,24 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
 
   try {
     const startTime = Date.now()
-    const personalInfoData = await chrome.storage.local.get('personalInfo')
-    const personalInfo = await openStoredPersonalInfo(personalInfoData.personalInfo)
-
-    const customResponsesData = await chrome.storage.local.get('customResponses')
-    const customResponses = customResponsesData.customResponses || {}
-
-    const reviewSettingData = await chrome.storage.local.get('reviewHighlightEnabled')
-    const reviewHighlightEnabled = reviewSettingData.reviewHighlightEnabled ?? true
+    const stored = await chrome.storage.local.get(null)
+    const personalInfo = await openStoredPersonalInfo(stored.personalInfo)
+    const customResponses = stored.customResponses || {}
+    const reviewHighlightEnabled = stored.reviewHighlightEnabled ?? true
 
     // {} is what background.js writes on install, and it is truthy. Filling it
-    // used to type the literal "undefined" into name and email. Greenhouse site
-    // rules also return true when they own a field but have nothing to write,
-    // which would count as a successful fill. Bail out before any of that, but
-    // still record the attempt — an empty profile is a failed fill, not a skip.
-    if (!profileHasAutofillData(personalInfo)) {
+    // used to type the literal "undefined" into name and email. A signed-out
+    // browser has no profile mirror (sign-out wipes it) and must ask the user
+    // to sign in — not claim the profile is empty. A signed-in empty profile
+    // still records the attempt: that is a failed fill, not a skip.
+    const refusal = refuseAutofill({ signedIn: hasStoredSession(stored), personalInfo })
+    if (refusal) {
       await reportAttempt()
-      await reportFailed('empty_profile')
+      await reportFailed(refusal.code === 'signed_out' ? 'signed_out' : 'empty_profile')
       return {
         success: false,
-        code: 'empty_profile',
-        message: EMPTY_PROFILE_FILL_MESSAGE,
+        code: refusal.code,
+        message: refusal.message,
       }
     }
 
@@ -703,8 +697,8 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
       } else if (result.success) {
         showAutofillNotification(result)
         if (result.paywall === 'soft') void showFillPaywall('soft', result)
-      } else if (result.code === 'empty_profile') {
-        showErrorNotification(result.message)
+      } else if (result.code === 'empty_profile' || result.code === 'signed_out') {
+        presentFillFailure(result)
       }
     } else if (autoDetectEnabled && !hasShownPopup) {
       // Detect ON offers the fill; Detect OFF stays silent.

@@ -7,6 +7,7 @@ import { flushPendingProfilePlan } from '@/services/billing/profilePlan'
 import { withFillHistoryLock } from '@/lib/sync/fillHistory'
 import { noteMirrorUser } from '@/lib/sync/mirrorEpoch'
 import { clearCachedAccountKey } from '@/lib/accountKeyCache'
+import { SIGN_OUT_LOCAL_KEYS } from '@/lib/signOutLocal'
 
 export type AuthStatus = 'loading' | 'signed-in' | 'signed-out'
 
@@ -102,18 +103,7 @@ export function useAuth() {
     // previous account's data, even for a frame. Supabase is the source of truth; these are
     // rebuilt on the next load. The fill-history lock is held so an in-flight reconcile cannot
     // write the previous account's history back after this remove.
-    await withFillHistoryLock(() =>
-      chrome.storage.local.remove([
-        'personalInfo',
-        'customResponses',
-        'fillHistory',
-        'resumeUploadJob',
-        'savedResumeFile',
-        'localToSupabaseMigrated_v1',
-        'activeProfile',
-        USER_ID_KEY,
-      ]),
-    )
+    await withFillHistoryLock(() => chrome.storage.local.remove([...SIGN_OUT_LOCAL_KEYS]))
     applySession(null)
   }
 
