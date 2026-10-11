@@ -44,6 +44,7 @@ import {
 import { withTimeout } from '../utils/withTimeout.ts'
 import {
   SUBMITTED_APPLICATIONS_KEY,
+  planFillCharge,
   quotaPageKey,
   rememberSubmittedApplication,
 } from '@/services/billing/quotaPage'
@@ -81,8 +82,9 @@ let lastAutofillTriggeredAt: number | null = null
 // same tab from charging again; this set stops a resync that overlaps the claim.
 // The key is the application, so a later step in this document does not charge.
 const quotaCountedPages = new Set<string>()
-// True when the last fill was not counted because this application already used its fill this week.
-let lastChargeWasRepeat = false
+// A charge that has reserved the key but has not finished. A top-up that starts
+// while it is running is the same fill, not a repeat.
+const quotaInFlightPages = new Set<string>()
 // Pro fills are stored in History but do not count toward the free cap.
 let lastCountedTowardFreeQuota = true
 
@@ -463,11 +465,16 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     let fillsRemaining = access?.fillsRemaining
     const ats = access?.ats
 
+    // Decided by this fill's own claim, not a module flag a second frame or a
+    // mid-fill top-up can flip after the weekly count has already gone up.
+    let repeatFill = false
     if (filledCount > 0) {
       // Analytics and billing are network calls. Bound the wait so a slow one cannot hold back
       // the "Autofill completed" toast; the work still finishes in the background.
       const charge = (async () => {
-        const charged = await chargeFillQuota(ats || 'other')
+        const outcome = await chargeFillQuota(ats || 'other', startTime)
+        repeatFill = outcome.repeatFill
+        const charged = outcome.charged
         if (charged) {
           // One counted fill is one History row and one autofill_succeeded. A later
           // step of the same application is not a new claim, so it does not emit
@@ -522,7 +529,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       fillCount,
       fillsRemaining,
       // Fill worked but is not a new counted fill (same application, same week): no History row.
-      repeatFill: filledCount > 0 && lastChargeWasRepeat,
+      repeatFill: filledCount > 0 && repeatFill,
       ats,
     }
   } catch {
@@ -546,39 +553,71 @@ function highlightFilledField(input: FormField) {
   setTimeout(() => input.classList.remove(REVIEW_HIGHLIGHT_CLASS), REVIEW_HIGHLIGHT_DURATION_MS)
 }
 
+type ChargeOutcome = {
+  charged: Awaited<ReturnType<typeof commitSuccessfulFill>> | null
+  repeatFill: boolean
+}
+
 // Reserve this application, then ask the worker. The worker's tab URL is shared
 // by every frame, so an embed and its shell cannot both increment the weekly
 // count. The key ignores step changes, so the next page of the same application
-// does not increment it either.
-async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof commitSuccessfulFill>> | null> {
+// does not increment it either. The repeat flag is this call's result: a sibling
+// frame that claimed during this click, or a top-up still in flight, did count.
+async function chargeFillQuota(ats: string, fillStartedAt: number): Promise<ChargeOutcome> {
   const pageKey = quotaPageKey(window.location.href) || window.location.href.split('#')[0]
-  lastChargeWasRepeat = false
-  if (quotaCountedPages.has(pageKey)) {
-    lastChargeWasRepeat = true
-    return null
-  }
-  quotaCountedPages.add(pageKey)
+  const early = planFillCharge({
+    filledCount: 1,
+    sameFrameInFlight: quotaInFlightPages.has(pageKey),
+    sameFrameAlreadyCounted: quotaCountedPages.has(pageKey),
+    claim: 'granted',
+    fillStartedAt,
+  })
+  if (!early.increment) return { charged: null, repeatFill: early.repeatFill }
 
-  let owned = true
+  quotaInFlightPages.add(pageKey)
   try {
-    const claim = await chrome.runtime.sendMessage({ action: 'claimFillQuota', pageKey })
-    if (claim?.claimed === false && claim?.error !== true) owned = false
-  } catch {
-    // Worker unreachable: this frame's set still blocks a second charge here.
-  }
-  if (!owned) {
-    lastChargeWasRepeat = true
-    return null
-  }
+    let claimKind: 'granted' | 'already_counted' | 'unavailable' = 'granted'
+    let claimedAt: number | null = null
+    try {
+      const claim = (await chrome.runtime.sendMessage({ action: 'claimFillQuota', pageKey })) as
+        | { claimed?: boolean; error?: boolean; claimedAt?: number }
+        | undefined
+      if (claim?.claimed === false && claim.error !== true) {
+        claimKind = 'already_counted'
+        claimedAt = typeof claim.claimedAt === 'number' ? claim.claimedAt : null
+      }
+    } catch {
+      // Worker unreachable: this frame's set still blocks a second charge here.
+      claimKind = 'unavailable'
+    }
 
-  try {
-    const charged = await commitSuccessfulFill(ats)
-    lastCountedTowardFreeQuota = charged.countedTowardFreeQuota !== false
-    return charged
-  } catch (error) {
-    quotaCountedPages.delete(pageKey)
-    void chrome.runtime.sendMessage({ action: 'releaseFillQuota', pageKey }).catch(() => {})
-    throw error
+    const planned = planFillCharge({
+      filledCount: 1,
+      sameFrameInFlight: false,
+      sameFrameAlreadyCounted: false,
+      claim: claimKind === 'unavailable' ? 'granted' : claimKind,
+      claimedAt,
+      fillStartedAt,
+    })
+    if (!planned.increment) {
+      // Remember a claim this click lost, including one a sibling frame just won,
+      // so the next click in this document says it was already counted.
+      if (claimKind === 'already_counted') quotaCountedPages.add(pageKey)
+      return { charged: null, repeatFill: planned.repeatFill }
+    }
+
+    try {
+      const charged = await commitSuccessfulFill(ats)
+      lastCountedTowardFreeQuota = charged.countedTowardFreeQuota !== false
+      quotaCountedPages.add(pageKey)
+      return { charged, repeatFill: false }
+    } catch (error) {
+      quotaCountedPages.delete(pageKey)
+      void chrome.runtime.sendMessage({ action: 'releaseFillQuota', pageKey }).catch(() => {})
+      throw error
+    }
+  } finally {
+    quotaInFlightPages.delete(pageKey)
   }
 }
 
@@ -773,10 +812,12 @@ export function debounceAutofill(autoDetectEnabled: boolean) {
   autofillDebounceTimer = setTimeout(async () => {
     if (userStartedFillOnPage) {
       // The user already clicked fill here; top up the rows the form just revealed.
+      // That top-up is the same fill. It must not replace the toast with
+      // "already counted this week" when the click itself was counted.
       const result = await autofillPage('resync')
       if (result.code === 'hard_cap' || result.paywall === 'hard') {
         void showFillPaywall('hard', result)
-      } else if (result.success) {
+      } else if (result.success && !result.repeatFill) {
         showAutofillNotification(result)
         if (result.paywall === 'soft') void showFillPaywall('soft', result)
       } else if (result.code === 'empty_profile' || result.code === 'signed_out') {

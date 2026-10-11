@@ -17,9 +17,14 @@ import {
   phoneDialingCodeTarget,
   pickDialingCodeOption,
   pickLocationOption,
+  settledDialingCodeLabel,
 } from './greenhouseFields.ts'
 import {
   countrySearchValues,
+  settledCountryLabel,
+  settledExactLabel,
+  settledSponsorshipLabel,
+  settledWorkAuthorizationLabel,
   degreeSearchValues,
   disciplineSearchValues,
   educationComboboxLabelSettled,
@@ -202,6 +207,9 @@ async function writePronunciation(
 }
 
 function commitNativeSelect(select: HTMLSelectElement, value: string) {
+  // A second fill must not re-fire change on a select that already has the answer.
+  // Greenhouse clears the phone and work-authorization fields when those events repeat.
+  if (select.value === value) return
   const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set
   const previous = select.value
   if (setter) setter.call(select, value)
@@ -225,6 +233,9 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       const target = phoneDialingCodeTarget(personalInfo)
       if (!target) return true
+      if (keepSettledCombobox(input, settledDialingCodeLabel(selectedComboboxLabel(input), target))) {
+        return true
+      }
       await fillReactSelect(
         input,
         dialingCodeSearchValues(target),
@@ -242,6 +253,9 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       const queries = currentLocationQueries(personalInfo)
       if (queries.length === 0) return 'skip'
+      if (keepSettledCombobox(input, settledExactLabel(selectedComboboxLabel(input), queries))) {
+        return true
+      }
       await fillReactSelect(
         input,
         queries,
@@ -257,6 +271,9 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       const queries = locationSearchQueries(personalInfo)
       if (queries.length === 0) return true
+      if (keepSettledCombobox(input, settledExactLabel(selectedComboboxLabel(input), queries))) {
+        return true
+      }
       await fillReactSelect(
         input,
         queries,
@@ -434,6 +451,9 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       const queries = stateSearchValues(personalInfo.state)
       if (queries.length === 0) return true
+      if (keepSettledCombobox(input, settledExactLabel(selectedComboboxLabel(input), queries))) {
+        return true
+      }
       const questionId = input.id.match(/question_(\d+)/)?.[1] || ''
       const optionSelector = questionId
         ? `[id^=react-select-question_${questionId}-option-]`
@@ -449,6 +469,14 @@ const fieldHandlers: Array<{
       fieldText.includes('legallyauthorized') || fieldText.includes('authorizedtowork'),
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization) return false
+      if (
+        keepSettledCombobox(
+          input,
+          settledWorkAuthorizationLabel(selectedComboboxLabel(input), personalInfo.workAuthorization),
+        )
+      ) {
+        return true
+      }
       if (isNativeSelect(input)) {
         const value = nativeWorkAuthorizationSelectValue(
           nativeSelectChoices(input),
@@ -472,6 +500,9 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       if (!personalInfo.workAuthorization && !personalInfo.sponsorshipRequired) return false
       const needsSponsorship = profileRequiresSponsorship(personalInfo)
+      if (keepSettledCombobox(input, settledSponsorshipLabel(selectedComboboxLabel(input), needsSponsorship))) {
+        return true
+      }
       if (isNativeSelect(input)) {
         const value = nativeSponsorshipSelectValue(nativeSelectChoices(input), needsSponsorship)
         if (value != null) commitNativeSelect(input, value)
@@ -494,6 +525,9 @@ const fieldHandlers: Array<{
     handle: async (input, _, personalInfo) => {
       const queries = countrySearchValues(personalInfo.country)
       if (queries.length === 0) return true
+      if (keepSettledCombobox(input, settledCountryLabel(selectedComboboxLabel(input), personalInfo.country))) {
+        return true
+      }
       if (isNativeSelect(input)) {
         const value = nativeCountrySelectValue(nativeSelectChoices(input), personalInfo.country)
         if (value != null) commitNativeSelect(input, value)
@@ -589,6 +623,38 @@ function liveEducationInput(
 function selectedComboboxLabel(input: HTMLElement): string {
   const root = input.closest('.select')
   return root?.querySelector('.select__single-value')?.textContent?.replace(/\s+/g, ' ').trim() || ''
+}
+
+function comboboxSearchPending(input: HTMLElement): boolean {
+  if (!(input instanceof HTMLInputElement)) return false
+  const typed = input.value.replace(/\s+/g, ' ').trim()
+  if (!typed) return false
+  return typed !== selectedComboboxLabel(input)
+}
+
+// Close a menu that a previous pass left open, without clearing a committed chip.
+function dismissOpenCombobox(input: HTMLInputElement) {
+  if (input.getAttribute('aria-expanded') !== 'true') return
+  const view = input.ownerDocument?.defaultView ?? window
+  const keyInit = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }
+  input.dispatchEvent(new view.KeyboardEvent('keydown', keyInit))
+  input.dispatchEvent(new view.KeyboardEvent('keyup', keyInit))
+  input.dispatchEvent(new view.FocusEvent('blur', { bubbles: false }))
+  input.dispatchEvent(new view.FocusEvent('focusout', { bubbles: true }))
+  input.blur()
+  if (input.getAttribute('aria-expanded') !== 'true') return
+  const root = input.closest('.select') || input.parentElement
+  const toggle = root?.querySelector<HTMLElement>('button[aria-label="Toggle flyout"]')
+  toggle?.dispatchEvent(new view.MouseEvent('mouseup', { bubbles: true, cancelable: true, view }))
+}
+
+// Already-correct Greenhouse comboboxes are not opened again. Re-typing the query
+// clears the chip, leaves the menu open, and can remount the phone field mid-keystroke.
+function keepSettledCombobox(input: HTMLElement, settled: boolean): boolean {
+  if (!settled || comboboxSearchPending(input)) return false
+  if (!(input instanceof HTMLInputElement)) return true
+  dismissOpenCombobox(input)
+  return true
 }
 
 // fillReactSelect returns true only when the visible value is the chosen option.

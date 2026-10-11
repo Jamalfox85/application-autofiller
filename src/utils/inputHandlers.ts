@@ -77,24 +77,40 @@ export async function fillNativeInput(
   if (!text) return false
   if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) return false
 
-  ignorePagePatternError(() => input.focus())
-  dispatchFillEvent(input, new Event('focus', { bubbles: true }))
+  // Greenhouse replaces the phone input when a nearby combobox updates. Keep
+  // writing the same id so a mid-fill remount cannot leave a half-typed number.
+  const targetId = input.id
+  let field: HTMLInputElement | HTMLTextAreaElement = input
+  const liveField = (): HTMLInputElement | HTMLTextAreaElement => {
+    if (field.isConnected || !targetId) return field
+    const next = field.ownerDocument?.getElementById(targetId)
+    if (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) field = next
+    return field
+  }
+
+  const start = liveField()
+  if (start.value === text) return true
+  ignorePagePatternError(() => start.focus())
+  dispatchFillEvent(start, new Event('focus', { bubbles: true }))
 
   // Per-character events are what the page's handlers see, but 20ms each made a long answer
   // (a cover note, a URL) take seconds. Keep full fidelity for short values, go faster on long.
   const perCharDelayMs = text.length > 40 ? 2 : text.length > 15 ? 8 : 20
   let current = ''
   for (const char of text) {
+    const live = liveField()
     current += char
-    dispatchFillEvent(input, new KeyboardEvent('keydown', { key: char, bubbles: true }))
-    dispatchFillEvent(input, new KeyboardEvent('keypress', { key: char, bubbles: true }))
-    setReactInputValue(input, current)
-    dispatchFillEvent(input, new KeyboardEvent('keyup', { key: char, bubbles: true }))
+    dispatchFillEvent(live, new KeyboardEvent('keydown', { key: char, bubbles: true }))
+    dispatchFillEvent(live, new KeyboardEvent('keypress', { key: char, bubbles: true }))
+    setReactInputValue(live, current)
+    dispatchFillEvent(live, new KeyboardEvent('keyup', { key: char, bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, perCharDelayMs))
   }
 
-  dispatchFillEvent(input, new Event('change', { bubbles: true }))
-  dispatchFillEvent(input, new Event('blur', { bubbles: true }))
+  const done = liveField()
+  if (done.value !== text) setReactInputValue(done, text)
+  dispatchFillEvent(done, new Event('change', { bubbles: true }))
+  dispatchFillEvent(done, new Event('blur', { bubbles: true }))
   return true
 }
 

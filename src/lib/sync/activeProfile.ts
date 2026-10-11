@@ -105,6 +105,13 @@ export function fillToastSubtitle(active: ActiveProfileMirror | null | undefined
   return showsProfileName(active) ? `Filled with ${truncateProfileName(active!.name, 28)}` : 'Autofill completed'
 }
 
+// The suffix is only for a fill that did not count. A first fill that raised the
+// weekly total keeps the plain "Autofill completed" / "Filled with {name}" line.
+export function fillCompletionSubtitle(base: string, repeatFill?: boolean): string {
+  if (!repeatFill) return base
+  return `${base} · already counted this week`
+}
+
 // "edited 3d ago" for the Profiles list.
 export function editedAgo(updatedAt: string, now = Date.now()): string {
   const at = Date.parse(updatedAt)

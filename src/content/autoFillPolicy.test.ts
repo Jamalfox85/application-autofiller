@@ -82,9 +82,13 @@ test('a client-side navigation requires another click and can show the toast', (
 })
 
 test('a repeat fill on the same page says so instead of silently not counting', () => {
-  assert.match(autofill, /repeatFill: filledCount > 0 && lastChargeWasRepeat/)
+  assert.match(autofill, /repeatFill: filledCount > 0 && repeatFill/)
+  assert.match(autofill, /planFillCharge\(/)
+  assert.equal(autofill.includes('lastChargeWasRepeat'), false)
   const notifications = readFileSync(new URL('./notifications.ts', import.meta.url), 'utf8')
-  assert.match(notifications, /already counted this week/)
+  assert.match(notifications, /fillCompletionSubtitle\(base, summary\?\.repeatFill\)/)
+  const quota = readFileSync(new URL('../services/billing/quotaPage.ts', import.meta.url), 'utf8')
+  assert.match(quota, /export function planFillCharge/)
 })
 
 test('a later step does not emit another autofill_succeeded or history row', () => {

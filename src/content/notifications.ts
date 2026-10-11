@@ -11,7 +11,12 @@ import {
   scheduleAutofillPromptRestore,
 } from './applicationPrompt.ts'
 import { brandIcon, mountInToastStack } from './toastStack.ts'
-import { ACTIVE_PROFILE_KEY, fillToastSubtitle, parseActiveProfile } from '../lib/sync/activeProfile.ts'
+import {
+  ACTIVE_PROFILE_KEY,
+  fillCompletionSubtitle,
+  fillToastSubtitle,
+  parseActiveProfile,
+} from '../lib/sync/activeProfile.ts'
 
 // Shared "on-page toast" chrome: a dark card with a colored accent bar on the left, sized to
 // stay legible when injected into an arbitrary page's own styles/zoom level. Uses the system
@@ -145,8 +150,8 @@ export function showAutofillNotification(summary?: { fieldsCount?: number; total
       const subtitle = card.querySelector('[data-role="subtitle"]')
       if (subtitle) {
         const base = fillToastSubtitle(parseActiveProfile(data[ACTIVE_PROFILE_KEY]))
-        // Same page, same week: the fill worked but is not counted or logged again.
-        subtitle.textContent = summary?.repeatFill ? `${base} · already counted this week` : base
+        // Same application, same week, and this fill was not the one that counted.
+        subtitle.textContent = fillCompletionSubtitle(base, summary?.repeatFill)
       }
     } catch {
       // Keep the generic subtitle.

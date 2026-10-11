@@ -45,6 +45,7 @@ void openAccountKeySession()
 startExtensionPay()
 
 const FILL_QUOTA_CLAIMS_KEY = 'fillQuotaClaims'
+const FILL_QUOTA_CLAIMED_AT_KEY = 'fillQuotaClaimedAt'
 const quotaClaimQueues = new Map()
 let submissionClaimQueue = Promise.resolve()
 
@@ -552,22 +553,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     const releasing = request.action === 'releaseFillQuota'
     enqueueQuotaClaim(pageKey, async () => {
-      const stored = await chrome.storage.session.get(FILL_QUOTA_CLAIMS_KEY)
+      const stored = await chrome.storage.session.get([FILL_QUOTA_CLAIMS_KEY, FILL_QUOTA_CLAIMED_AT_KEY])
       const claims = stored[FILL_QUOTA_CLAIMS_KEY] || {}
+      const claimedAtByPage = stored[FILL_QUOTA_CLAIMED_AT_KEY] || {}
       if (releasing) {
+        const nextTimes = { ...claimedAtByPage }
+        delete nextTimes[pageKey]
         await chrome.storage.session.set({
           [FILL_QUOTA_CLAIMS_KEY]: forgetQuotaClaim(claims, pageKey),
+          [FILL_QUOTA_CLAIMED_AT_KEY]: nextTimes,
         })
         sendResponse({ ok: true })
         return
       }
       const decision = decideQuotaClaim(claims, pageKey, calendarWeekKey(new Date()))
       if (!decision.claimed) {
-        sendResponse({ claimed: false })
+        const claimedAt = typeof claimedAtByPage[pageKey] === 'number' ? claimedAtByPage[pageKey] : 0
+        // claimedAt is when this application was counted. A frame that is still
+        // filling the same click uses it to avoid the repeat-fill toast.
+        sendResponse({ claimed: false, claimedAt })
         return
       }
-      await chrome.storage.session.set({ [FILL_QUOTA_CLAIMS_KEY]: decision.claims })
-      sendResponse({ claimed: true })
+      const claimedAt = Date.now()
+      const nextTimes = {}
+      for (const key of Object.keys(decision.claims)) {
+        if (typeof claimedAtByPage[key] === 'number') nextTimes[key] = claimedAtByPage[key]
+      }
+      nextTimes[pageKey] = claimedAt
+      await chrome.storage.session.set({
+        [FILL_QUOTA_CLAIMS_KEY]: decision.claims,
+        [FILL_QUOTA_CLAIMED_AT_KEY]: nextTimes,
+      })
+      sendResponse({ claimed: true, claimedAt })
     }).catch(() => {
       sendResponse(releasing ? { ok: false } : { claimed: false, error: true })
     })

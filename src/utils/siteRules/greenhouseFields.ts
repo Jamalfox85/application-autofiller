@@ -61,6 +61,12 @@ export function dialingCodeSearchValues(target: DialingCodeTarget) {
   return [target.label, `${target.label} ${target.dialCode}`]
 }
 
+export function settledDialingCodeLabel(label: string, target: DialingCodeTarget): boolean {
+  const shown = label.replace(/\s+/g, ' ').trim()
+  if (!shown) return false
+  return pickDialingCodeOption([shown], target) === shown
+}
+
 export function pickDialingCodeOption(optionTexts: string[], target: DialingCodeTarget) {
   const wantName = target.label.toLowerCase()
   for (const raw of optionTexts) {
