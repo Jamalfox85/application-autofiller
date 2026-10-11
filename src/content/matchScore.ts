@@ -4,7 +4,7 @@ import { extractJobDescription } from '../services/matchScore/extractors/index.t
 import { matchScoreSurfaceReady } from '../services/matchScore/extractors/surface.ts'
 import { matchScoreEnabled } from '../services/matchScore/flags.ts'
 import { matchScoreIntent } from '../services/matchScore/intent.ts'
-import { matchJobIdentity, sameMatchJob } from '../services/matchScore/jobUrl.ts'
+import { canonicalMatchJobUrl, matchJobIdentity, sameMatchJob } from '../services/matchScore/jobUrl.ts'
 import { matchScoreDismissedKey } from '../services/matchScore/cache.ts'
 import {
   readResumeMatchingEnabled,
@@ -393,10 +393,11 @@ export async function runOnce() {
     isPro: entitlement.isPro,
   })
   if (intent === 'skip' || !extraction) return
-  const dedupeKey = `${intent}:${matchJobIdentity(extraction.jobUrl)}`
+  const jobUrl = canonicalMatchJobUrl(extraction.jobUrl)
+  const dedupeKey = `${intent}:${matchJobIdentity(jobUrl)}`
   if (sent.has(dedupeKey)) return
   sent.add(dedupeKey)
-  activeJobUrl = extraction.jobUrl
+  activeJobUrl = jobUrl
   activeAts = ats
   activeSource = extraction.source
   lastJd = extraction.text
@@ -404,7 +405,7 @@ export async function runOnce() {
     await chrome.runtime.sendMessage({
       action: 'matchScoreRelay',
       view: 'locked',
-      jobUrl: extraction.jobUrl,
+      jobUrl,
       ats,
       jdSource: extraction.source,
     })
@@ -412,7 +413,7 @@ export async function runOnce() {
   }
   await chrome.runtime.sendMessage({
     action: 'matchScore',
-    jobUrl: extraction.jobUrl,
+    jobUrl,
     ats,
     jdText: extraction.text,
     jdSource: extraction.source,

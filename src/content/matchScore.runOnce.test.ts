@@ -94,7 +94,8 @@ test('Match Score runOnce proceeds when profiles exist even without profileSetup
 test('iCIMS job content frame scores the description and the shell does not', async () => {
   const previousWindow = globalThis.window
   const previousDocument = globalThis.document
-  const frameHref = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job?in_iframe=1'
+  const frameHref =
+    'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job?in_iframe=1&mobile=false&width=1264&height=500'
   const shellHref = 'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job'
   try {
     const frame = new JSDOM(readFileSync(new URL('../../fixtures/pages/icims-job-frame.html', import.meta.url), 'utf8'), {
@@ -109,6 +110,12 @@ test('iCIMS job content frame scores the description and the shell does not', as
     assert.ok(scored)
     assert.equal(scored.ats, 'icims')
     assert.equal(scored.jdText, 'Build performance tooling.')
+    assert.equal(scored.jdText.includes('Email this job'), false)
+    assert.equal(scored.jdText.includes('Powered by'), false)
+    assert.equal(
+      scored.jobUrl,
+      'https://careers-healthedge.icims.com/jobs/8287/software-engineer---performance-and-tools/job',
+    )
     assert.equal(scored.jdSource, 'dom')
     assert.equal(frameMessages.some((message) => message.action === 'fetchJobPosting'), false)
 
