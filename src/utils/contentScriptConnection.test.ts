@@ -144,6 +144,9 @@ test('manifest content script and the command fallback target content.js', () =>
   assert.deepEqual(contentScript.matches, CONTENT_SCRIPT_MATCHES)
   assert.deepEqual(contentScript.js, ['content.js'])
   assert.equal(contentScript.all_frames, true)
+  assert.equal(contentScript.match_about_blank, true)
+  assert.equal(contentScript.match_origin_as_fallback, true)
+  assert.ok(contentScript.matches.includes('https://*.icims.com/*'))
   const extensionPay = manifest.content_scripts.find((entry) =>
     entry.js?.includes('extensionPayContent.js'),
   )

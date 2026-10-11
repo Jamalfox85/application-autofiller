@@ -19,6 +19,15 @@ export function isSealedPassword(value: unknown): value is string {
   return typeof value === 'string' && SEALED_RE.test(value)
 }
 
+// The Add account field shows what the user typed. A sealed value, including a
+// ciphertext cut down to `gfr1:` plus the 16-character IV (21 characters), is
+// not a password and must not appear in the box.
+export function editorPasswordValue(stored: string | null | undefined): string {
+  const value = typeof stored === 'string' ? stored : ''
+  if (!value || isSealedPassword(value) || value.startsWith(ACCOUNT_SECRET_PREFIX)) return ''
+  return value
+}
+
 export function hasSealedPassword(info: unknown): boolean {
   if (!info || typeof info !== 'object') return false
   const record = info as Partial<PersonalInfo>

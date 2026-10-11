@@ -8,6 +8,7 @@ import {
   accountPasswordsNeedSeal,
   blankSealedPasswords,
   importAccountKey,
+  editorPasswordValue,
   isSealedPassword,
   lockSealedPasswords,
   migrateAccountPasswords,
@@ -195,4 +196,24 @@ test('Mixpanel properties drop portal passwords and the crypto modules do not tr
   assert.equal(/trackEvent|trackMixpanel|mixpanel\.track/.test(sources), false)
   assert.match(read('./accountKey.ts'), /Account encryption key unavailable/)
   assert.equal(/console\.(log|debug|info|warn|error)\([^)]*\$\{/.test(read('./accountKey.ts')), false)
+})
+
+test('the add-account password box does not show a 21-character ciphertext fragment', () => {
+  const typed = 'correcthorse'
+  assert.equal(typed.length, 12)
+  assert.equal(editorPasswordValue(typed), typed)
+  const iv = 'a'.repeat(16)
+  const fragment = `gfr1:${iv}`
+  assert.equal(fragment.length, 21)
+  assert.equal(isSealedPassword(fragment), false)
+  assert.equal(editorPasswordValue(fragment), '')
+  assert.equal(editorPasswordValue(''), '')
+  const form = readFileSync(new URL('../components/dialogs/ApplicationAccountFormDialog.vue', import.meta.url), 'utf8')
+  assert.match(form, /editorPasswordValue\(props\.item\.password\)/)
+  assert.match(form, /autocomplete="new-password"/)
+  assert.match(form, /name="gofillr-new-account-password"/)
+  assert.doesNotMatch(form, /password\.value = props\.item\.password/)
+  const saveAt = form.indexOf('passwordForApplicationAccount')
+  const modelAt = form.indexOf('v-model="password"')
+  assert.ok(saveAt >= 0 && modelAt > saveAt)
 })

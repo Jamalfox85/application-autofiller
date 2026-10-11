@@ -8,6 +8,7 @@ import {
   readAutofillTriggerForSubmission,
 } from './autofill.ts'
 import {
+  presentAutofillOutcome,
   presentFillFailure,
   showAutofillNotification,
   showAutofillPrompt,
@@ -84,8 +85,20 @@ function isTopFrame() {
 // the Ctrl+Shift+F path. The flag skips a second listener when the service worker
 // reinjects this file into a frame that already has it.
 function onRuntimeMessage(request, _sender, sendResponse) {
+  if (request.action === 'presentAutofillResult') {
+    presentAutofillOutcome(request.result)
+    sendResponse({ ok: true })
+    return false
+  }
+
   if (request.action === 'autofill') {
     autofillPage('user_clicked_button').then((result) => {
+      // A multi-frame iCIMS fill reports once, from the shell or the popup.
+      // The frame that owns the fields still writes them.
+      if (request.quiet === true) {
+        sendResponse(result)
+        return
+      }
       // The popup draws the paywall itself. The shortcut has no popup, so the page does.
       const onPagePaywall = request.surface !== 'popup'
       if (result.code === 'hard_cap' || result.paywall === 'hard') {

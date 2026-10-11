@@ -27,14 +27,49 @@ import {
 } from './icimsFields.ts'
 import { attachIcimsResumeOnce } from './icimsResumeFile.ts'
 
+type IcimsRowNode = {
+  tagName?: string
+  textContent?: string | null
+  cloneNode?: (deep: boolean) => IcimsRowNode
+  querySelectorAll?: (selector: string) => ArrayLike<{ remove?: () => void }>
+}
+
+// Script and style text is not a label. The career login form inlines the
+// hCaptcha bootstrap, and textContent would otherwise mark #email as a captcha.
+function icimsRowLabel(node: IcimsRowNode | null | undefined): string {
+  if (!node) return ''
+  let source: IcimsRowNode = node
+  if (typeof node.cloneNode === 'function') {
+    const copy = node.cloneNode(true)
+    const embedded = copy.querySelectorAll?.('script, style, noscript')
+    if (embedded) {
+      for (let i = 0; i < embedded.length; i++) embedded[i]?.remove?.()
+    }
+    source = copy
+  }
+  return (source.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500)
+}
+
 function icimsFieldRowText(element: {
-  closest?: (selector: string) => { textContent?: string | null } | null
-  parentElement?: { textContent?: string | null } | null
+  id?: string
+  closest?: (selector: string) => IcimsRowNode | null
+  parentElement?: IcimsRowNode | null
+  ownerDocument?: { querySelector?: (selector: string) => { textContent?: string | null } | null }
 }): string {
   try {
-    const row =
-      element.closest?.('.iCIMS_TableRow, .iCIMS_FieldRow, tr, li') || element.parentElement || null
-    return (row?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500)
+    const row = element.closest?.('.iCIMS_TableRow, .iCIMS_FieldRow, tr, li')
+    if (row) return icimsRowLabel(row)
+    const parent = element.parentElement
+    const tag = (parent?.tagName || '').toUpperCase()
+    // The email input's parent is the form. That form also holds the captcha
+    // widget, so it is not this field's row. The label is.
+    if (!parent || tag === 'FORM' || tag === 'BODY' || tag === 'HTML') {
+      const id = element.id || ''
+      if (!/^[\w:-]+$/.test(id)) return ''
+      const label = element.ownerDocument?.querySelector?.(`label[for="${id}"]`)
+      return (label?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500)
+    }
+    return icimsRowLabel(parent)
   } catch {
     return ''
   }

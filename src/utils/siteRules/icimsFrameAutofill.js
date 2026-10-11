@@ -43,22 +43,77 @@ function rankFrames(a, b) {
 // Prefer the frame that contains PortalProfileFields.Resume_File. The outer
 // shell (frame 0, hidden inputs only) is the last resort.
 export function chooseIcimsAutofillFrameIds(frames) {
+  const ids = icimsFramesToFill(frames)
+  return ids.length ? [ids[0]] : [0]
+}
+
+// Every frame that has something to fill, child frames before the career shell.
+// The in-page Auto-fill button lives on the shell. The email field lives in the
+// ?in_iframe=1 document. Messaging only the shell reports no matching fields.
+export function icimsFramesToFill(frames) {
   const usable = (frames || []).filter((frame) => frame && typeof frame.frameId === 'number')
-  const resumes = usable.filter((frame) => frame.hasPlainResumeFile)
-  if (resumes.length) {
-    resumes.sort(rankFrames)
-    return [resumes[0].frameId]
+  const resumes = usable.filter((frame) => frame.hasPlainResumeFile).sort(rankFrames)
+  const rest = usable
+    .filter((frame) => !frame.hasPlainResumeFile && frame.fillableCount > 0)
+    .sort(rankFrames)
+  const ordered = resumes.concat(rest)
+  if (ordered.length) return ordered.map((frame) => frame.frameId)
+  const ranked = usable.slice().sort(rankFrames)
+  if (ranked.length) return ranked.map((frame) => frame.frameId)
+  return [0]
+}
+
+export function combineIcimsAutofillResults(results) {
+  const list = (results || []).filter((result) => result && typeof result === 'object')
+  const filled = list.filter((result) => result.success && (result.fieldsCount || 0) > 0)
+  if (filled.length) {
+    const fieldsCount = filled.reduce((sum, result) => sum + (result.fieldsCount || 0), 0)
+    const totalCount = filled.reduce((sum, result) => sum + (result.totalCount || 0), 0)
+    return {
+      ...filled[0],
+      success: true,
+      fieldsCount,
+      totalCount,
+      message: `Filled ${fieldsCount} fields`,
+    }
   }
-  const children = usable.filter((frame) => frame.fillableCount > 0 && frame.frameId !== 0)
-  if (children.length) {
-    children.sort((a, b) => (b.fillableCount || 0) - (a.fillableCount || 0))
-    return [children[0].frameId]
+  const awaiting = list.find((result) => result.code === 'awaiting_password')
+  if (awaiting) return awaiting
+  const hard = list.find((result) => result.code === 'hard_cap' || result.paywall === 'hard')
+  if (hard) return hard
+  const named = list.find((result) => typeof result.message === 'string' && result.message)
+  return named || { success: false, message: 'No fillable fields found' }
+}
+
+function frameListenerMissing(error) {
+  const message = error && error.message ? String(error.message) : String(error || '')
+  return (
+    message.includes('Receiving end does not exist') ||
+    message.includes('Could not establish connection')
+  )
+}
+
+async function messageAutofillFrame(tabId, frameId, browser) {
+  const tabs = browser && browser.tabs
+  const scripting = browser && browser.scripting
+  // quiet: the shell or the popup presents one combined result. Each frame
+  // still fills, and a password confirmation opened inside the frame stays.
+  const payload = { action: 'autofill', surface: 'popup', quiet: true }
+  if (!tabs || typeof tabs.sendMessage !== 'function') return null
+  try {
+    return await tabs.sendMessage(tabId, payload, { frameId })
+  } catch (error) {
+    if (!frameListenerMissing(error) || !scripting || typeof scripting.executeScript !== 'function') return null
+    try {
+      if (typeof scripting.insertCSS === 'function') {
+        await scripting.insertCSS({ target: { tabId, frameIds: [frameId] }, files: ['content.css'] })
+      }
+      await scripting.executeScript({ target: { tabId, frameIds: [frameId] }, files: ['content.js'] })
+      return await tabs.sendMessage(tabId, payload, { frameId })
+    } catch {
+      return null
+    }
   }
-  const fillable = usable.filter((frame) => frame.fillableCount > 0)
-  if (fillable.length) return [fillable[0].frameId]
-  const top = usable.find((frame) => frame.frameId === 0)
-  if (top) return [top.frameId]
-  return usable.length ? [usable[0].frameId] : [0]
 }
 
 export function embeddedIcimsFillableFields(root, isSkippable) {
@@ -106,21 +161,14 @@ export async function deliverIcimsAutofill(tabId, browser) {
       frames = []
     }
   }
-  const frameIds = frames.length ? chooseIcimsAutofillFrameIds(frames) : [0]
-  let last = { success: false, message: 'No fillable fields found' }
-  if (!tabs || typeof tabs.sendMessage !== 'function') return last
-  for (const frameId of frameIds) {
-    try {
-      const response = await tabs.sendMessage(
-        tabId,
-        { action: 'autofill', surface: 'popup' },
-        { frameId },
-      )
-      if (response && typeof response === 'object') last = response
-      if (response && response.success && response.fieldsCount > 0) return response
-    } catch {
-      // This frame has no listener. Try the next candidate.
-    }
+  const frameIds = frames.length ? icimsFramesToFill(frames) : [0]
+  if (!tabs || typeof tabs.sendMessage !== 'function') {
+    return { success: false, message: 'No fillable fields found' }
   }
-  return last
+  const results = []
+  for (const frameId of frameIds) {
+    const response = await messageAutofillFrame(tabId, frameId, browser)
+    if (response && typeof response === 'object') results.push(response)
+  }
+  return combineIcimsAutofillResults(results)
 }

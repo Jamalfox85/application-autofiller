@@ -1191,6 +1191,9 @@ test('career login email step fills the saved iCIMS account on Auto-fill and not
   })
   await withAuth0Page('icims-login-frame.html', APRILAIRE_LOGIN, async (dom) => {
     const email = dom.window.document.getElementById('email') as HTMLInputElement
+    const captcha = dom.window.document.querySelector(
+      'textarea[name="h-captcha-response"]',
+    ) as HTMLTextAreaElement
     assert.equal(email.id, 'email')
     assert.equal(email.name, 'css_loginName')
     const saved = profile()
@@ -1204,6 +1207,7 @@ test('career login email step fills the saved iCIMS account on Auto-fill and not
     email.addEventListener('change', () => events.push('change'))
     const { clicks, submitted } = await fillAuth0Document(dom, saved)
     assert.equal(email.value, 'icims@example.com')
+    assert.equal(captcha.value, '')
     assert.notEqual(email.value, saved.email)
     assert.equal(prompts, 0)
     assert.deepEqual(events, ['input', 'change'])

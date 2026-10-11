@@ -669,8 +669,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // The apply form is in an iframe. The outer career shell only has hidden
   // inputs, and a tab-level autofill message reports that nothing is fillable.
   // Answer from the frame that contains PortalProfileFields.Resume_File.
-  if (request.action === 'autofillIcimsTab') {
-    const tabId = request.tabId
+  if (request.action === 'autofillIcimsTab' || request.action === 'autofillIcimsFromPage') {
+    const tabId = typeof request.tabId === 'number' ? request.tabId : sender?.tab?.id
     if (typeof tabId !== 'number') {
       sendResponse({ success: false, message: 'No fillable fields found' })
       return true
@@ -851,6 +851,15 @@ if (chrome.commands) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tabId = tabs[0] && tabs[0].id
       if (tabId == null) return
+      const url = (tabs[0] && tabs[0].url) || ''
+      if (url.toLowerCase().includes('icims.com')) {
+        void deliverIcimsAutofill(tabId, { scripting: chrome.scripting, tabs: chrome.tabs })
+          .then((result) =>
+            chrome.tabs.sendMessage(tabId, { action: 'presentAutofillResult', result }, { frameId: 0 }),
+          )
+          .catch(() => {})
+        return
+      }
       void deliverAutofillCommand(tabId, {
         sendMessage(id, message) {
           return chrome.tabs.sendMessage(id, message)
