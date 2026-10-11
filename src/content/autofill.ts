@@ -81,6 +81,8 @@ let lastAutofillTriggeredAt: number | null = null
 const quotaCountedPages = new Set<string>()
 // True when the last fill was not counted because this application already used its fill this week.
 let lastChargeWasRepeat = false
+// Pro fills are stored in History but do not count toward the free cap.
+let lastCountedTowardFreeQuota = true
 
 const AUTOFILL_TRIGGERED_AT_KEY = 'lastAutofillTriggeredAt'
 const AUTOFILL_JOB_SITE_KEY = 'lastAutofillJobSite'
@@ -529,7 +531,9 @@ async function chargeFillQuota(ats: string): Promise<Awaited<ReturnType<typeof c
   }
 
   try {
-    return await commitSuccessfulFill(ats)
+    const charged = await commitSuccessfulFill(ats)
+    lastCountedTowardFreeQuota = charged.countedTowardFreeQuota !== false
+    return charged
   } catch (error) {
     quotaCountedPages.delete(pageKey)
     void chrome.runtime.sendMessage({ action: 'releaseFillQuota', pageKey }).catch(() => {})
@@ -548,6 +552,7 @@ async function recordFillHistory(filledCount: number, totalCount: number) {
         filledCount,
         totalCount,
         timestamp: Date.now(),
+        countedTowardFreeQuota: lastCountedTowardFreeQuota,
       },
     })
   } catch (error) {
