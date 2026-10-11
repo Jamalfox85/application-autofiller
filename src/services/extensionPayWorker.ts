@@ -5,9 +5,18 @@ import {
   EXTENSION_PAY_PLAN_SKUS,
   isExtensionPayConfigured,
   isExtPayUserPaid,
-  planFromExtPayInterval,
   priceForPlan,
 } from './billing/plans.ts'
+import {
+  PURCHASE_PLAN_RETRY_DELAYS_MS,
+  paidAtMillis,
+  planFromExtPayUser,
+  reportPaidPurchase,
+  type ExtPayPurchaseUser,
+  type PurchaseClaim,
+  type PurchaseReportStore,
+  type TrackedPurchase,
+} from './billing/purchaseReport.ts'
 import {
   clearCheckoutSession,
   readCheckoutSession,
@@ -37,28 +46,74 @@ const extensionId = (
 const configured = isExtensionPayConfigured(extensionId)
 
 const PAID_WATCH_MS = 2 * 60 * 1000
+const PURCHASE_TRACKED_KEY = 'billingPurchaseTracked'
+const PURCHASE_CLAIM_KEY = 'billingPurchaseClaim'
 
 let extPayClient: ReturnType<typeof ExtPay> | null = null
 let started = false
-let purchaseTracked = false
 let watching = false
 let watchDeadline = 0
 let syncQueue: Promise<void> = Promise.resolve()
+let retriedPaymentKey: string | null = null
 
 function extpay(): ReturnType<typeof ExtPay> {
   if (!extPayClient) extPayClient = ExtPay(extensionId)
   return extPayClient
 }
 
-interface PaidUser {
-  paid?: boolean
-  paidAt?: Date | string | null
-  subscriptionStatus?: string | null
-  plan?: { interval?: string | null; nickname?: string | null; unitAmountCents?: number } | null
+type PaidUser = ExtPayPurchaseUser
+
+function isTrackedPurchase(value: unknown): value is TrackedPurchase {
+  if (!value || typeof value !== 'object') return false
+  const record = value as TrackedPurchase
+  return (
+    (record.plan === 'monthly' || record.plan === 'annual') &&
+    (record.paidAt == null || typeof record.paidAt === 'number') &&
+    typeof record.trackedAt === 'number'
+  )
 }
 
-function planOf(user: PaidUser | null | undefined): BillingPlan | null {
-  return planFromExtPayInterval(user?.plan?.interval, user?.plan?.nickname ?? null)
+function isPurchaseClaim(value: unknown): value is PurchaseClaim {
+  if (!value || typeof value !== 'object') return false
+  const record = value as PurchaseClaim
+  return (
+    typeof record.id === 'string' &&
+    (record.plan === 'monthly' || record.plan === 'annual') &&
+    typeof record.at === 'number'
+  )
+}
+
+function chromePurchaseStore(): PurchaseReportStore {
+  return {
+    async readTracked() {
+      try {
+        const data = await chrome.storage.local.get(PURCHASE_TRACKED_KEY)
+        const raw = data[PURCHASE_TRACKED_KEY]
+        if (!Array.isArray(raw)) return []
+        return raw.filter(isTrackedPurchase)
+      } catch {
+        return []
+      }
+    },
+    async writeTracked(purchases) {
+      await chrome.storage.local.set({ [PURCHASE_TRACKED_KEY]: purchases.slice(-20) })
+    },
+    async readClaim() {
+      try {
+        const data = await chrome.storage.local.get(PURCHASE_CLAIM_KEY)
+        return isPurchaseClaim(data[PURCHASE_CLAIM_KEY]) ? data[PURCHASE_CLAIM_KEY] : null
+      } catch {
+        return null
+      }
+    },
+    async writeClaim(claim) {
+      if (!claim) {
+        await chrome.storage.local.remove(PURCHASE_CLAIM_KEY)
+        return
+      }
+      await chrome.storage.local.set({ [PURCHASE_CLAIM_KEY]: claim })
+    },
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -95,9 +150,18 @@ async function reopenPopupAfterPro(): Promise<void> {
   }
 }
 
-async function trackPurchase(user: PaidUser, plan: BillingPlan, session: CheckoutSession | null): Promise<void> {
-  if (purchaseTracked) return
-  purchaseTracked = true
+async function readExtPayUser(): Promise<PaidUser | null> {
+  const user = (await extpay().getUser()) as PaidUser | null
+  return user && typeof user === 'object' ? user : null
+}
+
+function paymentRetryKey(user: PaidUser, session: CheckoutSession | null): string {
+  if (session) return `checkout:${session.openedAt}`
+  const paidAt = paidAtMillis(user.paidAt)
+  return paidAt == null ? 'paid' : `paid:${paidAt}`
+}
+
+async function trackPurchase(plan: BillingPlan, session: CheckoutSession | null): Promise<void> {
   if (session && !session.completed) {
     await writeCheckoutSession({ ...session, completed: true })
   }
@@ -119,21 +183,91 @@ async function trackPurchase(user: PaidUser, plan: BillingPlan, session: Checkou
   await clearCheckoutSession()
 }
 
+// Payment is known here, but the ExtPay plan may not be. Re-read getUser and
+// keep the worker alive across the backoff. Never bill the session plan.
+async function reportPurchaseIfNeeded(
+  user: PaidUser,
+  previous: { isPro: boolean; plan: BillingPlan | null },
+  session: CheckoutSession | null,
+  trustPaidEvent: boolean,
+  isPro: boolean,
+): Promise<void> {
+  const explicit = planFromExtPayUser(user)
+  const becamePro = isPro && !previous.isPro
+  const sessionOpen = !!session && !session.completed
+  const paymentSignal = trustPaidEvent || sessionOpen
+  const planArrived = explicit != null && explicit !== previous.plan
+  // Passive getUser on a reinstall must not invent a purchase. The event waits
+  // for onPaid or the checkout that was open when they paid.
+  const needsReport =
+    paymentSignal && (becamePro || previous.plan == null || planArrived || (trustPaidEvent && explicit == null))
+  if (!needsReport) return
+
+  const waitForChange =
+    previous.isPro &&
+    previous.plan != null &&
+    (explicit == null || explicit === previous.plan) &&
+    (sessionOpen || (trustPaidEvent && explicit == null))
+  const planKnown = explicit != null && (!waitForChange || explicit !== previous.plan)
+  const key = paymentRetryKey(user, session)
+  const fullRetry = !planKnown && retriedPaymentKey !== key
+  if (fullRetry) retriedPaymentKey = key
+
+  const run = () =>
+    reportPaidPurchase({
+      paidEventUser: user,
+      baselinePlan: previous.plan,
+      waitForChange,
+      readUser: readExtPayUser,
+      sleep: delay,
+      now: Date.now(),
+      store: chromePurchaseStore(),
+      delays: fullRetry ? PURCHASE_PLAN_RETRY_DELAYS_MS : [0],
+      track: async (purchase) => {
+        await writeEntitlement({ isPro: true, plan: purchase.plan, updatedAt: Date.now() })
+        await trackPurchase(purchase.plan, await readCheckoutSession())
+      },
+    })
+
+  let result: Awaited<ReturnType<typeof run>>
+  try {
+    result = fullRetry ? await keepWorkerAlive(run) : await run()
+  } catch (error) {
+    if (fullRetry) retriedPaymentKey = null
+    throw error
+  }
+  if (result.status === 'unresolved') {
+    console.warn('[extpay] subscription plan is not available yet; pro_purchased was not sent')
+  }
+  if ((result.status === 'duplicate' || result.status === 'tracked') && result.plan) {
+    const current = await readEntitlement()
+    if (current.plan !== result.plan || !current.isPro) {
+      await writeEntitlement({ isPro: true, plan: result.plan, updatedAt: Date.now() })
+    }
+  }
+  if (result.status === 'duplicate') {
+    const currentSession = await readCheckoutSession()
+    if (currentSession && !currentSession.completed) await clearCheckoutSession()
+  }
+}
+
 async function syncExtPayUser(user: PaidUser, trustPaidEvent: boolean): Promise<{ isPro: boolean; plan: BillingPlan | null }> {
   const previous = await readEntitlement()
   const now = Date.now()
   const isPro = resolveIsPro(previous, user, now, trustPaidEvent)
   const session = await readCheckoutSession()
-  const plan = isPro
-    ? (planOf(user) ?? session?.plan ?? previous.plan ?? (trustPaidEvent ? 'monthly' : null))
-    : null
+  const explicit = planFromExtPayUser(user)
+  // Entitlement may keep the last confirmed plan. It must not pick up the
+  // monthly plan stored when the popup opened checkout.
+  const plan = isPro ? (explicit ?? previous.plan) : null
+  const becamePro = isPro && !previous.isPro
 
-  if (isPro === previous.isPro && plan === previous.plan) {
-    return { isPro, plan }
+  if (!isPro && !previous.isPro) return { isPro, plan }
+
+  if (isPro !== previous.isPro || plan !== previous.plan) {
+    await writeEntitlement({ isPro, plan, updatedAt: now })
   }
-
-  await writeEntitlement({ isPro, plan, updatedAt: now })
-  if (isPro && !previous.isPro) {
+  if (becamePro) {
     try {
       const extpayApiKey = await readExtPayApiKey({
         sync: chrome.storage?.sync,
@@ -143,12 +277,15 @@ async function syncExtPayUser(user: PaidUser, trustPaidEvent: boolean): Promise<
     } catch (error) {
       console.error('[extpay] plan sync failed', error)
     }
-    if (trustPaidEvent || session) await trackPurchase(user, plan ?? 'monthly', session)
     if (session) await reopenPopupAfterPro()
   } else if (!isPro && previous.isPro) {
     await clearPendingProfilePlan()
   }
-  return { isPro, plan }
+
+  if (isPro) await reportPurchaseIfNeeded(user, previous, session, trustPaidEvent, isPro)
+
+  const latest = await readEntitlement()
+  return { isPro: latest.isPro, plan: latest.plan }
 }
 
 function enqueueSync(user: PaidUser, trustPaidEvent: boolean): Promise<{ isPro: boolean; plan: BillingPlan | null }> {
@@ -173,6 +310,17 @@ async function refreshEntitlement(): Promise<{ isPro: boolean; plan: BillingPlan
   }
 }
 
+function purchaseWatchDone(
+  result: { isPro: boolean; plan: BillingPlan | null },
+  session: CheckoutSession | null,
+): boolean {
+  if (!result.isPro) return false
+  // Leave the watch up while checkout is open so a yearly plan that lands
+  // after the first paid read still gets a single pro_purchased.
+  if (session && !session.completed) return false
+  return result.plan != null
+}
+
 function watchUntilPaid(): void {
   if (!configured) return
   watchDeadline = Date.now() + PAID_WATCH_MS
@@ -183,7 +331,8 @@ function watchUntilPaid(): void {
       try {
         const user = (await extpay().getUser()) as PaidUser
         const result = await enqueueSync(user, false)
-        if (result.isPro) return
+        const session = await readCheckoutSession()
+        if (purchaseWatchDone(result, session)) return
       } catch (error) {
         console.error('[extpay] paid watch failed', error)
       }
@@ -259,6 +408,7 @@ export function startExtensionPay(): void {
     const client = extpay()
     client.startBackground()
     client.onPaid.addListener((user) => {
+      watchUntilPaid()
       void enqueueSync(user as PaidUser, true).catch((error) => {
         console.error('[extpay] onPaid sync failed', error)
       })
