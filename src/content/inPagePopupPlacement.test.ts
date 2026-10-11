@@ -9,8 +9,8 @@ const popup = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 const shell = readFileSync(new URL('../assets/style.css', import.meta.url), 'utf8')
 
 test('in-page toasts, confirmation, and prompt sit in the top-right stack', () => {
-  assert.match(stack, /top:\s*20px/)
-  assert.match(stack, /right:\s*20px/)
+  assert.match(stack, /top:\s*\$\{TOP_GAP_PX\}px/)
+  assert.match(stack, /right:\s*\$\{EDGE_GAP_PX\}px/)
   assert.match(stack, /flex-direction:\s*column/)
   assert.match(stack, /gap:\s*8px/)
   assert.match(notifications, /mountInToastStack/)
