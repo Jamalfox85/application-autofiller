@@ -225,6 +225,34 @@ test('Jobvite job page scores the description and does not fetch', async () => {
   }
 })
 
+test('Workday job page scores the description and does not fetch', async () => {
+  const previousWindow = globalThis.window
+  const previousDocument = globalThis.document
+  const href =
+    'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Austin-Texas-US/Senior-Hardware-Engineering-Program-Manager_2028178-1'
+  try {
+    const dom = new JSDOM(readFileSync(new URL('../../fixtures/pages/workday-job.html', import.meta.url), 'utf8'), {
+      url: href,
+    })
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+    const messages = installChrome({ profileSetupCompletedAt: 1_700_000_000_000 })
+    const { resetMatchScoreForTests, runOnce } = await import('./matchScore.ts')
+    resetMatchScoreForTests()
+    await runOnce()
+    const scored = messages.find((message) => message.action === 'matchScore')
+    assert.ok(scored)
+    assert.equal(scored.ats, 'workday')
+    assert.equal(scored.jdSource, 'dom')
+    assert.equal(
+      scored.jdText,
+      'This is an onsite position at the Austin, TX location.\nMeet the team.\nThe Hardware Engineering Group creates platforms.',
+    )
+    assert.equal(messages.some((message) => message.action === 'fetchJobPosting'), false)
+  } finally {
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument })
+  }
+})
+
 test('Match Score runOnce stays quiet on first-run onboarding', async () => {
   const messages = installChrome({
     [ACTIVE_PROFILE_KEY]: { id: 'primary', name: 'Primary', profileCount: 1 },

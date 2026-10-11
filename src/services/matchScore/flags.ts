@@ -13,10 +13,13 @@
 // iCIMS: .iCIMS_JobContent on the job content frame. The shell document does not
 // contain it.
 // Jobvite: .jv-job-detail-description on the job page. The apply form does not
-// have it. BambooHR and Workday stay off: captured pages have no description
+// have it.
+// Workday: [data-automation-id="jobPostingDescription"] on the job page. The
+// apply step keeps the posting in JobPosting JSON-LD.
+// BambooHR stays off: the captured apply form and listing have no description
 // body, and no unauthenticated posting host is confirmed.
 
-const DEFAULT_ON = new Set(['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite'])
+const DEFAULT_ON = new Set(['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite', 'workday'])
 
 function flagString(read: () => unknown): string | undefined {
   try {

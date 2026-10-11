@@ -83,10 +83,10 @@ function fixturePage(file: string, href: string): ExtractPage {
 test('feature flags default on for proven extractors and off for the rest', () => {
   assert.equal(matchScoreEnabled(), true)
   assert.equal(matchScoreEnabled('false'), false)
-  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite']) {
+  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite', 'workday']) {
     assert.equal(atsExtractorEnabled(ats), true, ats)
   }
-  for (const ats of ['bamboohr', 'workday']) {
+  for (const ats of ['bamboohr']) {
     assert.equal(atsExtractorEnabled(ats), false, ats)
   }
   assert.equal(atsExtractorEnabled('greenhouse', 'false'), false)
@@ -400,6 +400,36 @@ test('Jobvite job page reads the description and the apply form does not', async
   const board = fixturePage('jobvite-board.html', 'https://jobs.jobvite.com/uplight')
   assert.equal(matchScoreSurfaceReady(board.document, board.href), false)
   assert.equal(await extractJobDescription('jobvite', board, fetchPosting), null)
+  assert.equal(calls, 0)
+})
+
+test('Workday job page reads the description and the apply step reads the posting script', async () => {
+  let calls = 0
+  const fetchPosting = async () => {
+    calls += 1
+    return '{}'
+  }
+  const jobHref =
+    'https://cisco.wd5.myworkdayjobs.com/en-US/Cisco_Careers/job/Austin-Texas-US/Senior-Hardware-Engineering-Program-Manager_2028178-1'
+  const job = fixturePage('workday-job.html', jobHref)
+  assert.equal(job.document?.querySelector('form'), null)
+  assert.equal(matchScoreSurfaceReady(job.document, job.href), true)
+  const extraction = await extractJobDescription('workday', job, fetchPosting)
+  assert.equal(extraction?.source, 'dom')
+  assert.equal(
+    extraction?.text,
+    'This is an onsite position at the Austin, TX location.\nMeet the team.\nThe Hardware Engineering Group creates platforms.',
+  )
+  assert.equal(extraction?.text.includes('Senior Hardware'), false)
+
+  const applyHref = `${jobHref}/apply`
+  const apply = fixturePage('workday-job-apply.html', applyHref)
+  assert.equal(apply.document?.querySelector('[data-automation-id="jobPostingDescription"]'), null)
+  assert.equal(matchScoreSurfaceReady(apply.document, apply.href), true)
+  const applyExtraction = await extractJobDescription('workday', apply, fetchPosting)
+  assert.equal(applyExtraction?.source, 'dom')
+  assert.equal(applyExtraction?.text, 'This is an onsite position at the Austin, TX location.\nMeet the team.')
+  assert.equal(applyExtraction?.text.includes('Senior Hardware'), false)
   assert.equal(calls, 0)
 })
 

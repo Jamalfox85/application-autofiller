@@ -12,6 +12,7 @@ const SCORE_SURFACE_SELECTOR = [
   '[data-ui="job-description"]',
   '[data-qa="job-description"]',
   '.jv-job-detail-description',
+  '[data-automation-id="jobPostingDescription"]',
 ].join(', ')
 
 type SurfaceDocument = {
@@ -32,9 +33,23 @@ export function matchScoreSurfaceReady(doc: SurfaceDocument | null | undefined, 
   const host = hostname(href)
   // Apply pages ship the posting in JSON-LD and render inputs without a form.
   // The same script on an overview is enough to score before the description paints.
-  if (host === 'jobs.ashbyhq.com' || host.endsWith('.ashbyhq.com')) {
-    const script = doc?.querySelector('script[type="application/ld+json"]')
-    return (script?.textContent || '').includes('JobPosting')
-  }
+  if (host === 'jobs.ashbyhq.com' || host.endsWith('.ashbyhq.com')) return jsonLdJobPosting(doc)
+  // The job page hydrates the description after the JSON-LD script. Waiting for
+  // that node keeps the line breaks. The apply step never adds the node.
+  if (host.includes('myworkday') && isWorkdayApply(href)) return jsonLdJobPosting(doc)
   return false
+}
+
+function jsonLdJobPosting(doc: SurfaceDocument | null | undefined): boolean {
+  const script = doc?.querySelector('script[type="application/ld+json"]')
+  return (script?.textContent || '').includes('JobPosting')
+}
+
+function isWorkdayApply(href: string | undefined): boolean {
+  if (!href) return false
+  try {
+    return /\/apply(?:\/|$)/.test(new URL(href).pathname.toLowerCase())
+  } catch {
+    return false
+  }
 }
