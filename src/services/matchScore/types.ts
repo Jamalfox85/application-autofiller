@@ -109,7 +109,7 @@ export type MatchScoreResult =
   | { kind: 'insufficient_profile'; missing: MissingProfile[] }
   | { kind: 'unsupported'; reason: UnsupportedReason }
   | { kind: 'plan_required' }
-  | { kind: 'rate_limited' }
+  | { kind: 'rate_limited'; retryAfterMs?: number }
   | { kind: 'unauthorized' }
   | { kind: 'hide' }
 
@@ -118,6 +118,13 @@ export const BAND_LABEL: Record<MatchBand, string> = {
   good: 'Good',
   okay: 'Okay',
   weak: 'Weak',
+}
+
+// The parser accepts 0–100. The card stays on 1–100: 0 and 1 both show 1 and
+// the lowest band.
+export function matchScorePresentation(score: number, band: MatchBand): { number: number; band: MatchBand } {
+  if (score <= 1) return { number: 1, band: 'weak' }
+  return { number: score, band }
 }
 
 export const STRONG_MATCH_COPY = "You're a strong match"

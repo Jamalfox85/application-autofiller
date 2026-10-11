@@ -1,6 +1,7 @@
 import { mountInToastStack, brandIcon, MATCH_SCORE_ID } from './toastStack.ts'
 import {
   BAND_LABEL,
+  matchScorePresentation,
   INSUFFICIENT_COPY,
   MATCH_SCORE_FOOTNOTE,
   MATCH_SCORE_HOW_COPY,
@@ -147,11 +148,12 @@ function renderScored(
   handlers: MatchScoreCardHandlers,
 ) {
   const score = model.score
+  const shown = matchScorePresentation(score.score, score.band)
   if (model.collapsed) {
     const pill = headerRow(
       doc,
-      String(score.score),
-      el(doc, 'span', 'font-size:11px; color:#b9b9c2;', BAND_LABEL[score.band]),
+      String(shown.number),
+      el(doc, 'span', 'font-size:11px; color:#b9b9c2;', BAND_LABEL[shown.band]),
       handlers.onDismiss,
     )
     pill.style.cursor = 'pointer'
@@ -163,10 +165,10 @@ function renderScored(
     return
   }
 
-  const scoreMark = el(doc, 'div', 'font-size:22px; font-weight:700; letter-spacing:-0.03em;', String(score.score))
+  const scoreMark = el(doc, 'div', 'font-size:22px; font-weight:700; letter-spacing:-0.03em;', String(shown.number))
   card.append(headerRow(doc, 'Job match', scoreMark, handlers.onDismiss))
   const body = el(doc, 'div', 'padding:0 12px 12px; display:flex; flex-direction:column; gap:8px;')
-  body.append(el(doc, 'div', 'font-size:12.5px; font-weight:600; color:#d7d7de;', BAND_LABEL[score.band]))
+  body.append(el(doc, 'div', 'font-size:12.5px; font-weight:600; color:#d7d7de;', BAND_LABEL[shown.band]))
   if (score.confidence === 'low') {
     body.append(el(doc, 'div', 'font-size:11px; color:#b9b9c2;', 'Low confidence'))
   }

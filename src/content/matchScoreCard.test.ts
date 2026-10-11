@@ -46,6 +46,36 @@ function render(model: Parameters<typeof renderMatchScoreCard>[0]) {
   return card
 }
 
+test('scores of 0 and 1 show 1 and the lowest band', () => {
+  for (const value of [0, 1]) {
+    for (const collapsed of [false, true]) {
+      const card = render({
+        kind: 'scored',
+        collapsed,
+        pending: false,
+        undoSkill: null,
+        score: scored({ score: value, band: 'okay' }),
+      })
+      const text = card.textContent ?? ''
+      assert.match(text, /Weak/)
+      assert.equal(text.includes('Okay'), false)
+      assert.equal(text.includes('0'), false)
+      assert.match(text, /1/)
+    }
+  }
+  const mid = render({
+    kind: 'scored',
+    collapsed: false,
+    pending: false,
+    undoSkill: null,
+    score: scored({ score: 40, band: 'okay' }),
+  })
+  const midText = mid.textContent ?? ''
+  assert.match(midText, /40/)
+  assert.match(midText, /Okay/)
+  assert.equal(midText.includes('Weak'), false)
+})
+
 test('a strong match shows the server phrase and no quick answers', () => {
   const card = render({
     kind: 'scored',

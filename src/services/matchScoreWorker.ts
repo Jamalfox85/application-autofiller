@@ -6,7 +6,7 @@ import { getUserIdOrNull } from '../lib/sync/shared.ts'
 import { saveProfileToDb } from '../lib/sync/profile.ts'
 import type { PersonalInfo } from '../types/index.ts'
 import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../lib/sync/activeProfile.ts'
-import { matchScoreCacheKey, matchScoreDismissedKey, matchScoreRateLimitKey } from './matchScore/cache.ts'
+import { matchScoreCacheKey, matchScoreDismissedKey, matchScoreRateLimitKey, rateLimitActive, rateLimitUntil } from './matchScore/cache.ts'
 import { postMatchScoreDecline } from './matchScore/contract.ts'
 import { fetchAllowedPosting } from './matchScore/fetchPosting.ts'
 import { fulfillMatchScore, willRequestMatchScore, type CachedMatchScore } from './matchScore/fulfill.ts'
@@ -185,7 +185,7 @@ async function runScore(
   const common = {
     isPro,
     dismissed: stored[dismissedKey] != null,
-    rateLimited: stored[rateKey] != null,
+    rateLimited: rateLimitActive(stored[rateKey], deps.now()),
     rescore: input.rescore,
     cached: cached && cached.result ? cached : null,
     now: deps.now(),
@@ -216,7 +216,7 @@ async function runScore(
     fetchImpl: deps.fetchImpl,
   })
   if (outcome.persistRateLimit) {
-    await deps.storage.set({ [rateKey]: deps.now() })
+    await deps.storage.set({ [rateKey]: rateLimitUntil(deps.now(), outcome.rateLimitMs) })
   }
   if (outcome.cacheValue) {
     await deps.storage.set({ [cacheKey]: outcome.cacheValue })
