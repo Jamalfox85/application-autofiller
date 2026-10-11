@@ -10,7 +10,8 @@
 // This does not submit the application.
 
 import { normalizeAshbyLabel } from './ashbyFields.ts'
-import { fileFromSavedResumeMessage } from './bamboohrResume.ts'
+import { resumeBytesForAshby } from './ashbyResumePageFile.js'
+import { fileFromSavedResumeMessage, resumeMimeType } from './bamboohrResume.ts'
 
 const AUTOFILL_ROOT = [
   '.ashby-application-form-autofill-input-root',
@@ -157,35 +158,96 @@ export function loadAshbySavedResume(): Promise<File | null> {
   return inflight
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+function assignmentToken(): string {
+  return `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.replace(/[^a-z0-9]/g, '').slice(0, 40)
+}
+
+// null: this realm should assign the file. true/false: the page world already did.
+async function assignAshbyResumeOnPage(
+  input: AshbyFileControl,
+  file: File,
+  bytes: Uint8Array,
+): Promise<boolean | null> {
+  const marker = input as AshbyFileControl & {
+    dataset?: { gofillrResume?: string }
+    setAttribute?: (name: string, value: string) => void
+    removeAttribute?: (name: string) => void
+  }
+  const runtime = typeof chrome !== 'undefined' ? chrome.runtime : undefined
+  if (!marker.dataset || typeof marker.setAttribute !== 'function' || !runtime?.id || !runtime.sendMessage) {
+    return null
+  }
+  const token = assignmentToken()
+  if (!/^[a-z0-9]{8,64}$/.test(token)) return null
+  marker.dataset.gofillrResume = token
+  try {
+    const reply: unknown = await runtime.sendMessage({
+      action: 'assignAshbyResume',
+      token,
+      name: file.name,
+      type: resumeMimeType(file.name, file.type),
+      bytesBase64: bytesToBase64(bytes),
+    })
+    const assigned =
+      reply && typeof reply === 'object' ? (reply as { assigned?: unknown }).assigned : undefined
+    if (assigned !== true && assigned !== false) return null
+    if (assigned !== true) return false
+    const got = input.files?.[0]
+    return !!got && got.name === file.name && got.size === bytes.byteLength
+  } catch {
+    return null
+  } finally {
+    marker.removeAttribute?.('data-gofillr-resume')
+  }
+}
+
+function attachAshbyResumeInRealm(input: AshbyFileControl, file: File, bytes: Uint8Array): boolean {
+  const view = input.ownerDocument?.defaultView
+  const FileCtor = view?.File
+  const DataTransferCtor = view?.DataTransfer
+  if (typeof FileCtor !== 'function' || typeof DataTransferCtor !== 'function') return false
+  // Standalone copy. A File that aliases the buffer Ashby reads later can be empty.
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  const localFile = new FileCtor([copy], file.name, {
+    type: resumeMimeType(file.name, file.type),
+    lastModified: Date.now(),
+  })
+  const transfer = new DataTransferCtor()
+  transfer.items.add(localFile)
+  input.files = transfer.files
+  const assigned = input.files?.[0]
+  if (!assigned || assigned.name !== file.name || assigned.size !== bytes.byteLength) return false
+  const EventCtor = view.Event ?? Event
+  input.dispatchEvent?.(new EventCtor('input', { bubbles: true }))
+  input.dispatchEvent?.(new EventCtor('change', { bubbles: true }))
+  return true
+}
+
 export async function attachAshbyResumeFile(input: AshbyFileControl, file: File): Promise<boolean> {
   if (!file || file.size <= 0 || !file.name) return false
   const type = (input.type || '').toLowerCase()
   const tag = (input.tagName || 'INPUT').toUpperCase()
   if (tag !== 'INPUT' || type !== 'file' || input.disabled) return false
   try {
-    const view = input.ownerDocument?.defaultView
-    const FileCtor = view?.File
-    const DataTransferCtor = view?.DataTransfer
-    if (typeof FileCtor !== 'function' || typeof DataTransferCtor !== 'function') return false
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    if (bytes.byteLength === 0) return false
-    // Copy into the document's realm. The content script and the page do not
-    // share typed-array constructors, and Ashby reads the File from the page.
-    const ByteCtor = view.Uint8Array ?? Uint8Array
-    const copy = new ByteCtor(bytes.byteLength)
-    copy.set(bytes)
-    const localFile = new FileCtor([copy], file.name, {
-      type: file.type || 'application/octet-stream',
-    })
-    const transfer = new DataTransferCtor()
-    transfer.items.add(localFile)
-    input.files = transfer.files
-    const assigned = input.files?.[0]
-    if (!assigned || assigned.name !== file.name || assigned.size !== file.size) return false
-    const EventCtor = view.Event ?? Event
-    input.dispatchEvent?.(new EventCtor('input', { bubbles: true }))
-    input.dispatchEvent?.(new EventCtor('change', { bubbles: true }))
-    return true
+    const raw = new Uint8Array(await file.arrayBuffer())
+    if (raw.byteLength === 0) return false
+    // Ashby rejects a resume whose text is base64 (%PDF → JVBERi, docx → UEsDB)
+    // before the upload, with a red error toast.
+    const bytes = resumeBytesForAshby(raw)
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return false
+    const onPage = await assignAshbyResumeOnPage(input, file, bytes)
+    if (onPage != null) return onPage
+    return attachAshbyResumeInRealm(input, file, bytes)
   } catch {
     return false
   }

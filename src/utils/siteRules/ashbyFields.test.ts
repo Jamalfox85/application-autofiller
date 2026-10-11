@@ -379,6 +379,55 @@ describe('Ashby yes/no and EEO questions', () => {
     )
   })
 
+  it('leaves contact, essential-functions, age, and sponsorship blank when the profile has no answer', () => {
+    const empty = { workAuthorization: null, sponsorshipRequired: null, age18OrOlder: null }
+    assert.equal(
+      ashbyYesNoDecision('Are you eighteen years of age or older?', empty),
+      null,
+    )
+    assert.equal(
+      ashbyYesNoDecision('May MeridianLink contact your CURRENT or MOST RECENT employer?', {
+        ...empty,
+        workAuthorization: 'us_citizen',
+        sponsorshipRequired: 'No',
+      }),
+      null,
+    )
+    assert.equal(
+      ashbyYesNoDecision('May MeridianLink Contact your PAST employers?', empty),
+      null,
+    )
+    assert.equal(
+      ashbyYesNoDecision(
+        'Can you perform the essential functions of this job with or without reasonable accomodation?',
+        { ...empty, disabilityStatus: 'no' },
+      ),
+      null,
+    )
+    assert.equal(
+      ashbyYesNoDecision(
+        'Will you now or in the future require sponsorship (i.e. H-1B visa ect.) to legally work in the United States?',
+        empty,
+      ),
+      null,
+    )
+    assert.equal(ashbyYesNoDecision('Are you eighteen years of age or older?', { age18OrOlder: 'yes' }), 'yes')
+    assert.equal(
+      ashbyYesNoDecision(
+        'Will you now or in the future require sponsorship (i.e. H-1B visa ect.) to legally work in the United States?',
+        { sponsorshipRequired: 'No' },
+      ),
+      'no',
+    )
+    assert.equal(
+      ashbyYesNoDecision(
+        'Will you now or in the future require sponsorship (i.e. H-1B visa ect.) to legally work in the United States?',
+        { workAuthorization: 'us_citizen', sponsorshipRequired: null },
+      ),
+      'no',
+    )
+  })
+
   it('maps diversity survey options onto profile EEO values', () => {
     assert.equal(ashbyEeoKind('What is your gender identity?'), 'gender')
     assert.equal(ashbyEeoKind('Which ethnicity(ies) do you identify with?'), 'race')

@@ -48,6 +48,10 @@ await copyFile(
   'dist/src/utils/siteRules/icimsPageDropdownCommand.js',
 )
 await copyFile(
+  'src/utils/siteRules/ashbyResumePageFile.js',
+  'dist/src/utils/siteRules/ashbyResumePageFile.js',
+)
+await copyFile(
   'src/utils/siteRules/icimsFrameAutofill.js',
   'dist/src/utils/siteRules/icimsFrameAutofill.js',
 )

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ashby location and yes/no</title>
+  </head>
+  <body>
+    <div class="ashby-application-form-container">
+      <div class="ashby-application-form-field-entry" data-field-path="age-18">
+        <label class="ashby-application-form-question-title">Are you eighteen years of age or older?</label>
+        <div class="ashby-application-form-input-yesno">
+          <button type="button" data-option="yes" aria-pressed="false">Yes</button>
+          <button type="button" data-option="no" aria-pressed="false">No</button>
+          <input type="checkbox" name="age-18" />
+        </div>
+      </div>
+
+      <div class="ashby-application-form-field-entry" data-field-path="contact-current">
+        <label class="ashby-application-form-question-title">May we contact your current employer?</label>
+        <div class="ashby-application-form-input-yesno">
+          <button type="button" data-option="yes" aria-pressed="false">Yes</button>
+          <button type="button" data-option="no" aria-pressed="false">No</button>
+          <input type="checkbox" name="contact-current" />
+        </div>
+      </div>
+
+      <div class="ashby-application-form-field-entry" data-field-path="essential">
+        <label class="ashby-application-form-question-title">Can you perform the essential functions of this job with or without reasonable accommodation?</label>
+        <div class="ashby-application-form-input-yesno">
+          <button type="button" data-option="yes" aria-pressed="false">Yes</button>
+          <button type="button" data-option="no" aria-pressed="false">No</button>
+          <input type="checkbox" name="essential" />
+        </div>
+      </div>
+
+      <div class="ashby-application-form-field-entry" data-field-path="sponsorship">
+        <label class="ashby-application-form-question-title">Will you now or in the future require sponsorship (i.e. H-1B visa ect.) to legally work in the United States?</label>
+        <div class="ashby-application-form-input-yesno">
+          <button type="button" data-option="yes" aria-pressed="false">Yes</button>
+          <button type="button" data-option="no" aria-pressed="false">No</button>
+          <input type="checkbox" name="sponsorship" />
+        </div>
+      </div>
+
+      <div class="ashby-application-form-field-entry" data-field-path="location">
+        <label class="ashby-application-form-question-title">Location</label>
+        <div class="ashby-input">
+          <input
+            class="ashby-application-form-input-autocomplete"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="false"
+            aria-haspopup="listbox"
+            placeholder="Start typing..."
+          />
+        </div>
+        <div role="alert" hidden></div>
+      </div>
+
+      <div
+        class="ashby-application-form-field-entry ashby-application-form-input-education-entry"
+        data-field-path="_systemfield_education_history"
+      >
+        <label class="ashby-application-form-question-title">School</label>
+        <input
+          class="ashby-application-form-input-autocomplete"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="false"
+          aria-haspopup="listbox"
+          placeholder="Search schools..."
+        />
+      </div>
+    </div>
+  </body>
+</html>

@@ -497,9 +497,13 @@ export function ashbyYesNoDecision(title: string | null | undefined, info: Ashby
     return null
   }
 
+  // Hosted forms ask "eighteen years of age" as well as "18 or older".
   const ageQuestion =
-    normalized.includes('18') &&
-    (normalized.includes('older') || normalized.includes('yearsofage') || normalized.includes('age'))
+    (normalized.includes('18') || normalized.includes('eighteen')) &&
+    (normalized.includes('older') ||
+      normalized.includes('yearsofage') ||
+      normalized.includes('yearsold') ||
+      normalized.includes('age'))
   if (ageQuestion) {
     if (info.eeoAnswersEnabled === false) return null
     if (info.age18OrOlder === 'yes') return 'yes'

@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { PersonalInfo } from '../../types/index.ts'
+import { readFileSync } from 'node:fs'
 import {
   applyAshbyResumeFile,
   attachAshbyResumeFile,
   isAshbyPlainResumeFile,
   resetAshbySavedResumeRequest,
 } from './ashbyResumeFile.ts'
+import { assignAshbyResumeInPage, resumeBytesForAshby } from './ashbyResumePageFile.js'
 
 const PDF = new TextEncoder().encode('%PDF-1.4 saved-resume')
 
@@ -352,6 +354,129 @@ test('the plain Ashby chooser receives admin-resume.docx from the worker reply s
     globalThis.window = previousWindow
     Object.assign(globalThis, { chrome: previousChrome })
   }
+})
+
+test('a resume that is base64 text is decoded before Ashby reads it', async () => {
+  const pdf = new TextEncoder().encode('%PDF-1.4 saved-resume')
+  const docx = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x61])
+  const wrappedPdf = new File([new TextEncoder().encode(bytesToBase64(pdf))], 'Ada Lovelace.pdf', {
+    type: 'application/pdf',
+  })
+  const { input, events } = ashbyFile({ path: '_systemfield_resume', title: 'Resume' })
+  assert.equal(await attachAshbyResumeFile(input, wrappedPdf), true)
+  const attached = input.files?.[0]
+  assert.equal(attached?.size, pdf.byteLength)
+  assert.equal(new TextDecoder().decode(new Uint8Array(await attached!.arrayBuffer())), '%PDF-1.4 saved-resume')
+  assert.deepEqual(events, ['input', 'change'])
+
+  const wrappedDocx = resumeBytesForAshby(new TextEncoder().encode(bytesToBase64(docx)))
+  assert.deepEqual(Array.from(wrappedDocx), Array.from(docx))
+  assert.deepEqual(Array.from(resumeBytesForAshby(pdf)), Array.from(pdf))
+})
+
+test('the page builds the resume file and does not submit', async () => {
+  const pdf = new TextEncoder().encode('%PDF-1.4 page-file')
+  const events: string[] = []
+  const input = {
+    type: 'file',
+    disabled: false,
+    files: null as File[] | null,
+    removeAttribute() {},
+    dispatchEvent(event: Event) {
+      events.push(event.type)
+      return true
+    },
+  }
+  class Transfer {
+    files: File[] = []
+    items = { add: (file: File) => { this.files.push(file) } }
+  }
+  const previousDocument = globalThis.document
+  const previousTransfer = globalThis.DataTransfer
+  Object.assign(globalThis, {
+    document: {
+      querySelector(selector: string) {
+        return selector === 'input[type="file"][data-gofillr-resume="abcdefgh"]' ? input : null
+      },
+    },
+    DataTransfer: Transfer,
+  })
+  try {
+    const result = await assignAshbyResumeInPage({
+      token: 'abcdefgh',
+      name: 'Ada Lovelace.pdf',
+      type: 'application/pdf',
+      bytesBase64: bytesToBase64(pdf),
+    })
+    assert.equal(result.assigned, true)
+    assert.equal(result.size, pdf.byteLength)
+    assert.equal(input.files?.[0]?.name, 'Ada Lovelace.pdf')
+    assert.equal(input.files?.[0]?.type, 'application/pdf')
+    assert.equal(
+      new TextDecoder().decode(new Uint8Array(await input.files![0].arrayBuffer())),
+      '%PDF-1.4 page-file',
+    )
+    assert.deepEqual(events, ['input', 'change'])
+    const source = assignAshbyResumeInPage.toString()
+    assert.equal(source.includes('.click'), false)
+    assert.equal(source.includes('submit'), false)
+    assert.equal(source.includes('requestSubmit'), false)
+  } finally {
+    globalThis.document = previousDocument
+    globalThis.DataTransfer = previousTransfer
+  }
+})
+
+test('with an extension id the resume is assigned in the page world', async () => {
+  const previousChrome = (globalThis as { chrome?: unknown }).chrome
+  const { input } = ashbyFile({ path: '_systemfield_resume', title: 'Resume', id: '_systemfield_resume' })
+  const marked = input as typeof input & {
+    dataset: { gofillrResume?: string }
+    setAttribute: (name: string, value: string) => void
+    removeAttribute: (name: string) => void
+  }
+  marked.dataset = {}
+  marked.setAttribute = (_name, value) => {
+    marked.dataset.gofillrResume = value
+  }
+  marked.removeAttribute = () => {
+    delete marked.dataset.gofillrResume
+  }
+  const actions: string[] = []
+  Object.assign(globalThis, {
+    chrome: {
+      runtime: {
+        id: 'ext',
+        async sendMessage(message: { action?: string; name?: string }) {
+          actions.push(message.action || '')
+          if (message.action === 'assignAshbyResume') {
+            input.files = [new File([PDF], message.name || 'Ada Lovelace.pdf', { type: 'application/pdf' })]
+            return { assigned: true, name: message.name, size: PDF.byteLength, type: 'application/pdf' }
+          }
+          return { assigned: false }
+        },
+      },
+    },
+  })
+  try {
+    const saved = new File([PDF], 'Ada Lovelace.pdf', { type: 'application/pdf' })
+    assert.equal(await attachAshbyResumeFile(marked, saved), true)
+    assert.deepEqual(actions, ['assignAshbyResume'])
+    assert.equal(input.files?.[0]?.name, 'Ada Lovelace.pdf')
+    assert.equal(marked.dataset.gofillrResume, undefined)
+  } finally {
+    Object.assign(globalThis, { chrome: previousChrome })
+  }
+})
+
+test('the background injects the Ashby resume file in the page world', () => {
+  const background = readFileSync(new URL('../../../background.js', import.meta.url), 'utf8')
+  const emit = readFileSync(new URL('../../../scripts/emit-install-attribution.mjs', import.meta.url), 'utf8')
+  assert.equal(background.includes("request.action === 'assignAshbyResume'"), true)
+  assert.equal(background.includes("world: 'MAIN'"), true)
+  assert.equal(background.includes('./src/utils/siteRules/ashbyResumePageFile.js'), true)
+  assert.equal(emit.includes('src/utils/siteRules/ashbyResumePageFile.js'), true)
+  assert.equal(background.includes('assignAshbyResumeInPage'), true)
 })
 
 test('cover letters and the autofill widget are not given a file', async () => {
