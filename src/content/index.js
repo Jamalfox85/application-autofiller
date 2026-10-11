@@ -133,6 +133,21 @@ async function resumeAutofillAfterPro() {
   if (result.message) showErrorNotification(result.message)
 }
 
+let hasShownPopup = false
+let autoDetectEnabled = true
+let applicationHooksInstalled = false
+let lateFormWatchInstalled = false
+let claimedUrl = ''
+let syncGen = 0
+// Remix hydration can delete the prompt more than once. Stop after a handful
+// of restores so a page that always strips unknown body children cannot loop.
+let promptRestores = 0
+// initialize() calls confirmTrackedSubmission before this module finishes
+// evaluating. These have to exist first: a let below that call is still in the
+// temporal dead zone, the promise rejects, and the toast never shows.
+let submitAttempt = null
+let submissionTimers = []
+
 if (!globalThis[CONTENT_SCRIPT_INSTALLED]) {
   globalThis[CONTENT_SCRIPT_INSTALLED] = true
   chrome.runtime.onMessage.addListener(onRuntimeMessage)
@@ -144,16 +159,6 @@ if (!globalThis[CONTENT_SCRIPT_INSTALLED]) {
     initialize()
   }
 }
-
-let hasShownPopup = false
-let autoDetectEnabled = true
-let applicationHooksInstalled = false
-let lateFormWatchInstalled = false
-let claimedUrl = ''
-let syncGen = 0
-// Remix hydration can delete the prompt more than once. Stop after a handful
-// of restores so a page that always strips unknown body children cannot loop.
-let promptRestores = 0
 
 async function initialize() {
   // gofillr.com is not a job page, so this has to run before the early return below.
@@ -328,9 +333,6 @@ function installApplicationHooks(personalInfo) {
     true,
   )
 }
-
-let submitAttempt = null
-let submissionTimers = []
 
 function scheduleSubmissionChecks() {
   for (const timer of submissionTimers) window.clearTimeout(timer)
