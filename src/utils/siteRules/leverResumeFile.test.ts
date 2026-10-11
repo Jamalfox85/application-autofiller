@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs'
 import { afterEach, describe, it } from 'node:test'
 import { JSDOM } from 'jsdom'
 import leverConfig, { beginLeverFill, setLeverResumeSourceForTests } from './lever.ts'
+import { assignLeverResumeFile } from './leverResumeFile.ts'
 import {
-  LEVER_PARSE_GUARD_INSTALL,
-  LEVER_PARSE_GUARD_RESTORE,
-  assignLeverResumeFile,
-} from './leverResumeFile.ts'
+  installLeverResumeGuardInPage,
+  restoreLeverResumeGuardInPage,
+} from './leverResumeGuard.js'
 
 const RESUME = {
   name: 'Ada Lovelace.pdf',
@@ -257,12 +257,8 @@ describe('Lever resume attach', () => {
       runScripts: 'dangerously',
       url: 'https://jobs.lever.co/acme/role/apply',
     })
-    const view = dom.window
-    const inject = (source: string) => {
-      const script = view.document.createElement('script')
-      script.textContent = source
-      view.document.documentElement.appendChild(script)
-      script.remove()
+    const view = dom.window as unknown as Window & {
+      eval: (source: string) => unknown
     }
     let sends = 0
     const orig = view.XMLHttpRequest.prototype.send
@@ -270,7 +266,7 @@ describe('Lever resume attach', () => {
       sends += 1
       return orig.apply(this, arguments as unknown as [])
     }
-    inject(LEVER_PARSE_GUARD_INSTALL)
+    view.eval(`(${installLeverResumeGuardInPage.toString()})()`)
     const parsed = new view.XMLHttpRequest()
     parsed.open('POST', 'https://jobs.lever.co/parseResume')
     parsed.send()
@@ -278,22 +274,61 @@ describe('Lever resume attach', () => {
     other.open('POST', 'https://jobs.lever.co/other')
     other.send()
     assert.equal(sends, 1)
-    inject(LEVER_PARSE_GUARD_RESTORE)
+    view.eval(`(${restoreLeverResumeGuardInPage.toString()})()`)
     const again = new view.XMLHttpRequest()
     again.open('POST', 'https://jobs.lever.co/parseResume')
     again.send()
     assert.equal(sends, 2)
-    assert.doesNotMatch(LEVER_PARSE_GUARD_INSTALL, /\.click\(/)
+    assert.equal(view.document.querySelector('script'), null)
+    assert.doesNotMatch(installLeverResumeGuardInPage.toString(), /\.click\(/)
     assert.doesNotMatch(readFileSync(new URL('./leverResumeFile.ts', import.meta.url), 'utf8'), /\.click\(/)
+    assert.doesNotMatch(
+      readFileSync(new URL('./leverResumeFile.ts', import.meta.url), 'utf8'),
+      /createElement\(['"]script['"]\)/,
+    )
+    assert.doesNotMatch(readFileSync(new URL('./lever.ts', import.meta.url), 'utf8'), /createElement\(['"]script['"]\)/)
   })
 
-  it('assignLeverResumeFile reports success only when the file lands on the input', () => {
+  it('asks the worker to install the guard in the page world instead of an inline script', async () => {
+    const { resume } = leverDom()
+    const ops: string[] = []
+    const previous = (globalThis as { chrome?: unknown }).chrome
+    ;(globalThis as { chrome?: unknown }).chrome = {
+      runtime: {
+        id: 'ext',
+        sendMessage: async (message: { action?: string; op?: string }) => {
+          ops.push(`${message.action}:${message.op}`)
+          return { ok: true }
+        },
+      },
+    }
+    try {
+      assert.equal(await assignLeverResumeFile(resume, RESUME), true)
+      assert.deepEqual(ops, ['leverResumeGuard:install', 'leverResumeGuard:restore'])
+      assert.equal(resume.ownerDocument?.querySelector('script'), null)
+    } finally {
+      ;(globalThis as { chrome?: unknown }).chrome = previous
+    }
+  })
+
+  it('assignLeverResumeFile reports success only when the file lands on the input', async () => {
     const { view, resume } = leverDom()
-    assert.equal(assignLeverResumeFile(resume, RESUME), true)
+    assert.equal(await assignLeverResumeFile(resume, RESUME), true)
     assert.equal(resume.files?.[0]?.name, RESUME.name)
     const blocked = view.document.createElement('input')
     blocked.type = 'file'
     delete (view as { DataTransfer?: unknown }).DataTransfer
-    assert.equal(assignLeverResumeFile(blocked, RESUME), false)
+    assert.equal(await assignLeverResumeFile(blocked, RESUME), false)
+  })
+
+  it('the background runs the Lever guard with chrome.scripting in the page world', () => {
+    const background = readFileSync(new URL('../../../background.js', import.meta.url), 'utf8')
+    const emit = readFileSync(new URL('../../../scripts/emit-install-attribution.mjs', import.meta.url), 'utf8')
+    assert.equal(background.includes("request.action === 'leverResumeGuard'"), true)
+    assert.equal(background.includes('installLeverResumeGuardInPage'), true)
+    assert.equal(background.includes("world: 'MAIN'"), true)
+    assert.equal(emit.includes('src/utils/siteRules/leverResumeGuard.js'), true)
+    const workable = readFileSync(new URL('./workable.ts', import.meta.url), 'utf8')
+    assert.doesNotMatch(workable, /gofillrResumeGuard|parseResume|leverResumeGuard/)
   })
 })

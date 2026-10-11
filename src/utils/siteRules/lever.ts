@@ -511,7 +511,7 @@ async function searchLeverLocations(
 
 // /searchLocations rejects requests that do not come from the apply page. Run the
 // request in the page so it carries that page's referrer, then fall back to a
-// same-origin fetch when the page cannot run the script.
+// same-origin fetch when the page cannot run it.
 async function fetchLocationResults(query: string, doc: Document | null): Promise<unknown> {
   if (doc) {
     const fromPage = await fetchLocationsInPage(doc, query)
@@ -525,53 +525,37 @@ async function fetchLocationResults(query: string, doc: Document | null): Promis
   return response.json()
 }
 
-const PAGE_LOCATION_SEARCH_MS = 4000
+function pageMessagingAvailable(): boolean {
+  return typeof chrome !== 'undefined' && !!chrome.runtime?.id && !!chrome.runtime?.sendMessage
+}
 
-function fetchLocationsInPage(doc: Document, query: string): Promise<unknown | null> {
+// /searchLocations wants the apply page as the caller. The worker runs that
+// fetch in the page world. Tests, and a page the worker cannot reach, use the
+// document's own fetch instead of an inline script (script-src 'self' blocks those).
+async function fetchLocationsInPage(doc: Document, query: string): Promise<unknown | null> {
   const view = doc.defaultView
-  const parent = doc.documentElement
-  if (!view || !parent) return Promise.resolve(null)
-  const token = `gofillr-location-${Math.random().toString(36).slice(2)}`
-  return new Promise((resolve) => {
-    let settled = false
-    let timer: ReturnType<Window['setTimeout']> | undefined
-    const finish = (payload: unknown | null) => {
-      if (settled) return
-      settled = true
-      if (timer !== undefined) view.clearTimeout(timer)
-      view.removeEventListener('message', onMessage)
-      resolve(payload)
+  if (!view) return null
+  if (pageMessagingAvailable()) {
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        action: 'leverLocationSearch',
+        query,
+      })) as { ok?: unknown; payload?: unknown } | undefined
+      if (response && response.ok === true) return response.payload ?? []
+    } catch {
+      // Fall through to the document fetch.
     }
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data as { type?: unknown; payload?: unknown } | null
-      if (!data || data.type !== token) return
-      finish('payload' in data ? (data.payload ?? null) : null)
-    }
-    view.addEventListener('message', onMessage)
-    timer = view.setTimeout(() => finish(null), PAGE_LOCATION_SEARCH_MS)
-    const script = doc.createElement('script')
-    script.textContent = `(function () {
-      var token = ${JSON.stringify(token)};
-      var query = ${JSON.stringify(query)};
-      function done(payload) {
-        window.postMessage({ type: token, payload: payload }, '*');
-      }
-      try {
-        Promise.resolve(
-          fetch('/searchLocations?text=' + encodeURIComponent(query), {
-            credentials: 'same-origin',
-            headers: { Accept: 'application/json' }
-          })
-        ).then(function (response) {
-          return response && response.ok ? response.json() : [];
-        }).then(done, function () { done([]); });
-      } catch (e) {
-        done([]);
-      }
-    })();`
-    parent.appendChild(script)
-    script.remove()
-  })
+  }
+  try {
+    const response = await view.fetch(`/searchLocations?text=${encodeURIComponent(query)}`, {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+    if (!response?.ok) return []
+    return await response.json()
+  } catch {
+    return null
+  }
 }
 
 async function waitForLocationOptions(root: HTMLElement, timeoutMs: number): Promise<HTMLElement[]> {

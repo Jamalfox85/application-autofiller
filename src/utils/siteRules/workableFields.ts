@@ -5,7 +5,8 @@
 //
 // v1 fills, in this order: contact, resume (the saved file, when the bytes
 // exist), experience, education, work authorization, then EEO. Custom / knockout
-// questions are skipped. A resume filename with no file bytes stays blank.
+// questions are skipped, except a Highest Degree dropdown, which is chosen from
+// the education rows. A resume filename with no file bytes stays blank.
 
 import { experienceForFill } from '../../lib/sync/profileRows.ts'
 import { monthNameFromLooseDate, yearFromLooseDate } from './greenhouseValues.ts'
@@ -74,6 +75,8 @@ export type WorkablePlan =
   | { action: 'click' }
   /** Attach the saved resume to a plain file input. There is no value string. */
   | { action: 'file' }
+  /** Open a Highest Degree list and choose the option that matches education. */
+  | { action: 'degree' }
   /** Recognized, nothing to write. Caller must not let the generic matcher invent a value. */
   | { action: 'skip' }
 
@@ -490,6 +493,69 @@ function clickYesNo(field: WorkableField, answer: 'yes' | 'no' | null): Workable
   return selected ? { action: 'click' } : { action: 'skip' }
 }
 
+// "Highest Degree Obtained" is a custom dropdown, not the education row's free-text
+// degree. The profile stores that level on the education rows.
+export function isWorkableHighestDegreeQuestion(label: string | null | undefined): boolean {
+  const text = (label || '').toLowerCase().replace(/[^a-z]/g, '')
+  if (!text.includes('degree') && !text.includes('education')) return false
+  return (
+    text.includes('highestdegree') ||
+    text.includes('highestlevelofeducation') ||
+    text.includes('levelofeducation') ||
+    text.includes('educationlevel')
+  )
+}
+
+function degreeLevelRank(value: string): number {
+  const degree = value.toLowerCase()
+  if (!degree.trim()) return -1
+  if (/ph\.?\s?d|doctor of philosophy|doctorate|doctor of medicine|\bm\.?\s?d\.?\b|juris|\bj\.?\s?d\.?\b/.test(degree)) {
+    return 70
+  }
+  if (/mba|m\.b\.a|master|m\.s\b|m\.sc|msc\b/.test(degree)) return 60
+  if (/post-?graduate/.test(degree)) return 55
+  if (/bachelor|b\.s\b|b\.a\b|bsc\b|\bbs\b|\bba\b/.test(degree)) return 40
+  if (/associate|\ba\.a\b|\ba\.s\b/.test(degree)) return 30
+  if (/certificate/.test(degree)) return 20
+  if (/high school|secondary|\bged\b/.test(degree)) return 10
+  if (/no formal|no degree|\bnone\b/.test(degree)) return 0
+  return -1
+}
+
+function profileDegreeRank(
+  education: WorkableProfile['education'],
+): number {
+  let best = -1
+  for (const row of education || []) {
+    const rank = degreeLevelRank(row?.degreeType || '')
+    if (rank > best) best = rank
+  }
+  return best
+}
+
+// Prefer the option at the same level. A master's row may land on "Postgraduate
+// degree" when the list has no master's option. It does not land on a lower
+// level such as a certificate.
+export function workableHighestDegreeChoice(
+  optionLabels: string[],
+  education: WorkableProfile['education'],
+): string | null {
+  const wanted = profileDegreeRank(education)
+  if (wanted < 0) return null
+  let fallback: { label: string; rank: number } | null = null
+  for (const raw of optionLabels) {
+    const label = (raw || '').replace(/\s+/g, ' ').trim()
+    if (!label) continue
+    const rank = degreeLevelRank(label)
+    if (rank < 0) continue
+    if (rank === wanted) return label
+    if (rank < wanted && wanted - rank < 10 && (!fallback || rank > fallback.rank)) {
+      fallback = { label, rank }
+    }
+  }
+  return fallback?.label || null
+}
+
 export function workablePlan(field: WorkableField, info: WorkableProfile, rowIndex = 0): WorkablePlan {
   const type = (field.type || '').toLowerCase()
   if (type === 'submit' || type === 'button' || type === 'password' || type === 'hidden') {
@@ -509,6 +575,12 @@ export function workablePlan(field: WorkableField, info: WorkableProfile, rowInd
     return profileSavedResume(info) ? { action: 'file' } : { action: 'skip' }
   }
   if (phase === 'resume' || type === 'file') return { action: 'skip' }
+  if (isWorkableHighestDegreeQuestion(field.label)) {
+    if (type === 'radio' || type === 'checkbox' || type === 'file' || type === 'hidden') {
+      return { action: 'skip' }
+    }
+    return { action: 'degree' }
+  }
   if (phase === 'custom') return { action: 'skip' }
 
   if (phase === 'work-authorization') {

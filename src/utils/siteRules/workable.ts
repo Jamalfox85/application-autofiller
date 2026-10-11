@@ -13,6 +13,7 @@ import {
   workableFieldKey,
   workableMaySubmit,
   workablePhase,
+  workableHighestDegreeChoice,
   workablePlan,
   workableQuestionLabel,
   type WorkableField,
@@ -138,6 +139,7 @@ async function runWorkableFill(doc: Document, personalInfo: WorkableProfile, gen
   // Add can mount an editor during the pass above. Fill that editor before
   // the deferred Update, and do not click Add a second time for it.
   writeVisibleControls(doc, info, saved, generation, false, rememberAdd)
+  await fillWorkableDegreeDropdowns(doc, info, generation)
   scheduleSectionCommit(doc, info, saved, generation, addedAtSaved)
 }
 
@@ -204,6 +206,8 @@ function writeVisibleControls(
     if (seen && seen.generation === generation) continue
     reveal(workablePhase(item.field))
     const plan = workablePlan(item.field, info, item.row)
+    // The list opens on a later turn. Choosing it here would read an empty menu.
+    if (plan.action === 'degree') continue
     const result: true | 'skip' =
       plan.action === 'skip' ? 'skip' : writeWorkablePlan(item.input, plan, saved) ? true : 'skip'
     outcomes.set(item.input, { generation, result })
@@ -395,7 +399,7 @@ export function describeWorkableField(input: HTMLElement): WorkableField {
     name: input.getAttribute('name'),
     id: input.getAttribute('id'),
     type,
-    label: questionText(input) || (type === 'file' ? resumeControlLabel(input) : ''),
+    label: questionText(input) || labelledByText(input) || (type === 'file' ? resumeControlLabel(input) : ''),
     optionValue: (input as HTMLInputElement).value || input.getAttribute('value'),
     optionLabel: optionLabel(input),
     group,
@@ -436,6 +440,17 @@ function isHiddenLocation(input: HTMLElement, group: WorkableGroup): boolean {
     input.getAttribute('aria-hidden') === 'true' || input.getAttribute('tabindex') === '-1'
   if (!hidden) return false
   return key === 'city' || key === 'postcode' || key === 'country' || key === 'state' || key === 'zip'
+}
+
+function labelledByText(input: HTMLElement): string {
+  const labelledBy = input.getAttribute('aria-labelledby')
+  const doc = input.ownerDocument
+  if (!labelledBy || !doc) return ''
+  const text = labelledBy
+    .split(/\s+/)
+    .map((id) => doc.getElementById(id)?.textContent || '')
+    .join(' ')
+  return cleanLabel(text)
 }
 
 function questionText(input: HTMLElement): string {
@@ -590,6 +605,137 @@ function setFiles(input: HTMLInputElement, files: FileList): boolean {
   return !!input.files && input.files.length > 0 && input.files[0]?.name === files[0]?.name
 }
 
+async function fillWorkableDegreeDropdowns(
+  doc: Document,
+  info: WorkableProfile,
+  generation: number,
+) {
+  if (generation !== fillGeneration) return
+  const forms = doc.querySelectorAll(FORM_ROOT)
+  for (let i = 0; i < forms.length; i++) {
+    const controls = forms[i].querySelectorAll('input, textarea, select')
+    for (let j = 0; j < controls.length; j++) {
+      if (generation !== fillGeneration) return
+      const input = controls[j] as HTMLElement
+      if (isDatePopupControl(input)) continue
+      const field = describeWorkableField(input)
+      if (workablePlan(field, info, rowIndex(input, field.group)).action !== 'degree') continue
+      const seen = outcomes.get(input)
+      if (seen && seen.generation === generation) continue
+      let chose = false
+      try {
+        chose = await chooseWorkableHighestDegree(input, info)
+      } catch {
+        chose = false
+      }
+      outcomes.set(input, { generation, result: chose ? true : 'skip' })
+    }
+  }
+}
+
+function optionLabelText(option: Element): string {
+  const named = option.querySelector('[data-role="option-label"]')
+  const text = (named?.textContent || option.textContent || '').replace(/\s+/g, ' ').trim()
+  return text
+}
+
+function pressKey(input: HTMLElement, key: string, code: string, keyCode: number) {
+  const view = input.ownerDocument?.defaultView
+  if (!view) return
+  const KeyboardEventCtor = view.KeyboardEvent ?? KeyboardEvent
+  try {
+    const event = new KeyboardEventCtor('keydown', { key, code, bubbles: true, cancelable: true })
+    try {
+      Object.defineProperty(event, 'keyCode', { get: () => keyCode })
+      Object.defineProperty(event, 'which', { get: () => keyCode })
+    } catch {
+      // keyCode is non-configurable in some realms. The key name is still set.
+    }
+    input.dispatchEvent(event)
+  } catch {
+    // The document cannot construct a keyboard event.
+  }
+}
+
+function degreeList(input: HTMLElement): HTMLElement | null {
+  const doc = input.ownerDocument
+  if (!doc) return null
+  const id = input.getAttribute('aria-controls') || input.getAttribute('aria-owns')
+  if (!id) return null
+  const list = doc.getElementById(id)
+  if (!list || !list.querySelector('[role="option"]')) return null
+  return list
+}
+
+async function openDegreeList(input: HTMLElement): Promise<HTMLElement | null> {
+  const open = degreeList(input)
+  if (open) return open
+  try {
+    input.focus()
+  } catch {
+    // A detached document can refuse focus. The key still goes to the node.
+  }
+  pressKey(input, 'ArrowDown', 'ArrowDown', 40)
+  for (let i = 0; i < 8; i++) {
+    const list = degreeList(input)
+    if (list) return list
+    await new Promise((resolve) => setTimeout(resolve, 40))
+  }
+  return null
+}
+
+function closeDegreeList(input: HTMLElement) {
+  pressKey(input, 'Escape', 'Escape', 27)
+}
+
+// Workable's Highest Degree control is a readonly combobox. ArrowDown opens the
+// list, and clicking the option writes the option id into the hidden input.
+// A native select takes the same label through its option value.
+export async function chooseWorkableHighestDegree(
+  input: HTMLElement,
+  info: WorkableProfile,
+): Promise<boolean> {
+  if (input.tagName === 'SELECT') {
+    const select = input as HTMLSelectElement
+    const labels = Array.from(select.options).map((option) => option.text || option.label || '')
+    const choice = workableHighestDegreeChoice(labels, info.education)
+    if (!choice) return false
+    const match = Array.from(select.options).find(
+      (option) => (option.text || option.label || '').replace(/\s+/g, ' ').trim() === choice,
+    )
+    if (!match) return false
+    const view = select.ownerDocument?.defaultView
+    const setter = view
+      ? Object.getOwnPropertyDescriptor(view.HTMLSelectElement.prototype, 'value')?.set
+      : undefined
+    const previous = select.value
+    if (setter) setter.call(select, match.value)
+    else select.value = match.value
+    const tracker = (select as HTMLSelectElement & { _valueTracker?: { setValue: (value: string) => void } })
+      ._valueTracker
+    if (tracker) tracker.setValue(previous)
+    dispatch(select, 'input')
+    dispatch(select, 'change')
+    return select.value === match.value
+  }
+  if (input.getAttribute('role') !== 'combobox') return false
+  const list = await openDegreeList(input)
+  if (!list) return false
+  const options = Array.from(list.querySelectorAll('[role="option"]'))
+  const choice = workableHighestDegreeChoice(options.map(optionLabelText), info.education)
+  if (!choice) {
+    closeDegreeList(input)
+    return false
+  }
+  const match = options.find((option) => optionLabelText(option) === choice)
+  if (!match) {
+    closeDegreeList(input)
+    return false
+  }
+  ;(match as HTMLElement).click()
+  return true
+}
+
 function writeWorkablePlan(
   input: HTMLElement,
   plan: Exclude<WorkablePlan, { action: 'skip' }>,
@@ -602,6 +748,7 @@ function writeWorkablePlan(
   ) {
     return false
   }
+  if (plan.action === 'degree') return false
   if (plan.action === 'file') {
     if (controlType(input) !== 'file') return false
     if (!saved) return false
