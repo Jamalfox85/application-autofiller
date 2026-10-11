@@ -9,10 +9,14 @@ import {
   leverLocationQueries,
   leverPlan,
   leverRepeatKey,
+  leverSelectedLocationValue,
+  parseLeverLocationResults,
+  pickLeverLocationHit,
   pickLeverLocationOption,
   summarizeLeverEeo,
   type LeverEeoKind,
   type LeverField,
+  type LeverLocationHit,
   type LeverProfile,
 } from './leverFields.ts'
 
@@ -40,6 +44,14 @@ export function setLeverResumeSourceForTests(source: (() => Promise<SavedResume 
 export function beginLeverFill() {
   eeoNotes.clear()
   resumeRequest = null
+}
+
+let locationSearch: ((query: string) => Promise<unknown>) | null = null
+
+export function setLeverLocationSearchForTests(
+  search: ((query: string) => Promise<unknown>) | null,
+) {
+  locationSearch = search
 }
 
 function loadSavedResume(): Promise<SavedResume | null> {
@@ -184,7 +196,7 @@ async function writePlan(
   input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
   plan: NonNullable<ReturnType<typeof leverPlan>>,
   profile: LeverProfile,
-): Promise<boolean> {
+): Promise<boolean | 'skip'> {
   if (plan.action === 'claim') return true
   if (plan.action === 'click') {
     if (!(input instanceof HTMLInputElement)) return false
@@ -325,41 +337,246 @@ function commitSelect(select: HTMLSelectElement, optionText: string): boolean {
   return true
 }
 
-// Lever's location widget searches on keydown (500ms debounce) and clears the
-// input on blur unless a .dropdown-location row was chosen with mousedown.
-async function fillLeverLocation(input: HTMLInputElement, info: LeverProfile): Promise<boolean> {
+// The location menu opens on `input` and searches on `keydown` (500ms debounce,
+// GET /searchLocations). Choosing a row is a mousedown: that writes the visible
+// name and JSON-encodes {name, id} into input[name=selectedLocation]. Blur while
+// the menu is still shown (display not none) wipes both fields. Typing the city
+// and leaving the menu open is why the field ends empty.
+async function fillLeverLocation(
+  input: HTMLInputElement,
+  info: LeverProfile,
+): Promise<boolean | 'skip'> {
   const queries = leverLocationQueries(info)
-  const root = input.closest('.application-field') || input.parentElement || document.body
+  if (queries.length === 0) return false
+  const widget = locationWidgetRoot(input)
+  if (!widget) return fillNativeInput(input, queries[0])
+
   for (const query of queries) {
-    input.focus()
-    setReactInputValue(input, query)
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
-    const options = await waitForLocationOptions(root)
-    if (options.length === 0) continue
-    const picked = pickLeverLocationOption(
-      options.map((option) => option.textContent || ''),
-      info,
-    )
-    const target = picked
-      ? options.find((option) => (option.textContent || '').replace(/\s+/g, ' ').trim() === picked)
-      : undefined
-    if (!target) continue
-    target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
-    const hidden = root.querySelector<HTMLInputElement>('input[name="selectedLocation"]')
-    if (hidden?.value || input.value.trim() === picked) {
-      input.blur()
-      return true
-    }
+    if (await commitLeverLocation(input, widget, query, info)) return true
   }
-  return false
+  closeLocationMenu(widget)
+  setDomValue(input, '')
+  const hidden = selectedLocationInput(widget)
+  if (hidden) hidden.value = ''
+  // The generic matcher would type the city and blur, which clears this menu.
+  return 'skip'
 }
 
-async function waitForLocationOptions(root: ParentNode): Promise<HTMLElement[]> {
+async function commitLeverLocation(
+  input: HTMLInputElement,
+  widget: HTMLElement,
+  query: string,
+  info: LeverProfile,
+): Promise<boolean> {
+  const hitsPromise = searchLeverLocations(query, input.ownerDocument)
+  const view = input.ownerDocument?.defaultView
+  input.focus()
+  setReactInputValue(input, query)
+  const KeyboardEventCtor = view?.KeyboardEvent ?? KeyboardEvent
+  input.dispatchEvent(
+    new KeyboardEventCtor('keydown', { key: 'a', bubbles: true, cancelable: true }),
+  )
+  const hits = await hitsPromise
+  // The page debounces the search by 500ms. Wait long enough to click a row
+  // when that search paints, and no longer once our own results are in.
+  const options = await waitForLocationOptions(widget, hits.length > 0 ? 700 : 3500)
+  const hit =
+    pickLeverLocationHit(hits, info) ||
+    hitFromOptions(options, hits, info)
+  if (!hit) return false
+
+  const option = options.find((node) => cleanText(node.textContent) === hit.name)
+  if (option) {
+    const MouseEventCtor = view?.MouseEvent ?? MouseEvent
+    option.dispatchEvent(
+      new MouseEventCtor('mousedown', { bubbles: true, cancelable: true, button: 0 }),
+    )
+  }
+
+  const hidden = selectedLocationInput(widget)
+  // A mousedown the page handled already stored {name, id}. Don't replace that
+  // JSON. If the page ignored the event, write the same payload ourselves.
+  if (!locationCommitted(input, hidden, hit)) writeLocationValue(input, hidden, hit)
+  closeLocationMenu(widget)
+  dispatchChange(input)
+  input.blur()
+  // Blur wipes both fields while the menu is open. The menu is closed now; if a
+  // handler still cleared them, write the payload again without an `input`
+  // event (that event is what opens the menu).
+  if (!locationCommitted(input, hidden, hit)) {
+    writeLocationValue(input, hidden, hit)
+    closeLocationMenu(widget)
+  }
+  return locationCommitted(input, hidden, hit)
+}
+
+function hitFromOptions(
+  options: HTMLElement[],
+  hits: LeverLocationHit[],
+  info: LeverProfile,
+): LeverLocationHit | null {
+  const picked = pickLeverLocationOption(
+    options.map((option) => option.textContent || ''),
+    info,
+  )
+  if (!picked) return null
+  return hits.find((hit) => hit.name === picked) ?? { name: picked }
+}
+
+function writeLocationValue(
+  input: HTMLInputElement,
+  hidden: HTMLInputElement | null,
+  hit: LeverLocationHit,
+) {
+  setDomValue(input, hit.name)
+  if (hidden) hidden.value = leverSelectedLocationValue(hit)
+}
+
+function locationCommitted(
+  input: HTMLInputElement,
+  hidden: HTMLInputElement | null,
+  hit: LeverLocationHit,
+): boolean {
+  if (cleanText(input.value) !== hit.name) return false
+  if (!hidden) return true
+  try {
+    const parsed = JSON.parse(hidden.value) as { name?: unknown; id?: unknown }
+    if (cleanText(typeof parsed.name === 'string' ? parsed.name : '') !== hit.name) return false
+    if (hit.id && parsed.id !== hit.id) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+function locationWidgetRoot(input: HTMLInputElement): HTMLElement | null {
+  const root = (input.closest('.application-field') || input.parentElement) as HTMLElement | null
+  if (!root) return null
+  if (root.querySelector('.dropdown-container, input[name="selectedLocation"]')) return root
+  return null
+}
+
+function selectedLocationInput(root: HTMLElement): HTMLInputElement | null {
+  return (
+    root.querySelector<HTMLInputElement>('input[name="selectedLocation"]') ||
+    (root.ownerDocument.getElementById('selected-location') as HTMLInputElement | null)
+  )
+}
+
+function closeLocationMenu(root: HTMLElement) {
+  const menu = root.querySelector<HTMLElement>('.dropdown-container')
+  if (menu) menu.style.display = 'none'
+  const results = root.querySelector('.dropdown-results')
+  if (results) results.replaceChildren()
+  for (const name of ['.dropdown-no-results', '.dropdown-loading-results']) {
+    const node = root.querySelector<HTMLElement>(name)
+    if (node) node.style.display = 'none'
+  }
+}
+
+function setDomValue(input: HTMLInputElement, value: string) {
+  const view = input.ownerDocument?.defaultView
+  const setter = view
+    ? Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value')?.set
+    : undefined
+  if (setter) setter.call(input, value)
+  else input.value = value
+}
+
+function dispatchChange(input: HTMLInputElement) {
+  const EventCtor = input.ownerDocument?.defaultView?.Event ?? Event
+  input.dispatchEvent(new EventCtor('change', { bubbles: true }))
+}
+
+function cleanText(value: string | null | undefined): string {
+  return (value || '').replace(/\s+/g, ' ').trim()
+}
+
+async function searchLeverLocations(
+  query: string,
+  doc: Document | null,
+): Promise<LeverLocationHit[]> {
+  try {
+    const payload = locationSearch
+      ? await locationSearch(query)
+      : await fetchLocationResults(query, doc)
+    return parseLeverLocationResults(payload)
+  } catch {
+    return []
+  }
+}
+
+// /searchLocations rejects requests that do not come from the apply page. Run the
+// request in the page so it carries that page's referrer, then fall back to a
+// same-origin fetch when the page cannot run the script.
+async function fetchLocationResults(query: string, doc: Document | null): Promise<unknown> {
+  if (doc) {
+    const fromPage = await fetchLocationsInPage(doc, query)
+    if (fromPage != null) return fromPage
+  }
+  const response = await fetch(`/searchLocations?text=${encodeURIComponent(query)}`, {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  })
+  if (!response.ok) return []
+  return response.json()
+}
+
+const PAGE_LOCATION_SEARCH_MS = 4000
+
+function fetchLocationsInPage(doc: Document, query: string): Promise<unknown | null> {
+  const view = doc.defaultView
+  const parent = doc.documentElement
+  if (!view || !parent) return Promise.resolve(null)
+  const token = `gofillr-location-${Math.random().toString(36).slice(2)}`
+  return new Promise((resolve) => {
+    let settled = false
+    let timer: ReturnType<Window['setTimeout']> | undefined
+    const finish = (payload: unknown | null) => {
+      if (settled) return
+      settled = true
+      if (timer !== undefined) view.clearTimeout(timer)
+      view.removeEventListener('message', onMessage)
+      resolve(payload)
+    }
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; payload?: unknown } | null
+      if (!data || data.type !== token) return
+      finish('payload' in data ? (data.payload ?? null) : null)
+    }
+    view.addEventListener('message', onMessage)
+    timer = view.setTimeout(() => finish(null), PAGE_LOCATION_SEARCH_MS)
+    const script = doc.createElement('script')
+    script.textContent = `(function () {
+      var token = ${JSON.stringify(token)};
+      var query = ${JSON.stringify(query)};
+      function done(payload) {
+        window.postMessage({ type: token, payload: payload }, '*');
+      }
+      try {
+        Promise.resolve(
+          fetch('/searchLocations?text=' + encodeURIComponent(query), {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' }
+          })
+        ).then(function (response) {
+          return response && response.ok ? response.json() : [];
+        }).then(done, function () { done([]); });
+      } catch (e) {
+        done([]);
+      }
+    })();`
+    parent.appendChild(script)
+    script.remove()
+  })
+}
+
+async function waitForLocationOptions(root: HTMLElement, timeoutMs: number): Promise<HTMLElement[]> {
   const started = Date.now()
-  while (Date.now() - started < 3500) {
+  while (Date.now() - started < timeoutMs) {
     const options = Array.from(root.querySelectorAll<HTMLElement>('.dropdown-location'))
     if (options.length > 0) return options
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 40))
   }
   return []
 }

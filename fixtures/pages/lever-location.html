@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Apply</title>
+    <style>
+      .dropdown-container,
+      .dropdown-no-results,
+      .dropdown-loading-results {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Reduced from a hosted apply form. The location menu starts hidden.
+      The page script (not included) opens it on input, lists .dropdown-location
+      rows, and on blur while the menu is shown clears both the text field and
+      the hidden selectedLocation value.
+    -->
+    <form id="application-form" method="POST">
+      <ul>
+        <li class="application-question" data-qa="structured-contact-location-question">
+          <label>
+            <div class="application-label">
+              Current location <span class="required">✱</span>
+            </div>
+            <div class="application-field">
+              <input
+                class="location-input"
+                data-qa="location-input"
+                id="location-input"
+                type="text"
+                maxlength="100"
+                name="location"
+                required
+              />
+              <input id="selected-location" type="hidden" name="selectedLocation" />
+              <div class="dropdown-container">
+                <div class="dropdown-results"></div>
+                <div class="dropdown-no-results">No location found. Try entering a different location</div>
+                <div class="dropdown-loading-results">Loading</div>
+              </div>
+            </div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">LinkedIn URL</div>
+            <div class="application-field">
+              <input id="linkedin" type="text" name="urls[LinkedIn]" />
+            </div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">GitHub URL</div>
+            <div class="application-field">
+              <input id="github" type="text" name="urls[GitHub]" />
+            </div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">Portfolio URL</div>
+            <div class="application-field">
+              <input id="portfolio" type="text" name="urls[Portfolio]" />
+            </div>
+          </label>
+        </li>
+        <li class="application-question">
+          <label>
+            <div class="application-label">Current location</div>
+            <div class="application-field">
+              <input id="plain-location" type="text" name="location" />
+            </div>
+          </label>
+        </li>
+      </ul>
+    </form>
+  </body>
+</html>
