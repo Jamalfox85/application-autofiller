@@ -42,6 +42,17 @@ test('the hispanic yes/no question stays on its own handler', () => {
   assert.notEqual(hispanic, race)
 })
 
+test('Are you Hispanic/Latino is the yes/no handler, and identify-your-race is the race handler', () => {
+  const hispanicText = 'hispanicethnicityareyouhispanic/latino?offtext'
+  const raceText = 'racepleaseidentifyyourraceofftext'
+  const hispanic = reactSelectEeoFieldHandlers.find((h) => h.match(input, hispanicText))
+  const legacy = reactSelectEeoFieldHandlers.find((h) => h.match(input, 'hispanicethnicityareyouhispanic'))
+  const race = reactSelectEeoFieldHandlers.find((h) => h.match(input, raceText))
+  assert.equal(hispanic, legacy)
+  assert.ok(race)
+  assert.notEqual(hispanic, race)
+})
+
 test('unhandled react-select dropdowns are owned without counting as filled', async () => {
   const el = { classList: { contains: (c: string) => c === 'select__input' } } as unknown as HTMLInputElement
   const entry = reactSelectEeoFieldHandlers.find((h) => h.match(el, 'anything'))

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
-import { mergeParsedResume, profileHasUserData } from '@/utils/resumeParsing'
+import { mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { fetchProfileFromDb } from '@/lib/sync/profile'
 import { readActiveProfileId } from '@/lib/sync/activeProfile'
 import type { ParsedResumeData, PersonalInfo } from '../types'
@@ -155,8 +155,12 @@ const handleManualSave = (profile: PersonalInfo) => {
 }
 
 const handleFinish = async () => {
+  // The review step is the confirmation. Skills from a non-empty parse may replace.
+  // Phone, street, and ZIP are still kept when the resume did not include them.
   const finalProfile = parsedData.value
-    ? mergeParsedResume(parsedData.value, { fileName: parsedData.value.fileName })
+    ? mergeParsedResumeIntoProfile(props.personalInfo, parsedData.value, parsedData.value.fileName, {
+        confirmReplace: true,
+      })
     : props.personalInfo
 
   const session = await getProfileSetupSession()
