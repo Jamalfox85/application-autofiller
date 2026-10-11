@@ -93,7 +93,7 @@ function showToast(toast: HTMLElement) {
   }, 4000)
 }
 
-// Post-fill confirmation card: bottom-right so it never covers the form, dark against the
+// Post-fill confirmation card: top-right so it never covers the form, dark against the
 // page so it reads as the extension rather than site content. Auto-hides after 6s; hovering
 // holds it open so a mid-read hover doesn't get cut off.
 function removeFillToasts() {

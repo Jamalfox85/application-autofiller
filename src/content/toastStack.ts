@@ -16,8 +16,10 @@ export function toastStack(doc: Document = document): HTMLElement {
     stack.id = TOAST_STACK_ID
     stack.style.cssText = `
       position: fixed;
+      top: 20px;
       right: 20px;
-      bottom: 20px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
       z-index: 2147483647;
       display: flex;
       flex-direction: column;
@@ -25,11 +27,12 @@ export function toastStack(doc: Document = document): HTMLElement {
       gap: 8px;
       pointer-events: none;
     `
-    ;(doc.body ?? doc.documentElement).appendChild(stack)
+    doc.documentElement.appendChild(stack)
   }
-  // Some job pages (Remix/React hydration) rebuild <body> after the script has run and drop
-  // nodes we added. A stack that is no longer attached would swallow the toast silently.
-  if (!stack.isConnected) (doc.body ?? doc.documentElement).appendChild(stack)
+  // The stack hangs off <html>, not <body>: a transformed <body> turns position: fixed into
+  // body-relative and pushes the stack off screen, and Remix/React hydration can rebuild
+  // <body> and drop nodes we added. Reattach in case the page dropped it anyway.
+  if (!stack.isConnected) doc.documentElement.appendChild(stack)
   return stack
 }
 

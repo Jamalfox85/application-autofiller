@@ -22,7 +22,10 @@ test('the Match Score card stays above fill toasts and is not removed with them'
   })
   assert.ok(doc.getElementById(MATCH_SCORE_ID))
   const style = stack?.getAttribute('style') ?? ''
+  assert.match(style, /top:\s*20px/)
   assert.match(style, /right:\s*20px/)
-  assert.match(style, /bottom:\s*20px/)
+  assert.doesNotMatch(style, /bottom:/)
+  assert.match(style, /max-height:\s*calc\(100vh - 40px\)/)
+  assert.equal(stack?.parentElement, doc.documentElement)
   assert.match(style, /gap:\s*8px/)
 })
