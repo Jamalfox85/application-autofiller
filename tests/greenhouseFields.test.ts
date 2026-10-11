@@ -10,6 +10,7 @@ import {
   parseGreenhouseEmploymentField,
   phoneDialingCodeTarget,
   pickDialingCodeOption,
+  settledDialingCodeLabel,
   pickLocationOption,
 } from '../src/utils/siteRules/greenhouseFields.ts'
 
@@ -76,6 +77,9 @@ describe('phone dialing-code mapping', () => {
       target,
     )
     assert.equal(picked, 'United States +1')
+    assert.equal(settledDialingCodeLabel('United States +1', target), true)
+    assert.equal(settledDialingCodeLabel('Canada +1', target), false)
+    assert.equal(settledDialingCodeLabel('', target), false)
   })
 
   it('leaves #country empty rather than selecting a near-name +1 territory', () => {

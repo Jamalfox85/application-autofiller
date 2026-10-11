@@ -37,6 +37,25 @@ function unique(values: string[]): string[] {
   return result
 }
 
+// A committed country chip. "United States +1" is the dialing-code row. A longer
+// name that merely starts with the country ("United States Minor Outlying Islands")
+// is a different option and still needs a fill.
+export function settledCountryLabel(label: string, country?: string): boolean {
+  const shown = label.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!shown) return false
+  return countrySearchValues(country).some((query) => {
+    const wanted = query.trim().toLowerCase()
+    if (!wanted) return false
+    return shown === wanted || shown.startsWith(`${wanted} +`)
+  })
+}
+
+export function settledExactLabel(label: string, queries: readonly string[]): boolean {
+  const shown = label.replace(/\s+/g, ' ').trim().toLowerCase()
+  if (!shown) return false
+  return queries.some((query) => query.trim().toLowerCase() === shown)
+}
+
 export function countrySearchValues(country?: string): string[] {
   if (!country?.trim()) return []
   const key = country.trim().toLowerCase().replace(/[\s-]+/g, '_')
@@ -604,6 +623,18 @@ function deniesSponsorship(n: string): boolean {
     n.includes('no sponsorship') ||
     n.includes('without sponsorship')
   )
+}
+
+export function settledWorkAuthorizationLabel(label: string, workAuthorization?: string): boolean {
+  const shown = label.replace(/\s+/g, ' ').trim()
+  if (!shown || !workAuthorization) return false
+  return pickWorkAuthorizationOption([shown], workAuthorization) === shown
+}
+
+export function settledSponsorshipLabel(label: string, requiresSponsorship: boolean): boolean {
+  const shown = label.replace(/\s+/g, ' ').trim()
+  if (!shown) return false
+  return pickSponsorshipOption([shown], requiresSponsorship) === shown
 }
 
 // Returns the option label to click, or null when none of the visible labels fit.

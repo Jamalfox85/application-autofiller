@@ -184,3 +184,43 @@ export function forgetQuotaClaim(
   delete next[pageKey]
   return next
 }
+
+export type FillClaimKind = 'granted' | 'already_counted' | 'unavailable'
+
+export type FillChargePlan = {
+  increment: boolean
+  repeatFill: boolean
+}
+
+// Another frame of this same click can win the claim and raise the weekly count
+// while this frame is still typing. That is not "already counted this week".
+// A claim stored before this fill started is a repeat or a later step.
+const SAME_CLICK_CLAIM_SKEW_MS = 500
+
+export function sameClickQuotaClaim(claimedAt: number | null | undefined, fillStartedAt: number): boolean {
+  return typeof claimedAt === 'number' && claimedAt > 0 && claimedAt >= fillStartedAt - SAME_CLICK_CLAIM_SKEW_MS
+}
+
+export function planFillCharge(input: {
+  filledCount: number
+  sameFrameInFlight: boolean
+  sameFrameAlreadyCounted: boolean
+  claim: FillClaimKind
+  claimedAt?: number | null
+  fillStartedAt?: number
+}): FillChargePlan {
+  if (input.filledCount <= 0) return { increment: false, repeatFill: false }
+  // A top-up that overlaps the charge in this document is the same fill.
+  if (input.sameFrameInFlight) return { increment: false, repeatFill: false }
+  if (
+    input.claim === 'already_counted' &&
+    !input.sameFrameAlreadyCounted &&
+    sameClickQuotaClaim(input.claimedAt, input.fillStartedAt ?? 0)
+  ) {
+    return { increment: false, repeatFill: false }
+  }
+  if (input.sameFrameAlreadyCounted || input.claim === 'already_counted') {
+    return { increment: false, repeatFill: true }
+  }
+  return { increment: true, repeatFill: false }
+}

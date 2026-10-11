@@ -18,6 +18,10 @@ import {
   nativeYearSelectValue,
   parseGreenhouseEducationId,
   educationComboboxLabelSettled,
+  settledCountryLabel,
+  settledExactLabel,
+  settledSponsorshipLabel,
+  settledWorkAuthorizationLabel,
   pickCountryOption,
   pickDegreeOption,
   pickDisciplineOption,
@@ -322,6 +326,21 @@ test('authorized_no_sponsorship is authorized and does not require sponsorship',
     profileRequiresSponsorship({ workAuthorization: 'work_visa', sponsorshipRequired: 'No' }),
     false,
   )
+})
+
+test('a committed country or work-authorization label is already settled', () => {
+  assert.equal(settledCountryLabel('United States', 'united_states'), true)
+  assert.equal(settledCountryLabel('United States +1', 'united_states'), true)
+  assert.equal(settledCountryLabel('United States Minor Outlying Islands', 'united_states'), false)
+  assert.equal(settledCountryLabel('', 'united_states'), false)
+  assert.equal(settledExactLabel('California', ['California']), true)
+  assert.equal(settledExactLabel('Cal', ['California']), false)
+  const sentence = 'I am authorized to work in the United States for any employer'
+  assert.equal(settledWorkAuthorizationLabel(sentence, 'us_citizen'), true)
+  assert.equal(settledWorkAuthorizationLabel('Yes', 'us_citizen'), true)
+  assert.equal(settledWorkAuthorizationLabel('No', 'us_citizen'), false)
+  assert.equal(settledSponsorshipLabel('No', false), true)
+  assert.equal(settledSponsorshipLabel('Yes', false), false)
 })
 
 test('work authorization picks the unrestricted sentence, not Yes, on SpaceX', () => {

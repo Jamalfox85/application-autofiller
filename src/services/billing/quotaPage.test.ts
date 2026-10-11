@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { decideQuotaClaim, forgetQuotaClaim, quotaPageKey, rememberSubmittedApplication } from './quotaPage.ts'
+import {
+  decideQuotaClaim,
+  forgetQuotaClaim,
+  planFillCharge,
+  quotaPageKey,
+  rememberSubmittedApplication,
+  sameClickQuotaClaim,
+} from './quotaPage.ts'
 
 const page = 'https://boards.greenhouse.io/acme/jobs/123?gh_jid=123'
 
@@ -20,10 +27,75 @@ test('the same page is claimed once per week, including a second frame', () => {
   assert.equal(second.claims[page], '2026-W41')
 })
 
+test('a first fill is counted and a later fill of that application is not', () => {
+  const started = 1_700_000_000_000
+  const first = planFillCharge({
+    filledCount: 4,
+    sameFrameInFlight: false,
+    sameFrameAlreadyCounted: false,
+    claim: 'granted',
+    fillStartedAt: started,
+  })
+  assert.equal(first.increment, true)
+  assert.equal(first.repeatFill, false)
+
+  const repeat = planFillCharge({
+    filledCount: 4,
+    sameFrameInFlight: false,
+    sameFrameAlreadyCounted: true,
+    claim: 'already_counted',
+    claimedAt: started - 60_000,
+    fillStartedAt: started,
+  })
+  assert.equal(repeat.increment, false)
+  assert.equal(repeat.repeatFill, true)
+
+  const nextStep = planFillCharge({
+    filledCount: 2,
+    sameFrameInFlight: false,
+    sameFrameAlreadyCounted: false,
+    claim: 'already_counted',
+    claimedAt: started - 60_000,
+    fillStartedAt: started,
+  })
+  assert.equal(nextStep.increment, false)
+  assert.equal(nextStep.repeatFill, true)
+})
+
+test('a sibling frame that claims during this click is not labeled already counted', () => {
+  const started = 1_700_000_000_000
+  assert.equal(sameClickQuotaClaim(started + 12_000, started), true)
+  assert.equal(sameClickQuotaClaim(started - 60_000, started), false)
+  assert.equal(sameClickQuotaClaim(0, started), false)
+
+  const sibling = planFillCharge({
+    filledCount: 20,
+    sameFrameInFlight: false,
+    sameFrameAlreadyCounted: false,
+    claim: 'already_counted',
+    claimedAt: started + 12_000,
+    fillStartedAt: started,
+  })
+  assert.equal(sibling.increment, false)
+  assert.equal(sibling.repeatFill, false)
+
+  const topUp = planFillCharge({
+    filledCount: 3,
+    sameFrameInFlight: true,
+    sameFrameAlreadyCounted: false,
+    claim: 'granted',
+    fillStartedAt: started,
+  })
+  assert.equal(topUp.increment, false)
+  assert.equal(topUp.repeatFill, false)
+})
+
 test('the service worker serializes the claim and the build emits it', () => {
   const background = readFileSync(new URL('../../../background.js', import.meta.url), 'utf8')
   const emit = readFileSync(new URL('../../../scripts/emit-install-attribution.mjs', import.meta.url), 'utf8')
   assert.equal(background.includes("request.action === 'claimFillQuota'"), true)
+  assert.equal(background.includes('claimedAt'), true)
+  assert.equal(background.includes('fillQuotaClaimedAt'), true)
   assert.equal(background.includes('enqueueQuotaClaim'), true)
   assert.equal(background.includes('./src/services/billing/quotaPage.js'), true)
   assert.equal(emit.includes('src/services/billing/quotaPage.ts'), true)

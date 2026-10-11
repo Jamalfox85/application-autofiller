@@ -7,6 +7,7 @@ import {
   autofillButtonLabel,
   clearLegacyProfileRoster,
   editedAgo,
+  fillCompletionSubtitle,
   fillToastSubtitle,
   parseActiveProfile,
   readActiveProfileId,
@@ -80,6 +81,9 @@ test('the profile name shows on the button and toast only with 2+ profiles', () 
   assert.equal(autofillButtonLabel(multi), 'Autofill as Contract')
   assert.equal(fillToastSubtitle(single), 'Autofill completed')
   assert.equal(fillToastSubtitle(multi), 'Filled with Contract')
+  assert.equal(fillCompletionSubtitle('Autofill completed', false), 'Autofill completed')
+  assert.equal(fillCompletionSubtitle('Autofill completed', true), 'Autofill completed · already counted this week')
+  assert.equal(fillCompletionSubtitle('Filled with Contract', true), 'Filled with Contract · already counted this week')
   assert.equal(truncateProfileName('Senior backend engineer roles', 18), 'Senior backend en…')
   assert.equal(truncateProfileName(' Short '), 'Short')
 })
