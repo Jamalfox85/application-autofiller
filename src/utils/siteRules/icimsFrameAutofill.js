@@ -96,7 +96,9 @@ function frameListenerMissing(error) {
 async function messageAutofillFrame(tabId, frameId, browser) {
   const tabs = browser && browser.tabs
   const scripting = browser && browser.scripting
-  const payload = { action: 'autofill', surface: 'popup' }
+  // quiet: the shell or the popup presents one combined result. Each frame
+  // still fills, and a password confirmation opened inside the frame stays.
+  const payload = { action: 'autofill', surface: 'popup', quiet: true }
   if (!tabs || typeof tabs.sendMessage !== 'function') return null
   try {
     return await tabs.sendMessage(tabId, payload, { frameId })

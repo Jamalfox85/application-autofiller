@@ -371,9 +371,10 @@ test('login autofill messages the iframe that owns the email and the shell, and 
       },
     },
     tabs: {
-      async sendMessage(_tabId: number, message: { action?: string; surface?: string }, options: { frameId?: number }) {
+      async sendMessage(_tabId: number, message: { action?: string; surface?: string; quiet?: boolean }, options: { frameId?: number }) {
         assert.equal(message.action, 'autofill')
         assert.equal(message.surface, 'popup')
+        assert.equal(message.quiet, true)
         const frameId = options.frameId ?? 0
         sent.push(frameId)
         if (frameId === 7) return { success: true, fieldsCount: 1, totalCount: 1, message: 'Filled 1 fields' }

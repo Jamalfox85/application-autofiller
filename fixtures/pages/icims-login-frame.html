@@ -14,8 +14,15 @@
         <label for="email">Email</label>
         <input type="email" autocomplete="email" id="email" name="css_loginName" class="form-control" value="" />
         <input type="checkbox" id="accept_gdpr" name="accept_gdpr" />
+        <textarea id="h-captcha-response" name="h-captcha-response"></textarea>
         <input type="hidden" name="token" value="1" />
         <input type="submit" id="enterEmailSubmitButton" value="Next" />
+        <!-- Aprilaire inlines this bootstrap in the form. Its text is not the email label. -->
+        <script>
+          const hCaptchaDiv = document.createElement("div");
+          hCaptchaDiv.id = "h-captcha";
+          hCaptchaDiv.className = "h-captcha";
+        </script>
       </form>
     </div>
   </body>
