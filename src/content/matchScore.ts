@@ -1,6 +1,7 @@
 import { openProCheckout } from '../services/billing/client.ts'
 import { readEntitlement } from '../services/billing/entitlementStore.ts'
 import { extractJobDescription } from '../services/matchScore/extractors/index.ts'
+import { matchScoreSurfaceReady } from '../services/matchScore/extractors/surface.ts'
 import { matchScoreEnabled } from '../services/matchScore/flags.ts'
 import { matchScoreIntent } from '../services/matchScore/intent.ts'
 import { matchScoreDismissedKey } from '../services/matchScore/cache.ts'
@@ -231,7 +232,7 @@ async function fetchPosting(url: string): Promise<string | null> {
 }
 
 function formReady(): boolean {
-  return !!document.querySelector('form, #application-form, #application_form')
+  return matchScoreSurfaceReady(document)
 }
 
 function whenFormReady(run: () => void) {

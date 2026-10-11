@@ -1,6 +1,6 @@
 import { openProCheckout, openProLogin } from '@/services/billing/client'
 import { mountInToastStack } from './toastStack'
-import { PAYWALL_COPY } from '@/services/billing/copy'
+import { PAYWALL_COPY, softContinueFreeLabel } from '@/services/billing/copy'
 import {
   PAID_EVENT,
   hardPaywallCtaProps,
@@ -152,7 +152,7 @@ export async function showFillPaywall(mode: 'soft' | 'hard', result: FillPaywall
   if (mode === 'soft') {
     const monthly = button(PAYWALL_COPY.soft.primary, 'primary')
     monthly.addEventListener('click', () => void checkout('monthly', 'upgrade_monthly'))
-    const keep = button(PAYWALL_COPY.soft.secondary, 'secondary')
+    const keep = button(softContinueFreeLabel(ctx.fillsRemaining), 'secondary')
     keep.addEventListener('click', async () => {
       await trackPaid(PAID_EVENT.softCta, softPaywallCtaProps({ ...ctx, cta: 'continue_free' }))
       card.remove()
