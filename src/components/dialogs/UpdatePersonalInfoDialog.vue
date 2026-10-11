@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
+import { personalDetailsForEditor, shouldRefreshPersonalDetails } from '../../lib/editorPlace.ts'
 import { ref, watch, computed, nextTick } from 'vue'
 import { usStates, canadaProvinces, ukRegions } from '../../utils/locationLists.ts'
 import type { PersonalInfo } from '../../types'
@@ -8,6 +8,7 @@ import FullScreenSheet from './FullScreenSheet.vue'
 const props = defineProps<{
   show: boolean
   personalInfo: PersonalInfo
+  profileId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -15,9 +16,18 @@ const emit = defineEmits<{
   save: [profile: PersonalInfo]
 }>()
 
-const editableProfile = ref<PersonalInfo>(completePersonalInfo(props.personalInfo))
+const editableProfile = ref<PersonalInfo>(personalDetailsForEditor(props.personalInfo))
 
 const dirty = ref(false)
+let hydrateDepth = 0
+
+const applyIncomingProfile = async () => {
+  hydrateDepth += 1
+  editableProfile.value = personalDetailsForEditor(props.personalInfo)
+  await nextTick()
+  dirty.value = false
+  hydrateDepth -= 1
+}
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const emailInvalid = computed(
@@ -61,10 +71,20 @@ const STATE_FIELD_LABEL_BY_COUNTRY: Record<string, string> = {
   united_kingdom: 'Region',
 }
 
+const KNOWN_COUNTRIES = new Set(['united_states', 'canada', 'united_kingdom'])
 const stateOptions = computed(() => STATE_OPTIONS_BY_COUNTRY[editableProfile.value.country ?? ''] ?? [])
 const stateFieldLabel = computed(
   () => STATE_FIELD_LABEL_BY_COUNTRY[editableProfile.value.country ?? ''] ?? 'State',
 )
+const extraCountry = computed(() => {
+  const country = editableProfile.value.country || ''
+  return country && !KNOWN_COUNTRIES.has(country) ? country : ''
+})
+const extraState = computed(() => {
+  const state = editableProfile.value.state || ''
+  if (!state) return ''
+  return stateOptions.value.some((option) => option.value === state) ? '' : state
+})
 
 const handleCountryChange = (event: Event) => {
   editableProfile.value.country = (event.target as HTMLSelectElement).value
@@ -93,20 +113,35 @@ const selectedPhoneCountryKey = computed({
 
 watch(
   () => props.show,
-  async (isShowing) => {
-    if (isShowing) {
-      editableProfile.value = completePersonalInfo(props.personalInfo)
-      // Let the deep watcher below settle from this reassignment before clearing dirty,
-      // otherwise loading the panel would immediately read as "Unsaved changes".
-      await nextTick()
-      dirty.value = false
+  (isShowing) => {
+    if (isShowing) void applyIncomingProfile()
+  },
+)
+
+// Creating or switching profiles replaces App's personalInfo after this sheet may
+// already have copied the previous profile. Apply the new one immediately.
+watch(
+  () => [props.profileId, props.personalInfo] as const,
+  (next, prev) => {
+    if (!prev) return
+    if (
+      !shouldRefreshPersonalDetails({
+        open: props.show,
+        dirty: dirty.value,
+        profileChanged: next[0] !== prev[0],
+        infoChanged: next[1] !== prev[1],
+      })
+    ) {
+      return
     }
+    void applyIncomingProfile()
   },
 )
 
 watch(
   editableProfile,
   () => {
+    if (hydrateDepth > 0) return
     dirty.value = true
   },
   { deep: true },
@@ -228,6 +263,7 @@ watch(
               <option value="united_states">United States</option>
               <option value="canada">Canada</option>
               <option value="united_kingdom">United Kingdom</option>
+              <option v-if="extraCountry" :value="extraCountry">{{ extraCountry }}</option>
             </select>
           </div>
           <div class="form-group">
@@ -235,9 +271,10 @@ watch(
             <select
               id="editState"
               v-model="editableProfile.state"
-              :disabled="!editableProfile.country"
+              :disabled="!editableProfile.country && !editableProfile.state"
             >
               <option :value="null">-- Select a {{ stateFieldLabel.toLowerCase() }} --</option>
+              <option v-if="extraState" :value="extraState">{{ extraState }}</option>
               <option v-for="option in stateOptions" :key="option.value" :value="option.value">
                 {{ option.label }}
               </option>

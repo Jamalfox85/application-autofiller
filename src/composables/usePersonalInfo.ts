@@ -1,10 +1,13 @@
 import { ref } from 'vue'
-import type { PersonalInfo } from '../types'
+import type { CustomResponse, PersonalInfo } from '../types'
 import { DEFAULT_PERSONAL_INFO, cloneDefaultPersonalInfo } from '../lib/personalInfoDefaults'
 import { getUserIdOrNull, readMirror, writeMirror } from '../lib/sync/shared'
 import { mirrorEpoch, onMirrorReset } from '../lib/sync/mirrorEpoch'
 import { fetchProfileBundle, saveProfileToDb } from '../lib/sync/profile'
+import { shouldWriteProfileLoad } from '../lib/profileLoadGuard'
+import { noteCustomResponses } from './useCustomResponses'
 import {
+  CUSTOM_RESPONSES_KEY,
   PERSONAL_INFO_KEY,
   readActiveProfileId,
   writeProfileMirrors,
@@ -15,6 +18,7 @@ import {
 export { DEFAULT_PERSONAL_INFO, cloneDefaultPersonalInfo }
 
 let resumeMirrorListener = false
+let loadSerial = 0
 
 // Shared by every caller. A dialog that still holds the previous account's profile
 // must not save it after sign-out or after the mirror key is removed.
@@ -63,47 +67,64 @@ export function usePersonalInfo() {
   //   - get_profile succeeds  → use it, overwrite personalInfo + customResponses + activeProfile
   //   - get_profile throws    → offline: fall back to the mirror so the popup still shows the
   //                             last-known profile (and keeps saving to that profile's id)
-  const loadPersonalInfo = async (active?: ActiveProfileMirror | null) => {
+  const loadPersonalInfo = async (active?: ActiveProfileMirror | null): Promise<PersonalInfo | null> => {
+    const loadId = ++loadSerial
     const epoch = mirrorEpoch()
     const generation = memoryGeneration
-    const stillCurrent = () => epoch === mirrorEpoch() && generation === memoryGeneration
+    const stillCurrent = () =>
+      loadId === loadSerial && epoch === mirrorEpoch() && generation === memoryGeneration
+    // A newer load owns memory. Sign-out still drops it, but only on the latest load.
+    const abandon = (): null => {
+      if (loadId === loadSerial && (epoch !== mirrorEpoch() || generation !== memoryGeneration)) {
+        invalidatePersonalInfoMemory()
+      }
+      return null
+    }
     const userId = await getUserIdOrNull()
-    if (!stillCurrent()) return personalInfo.value
+    if (!stillCurrent()) return abandon()
 
     if (userId) {
       try {
         const bundle = await fetchProfileBundle(active?.id ?? null)
-        if (!stillCurrent()) return personalInfo.value
+        if (!stillCurrent()) return abandon()
+        const intendedId = active?.id || bundle.id || null
+        const mirroredId = await readActiveProfileId(chrome.storage.local)
+        if (!stillCurrent()) return abandon()
+        if (!shouldWriteProfileLoad(intendedId, mirroredId)) return null
+
         personalInfo.value = { ...cloneDefaultPersonalInfo(), ...bundle.personalInfo }
         loadedProfileId.value = bundle.id
         memoryValid = true
-        if (!stillCurrent()) {
-          invalidatePersonalInfoMemory()
-          return personalInfo.value
-        }
+        noteCustomResponses(bundle.customResponses, bundle.id)
+        if (!stillCurrent()) return abandon()
         await writeProfileMirrors(chrome.storage.local, {
           personalInfo: personalInfo.value,
           customResponses: bundle.customResponses,
           activeProfile: active ?? { id: bundle.id, name: bundle.name, profileCount: 1 },
         })
-        if (!stillCurrent()) invalidatePersonalInfoMemory()
+        if (!stillCurrent()) return abandon()
         return personalInfo.value
       } catch (error) {
         console.error('Failed to load profile from Supabase — using local cache', error)
       }
     }
 
-    if (!stillCurrent()) return personalInfo.value
+    if (!stillCurrent()) return abandon()
     const local = await readMirror<PersonalInfo>(PERSONAL_INFO_KEY)
-    if (!stillCurrent()) return personalInfo.value
+    if (!stillCurrent()) return abandon()
+    const mirroredId = await readActiveProfileId(chrome.storage.local)
+    if (!stillCurrent()) return abandon()
+    if (!shouldWriteProfileLoad(active?.id ?? mirroredId, mirroredId)) return null
     if (local) {
       personalInfo.value = { ...cloneDefaultPersonalInfo(), ...local }
     } else if (!memoryValid) {
       personalInfo.value = cloneDefaultPersonalInfo()
     }
-    loadedProfileId.value = await readActiveProfileId(chrome.storage.local)
-    if (!stillCurrent()) return personalInfo.value
+    loadedProfileId.value = mirroredId
     memoryValid = true
+    const localResponses = await readMirror<CustomResponse[]>(CUSTOM_RESPONSES_KEY)
+    if (!stillCurrent()) return abandon()
+    noteCustomResponses(localResponses ?? [], loadedProfileId.value)
     return personalInfo.value
   }
 

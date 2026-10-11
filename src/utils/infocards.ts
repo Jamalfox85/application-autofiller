@@ -10,6 +10,11 @@ import {
   ICON_STARS,
 } from '@/utils/icons'
 import type { PersonalInfo } from '@/types'
+import { customResponseSummary, customResponsesDone } from '../lib/customResponseSummary.ts'
+
+export interface SectionCounts {
+  customResponses?: number
+}
 
 export interface SectionDef {
   num: string
@@ -17,8 +22,8 @@ export interface SectionDef {
   title: string
   dialog: string
   icon: string
-  meta: (info: PersonalInfo) => string
-  done: (info: PersonalInfo) => boolean
+  meta: (info: PersonalInfo, counts?: SectionCounts) => string
+  done: (info: PersonalInfo, counts?: SectionCounts) => boolean
   required: boolean
 }
 
@@ -128,8 +133,8 @@ export const SECTIONS: SectionDef[] = [
     dialog: 'customResponses',
     icon: ICON_EDIT,
     required: false,
-    meta: () => 'Tailor responses for specific questions',
-    done: () => false,
+    meta: (_info, counts) => customResponseSummary(counts?.customResponses),
+    done: (_info, counts) => customResponsesDone(counts?.customResponses),
   },
   {
     num: '09',
