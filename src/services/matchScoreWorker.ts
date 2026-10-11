@@ -6,7 +6,7 @@ import { getUserIdOrNull } from '../lib/sync/shared.ts'
 import { saveProfileToDb } from '../lib/sync/profile.ts'
 import type { PersonalInfo } from '../types/index.ts'
 import { ACTIVE_PROFILE_KEY, parseActiveProfile } from '../lib/sync/activeProfile.ts'
-import { matchScoreCacheKey, matchScoreDismissedKey, matchScoreRateLimitKey, rateLimitActive, rateLimitUntil } from './matchScore/cache.ts'
+import { extractionLimitRecord, matchScoreCacheKey, matchScoreDismissedKey, matchScoreRateLimitKey, rateLimitActive, rateLimitUntil, readRateLimit } from './matchScore/cache.ts'
 import { postMatchScoreDecline } from './matchScore/contract.ts'
 import { fetchAllowedPosting } from './matchScore/fetchPosting.ts'
 import { fulfillMatchScore, willRequestMatchScore, type CachedMatchScore } from './matchScore/fulfill.ts'
@@ -176,10 +176,17 @@ async function runScore(
   const cached = stored[cacheKey] as CachedMatchScore | undefined
   const isPro = await deps.isPro()
   const token = isPro ? await deps.token() : null
+  const limit = readRateLimit(stored[rateKey])
+  const rateLimited = rateLimitActive(stored[rateKey], deps.now())
   const common = {
     isPro,
     dismissed: stored[dismissedKey] != null,
-    rateLimited: rateLimitActive(stored[rateKey], deps.now()),
+    rateLimited,
+    extractionLimit: rateLimited && limit.extraction,
+    extractionRetryMs:
+      rateLimited && limit.extraction && limit.specified && limit.until != null
+        ? Math.max(0, limit.until - deps.now())
+        : null,
     rescore: input.rescore,
     cached: cached && cached.result ? cached : null,
     now: deps.now(),
@@ -210,7 +217,10 @@ async function runScore(
     fetchImpl: deps.fetchImpl,
   })
   if (outcome.persistRateLimit) {
-    await deps.storage.set({ [rateKey]: rateLimitUntil(deps.now(), outcome.rateLimitMs) })
+    const until = rateLimitUntil(deps.now(), outcome.rateLimitMs)
+    await deps.storage.set({
+      [rateKey]: outcome.extractionLimit ? extractionLimitRecord(until, outcome.retrySpecified === true) : until,
+    })
   }
   if (outcome.cacheValue) {
     await deps.storage.set({ [cacheKey]: outcome.cacheValue })
