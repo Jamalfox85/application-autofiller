@@ -1,7 +1,16 @@
+import { ignorePagePatternError } from '../lib/pagePatternError.ts'
 import { RELATIVE_MATCHES } from '../utils/relativeMatches.ts'
 import { bestOptionIndex } from './optionMatch.ts'
 import { coerceFillText } from './fillValue.ts'
 import { bambooOwnedMenu, chooseBambooOptionText } from './siteRules/bamboohrFields.ts'
+
+// A page listener can call checkValidity while handling input, change, or blur.
+// An invalid pattern attribute throws; that throw must not abort the fill.
+export function dispatchFillEvent(target: EventTarget, event: Event): void {
+  ignorePagePatternError(() => {
+    target.dispatchEvent(event)
+  })
+}
 
 type ReactTrackedField = (HTMLInputElement | HTMLTextAreaElement) & {
   _valueTracker?: { setValue: (value: string) => void }
@@ -49,9 +58,13 @@ export function setReactInputValue(input: HTMLInputElement | HTMLTextAreaElement
     (typeof Event !== 'undefined' ? Event : undefined)
   if (typeof input.dispatchEvent === 'function' && InputEventCtor) {
     try {
-      input.dispatchEvent(new InputEventCtor('input', { bubbles: true, data: value, inputType: 'insertText' }))
+      dispatchFillEvent(
+        input,
+        new InputEventCtor('input', { bubbles: true, data: value, inputType: 'insertText' }),
+      )
     } catch {
       // The page realm cannot construct the event, or the control is not a node.
+      // dispatchFillEvent already swallows an invalid pattern attribute.
     }
   }
 }
@@ -64,8 +77,8 @@ export async function fillNativeInput(
   if (!text) return false
   if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) return false
 
-  input.focus()
-  input.dispatchEvent(new Event('focus', { bubbles: true }))
+  ignorePagePatternError(() => input.focus())
+  dispatchFillEvent(input, new Event('focus', { bubbles: true }))
 
   // Per-character events are what the page's handlers see, but 20ms each made a long answer
   // (a cover note, a URL) take seconds. Keep full fidelity for short values, go faster on long.
@@ -73,15 +86,15 @@ export async function fillNativeInput(
   let current = ''
   for (const char of text) {
     current += char
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }))
-    input.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }))
+    dispatchFillEvent(input, new KeyboardEvent('keydown', { key: char, bubbles: true }))
+    dispatchFillEvent(input, new KeyboardEvent('keypress', { key: char, bubbles: true }))
     setReactInputValue(input, current)
-    input.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }))
+    dispatchFillEvent(input, new KeyboardEvent('keyup', { key: char, bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, perCharDelayMs))
   }
 
-  input.dispatchEvent(new Event('change', { bubbles: true }))
-  input.dispatchEvent(new Event('blur', { bubbles: true }))
+  dispatchFillEvent(input, new Event('change', { bubbles: true }))
+  dispatchFillEvent(input, new Event('blur', { bubbles: true }))
   return true
 }
 

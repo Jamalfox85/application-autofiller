@@ -151,3 +151,12 @@ await esbuild.build({
   platform: 'browser',
   define,
 })
+
+await esbuild.build({
+  entryPoints: ['src/services/activeProfileForFillWorker.ts'],
+  outfile: 'dist/src/services/activeProfileForFillWorker.js',
+  format: 'esm',
+  bundle: true,
+  platform: 'browser',
+  define,
+})

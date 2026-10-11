@@ -21,6 +21,7 @@ import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { ensureAccountKeyInSession, openAccountKeySession } from './src/services/accountKeyWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
+import { loadActiveProfileForFillWorker } from './src/services/activeProfileForFillWorker.js'
 import { syncRecordedFill } from './src/services/billing/syncRecordedFill.js'
 import {
   SUBMITTED_APPLICATIONS_KEY,
@@ -679,6 +680,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'loadSavedResume') {
     loadSavedResumeForWorker()
       .then((result) => sendResponse(savedResumeReply(result)))
+      .catch(() => sendResponse({ ok: false }))
+    return true
+  }
+
+  // Apply pages block a content-script fetch to Supabase. Read the active
+  // profile here so current company and title match the popup, not a stale
+  // personalInfo mirror or an old resume parse.
+  if (request.action === 'loadActiveProfileForFill') {
+    loadActiveProfileForFillWorker()
+      .then((result) => sendResponse(result))
       .catch(() => sendResponse({ ok: false }))
     return true
   }

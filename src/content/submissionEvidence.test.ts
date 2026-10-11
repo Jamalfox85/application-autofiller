@@ -297,6 +297,67 @@ test('the DOM distinguishes a failed submit, a success, and an unrelated form', 
   assert.equal(shouldArmOnClick(submit), true)
 })
 
+test('an invalid pattern attribute cannot throw out of the submission snapshot', () => {
+  const doc = page(
+    '<form id="application-form"><input name="email" pattern="[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}" value="ada@example.com"></form>',
+  )
+  const input = doc.querySelector('input')
+  assert.ok(input)
+  let calls = 0
+  input.checkValidity = () => {
+    calls += 1
+    throw new SyntaxError(
+      "Failed to execute 'checkValidity' on 'HTMLInputElement': Invalid regular expression: /[A-Za-z0-9._%+-]/v: Invalid character in character class",
+    )
+  }
+  let snapshot: SubmissionSnapshot | null = null
+  assert.doesNotThrow(() => {
+    snapshot = readSubmissionSnapshot(doc, APPLY)
+  })
+  assert.equal(snapshot?.invalidFieldsPresent, false)
+  let patternIsInvalidUnderV = false
+  try {
+    new RegExp('[A-Za-z0-9._%+-]', 'v')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    patternIsInvalidUnderV = /character class|invalid regular expression/i.test(message)
+  }
+  if (patternIsInvalidUnderV) assert.equal(calls, 0)
+})
+
+test('a throwing willValidate or checkValidity does not escape, and a valid pattern is still checked', () => {
+  const throwing = page('<form id="application-form"><input name="email" value="ada@example.com"></form>')
+  const throwingInput = throwing.querySelector('input')
+  assert.ok(throwingInput)
+  Object.defineProperty(throwingInput, 'willValidate', {
+    configurable: true,
+    get() {
+      throw new SyntaxError(
+        "Failed to execute 'checkValidity' on 'HTMLInputElement': Invalid regular expression",
+      )
+    },
+  })
+  assert.doesNotThrow(() => readSubmissionSnapshot(throwing, APPLY))
+
+  const checked = page('<form id="application-form"><input name="code" pattern="[A-Za-z]+" value="123"></form>')
+  const checkedInput = checked.querySelector('input')
+  assert.ok(checkedInput)
+  let calls = 0
+  checkedInput.checkValidity = () => {
+    calls += 1
+    throw new SyntaxError("Failed to execute 'checkValidity' on 'HTMLInputElement'")
+  }
+  let snapshot: SubmissionSnapshot | null = null
+  assert.doesNotThrow(() => {
+    snapshot = readSubmissionSnapshot(checked, APPLY)
+  })
+  assert.equal(calls > 0, true)
+  assert.equal(snapshot?.invalidFieldsPresent, false)
+
+  checkedInput.checkValidity = () => false
+  assert.equal(readSubmissionSnapshot(checked, APPLY).invalidFieldsPresent, true)
+})
+
 test('the content script does not fire application_submitted from the submit event alone', () => {
   const index = readFileSync(new URL('./index.js', import.meta.url), 'utf8')
   assert.match(index, /trackEvent\('application_submitted'/)

@@ -28,6 +28,8 @@ import { rememberFillBlock } from '@/services/billing/proUnlock'
 import { PAYWALL_COPY } from '@/services/billing/copy'
 import { showFillPaywall } from './fillPaywall'
 import { getSiteLabel } from '../utils/jobSitePatterns.ts'
+import { loadFillPersonalInfo } from '../lib/fillProfile.ts'
+import { isPagePatternError } from '../lib/pagePatternError.ts'
 import { openStoredPersonalInfo } from '../lib/openStoredPersonalInfo.ts'
 import {
   isSavedPasswordPromptOpen,
@@ -244,6 +246,15 @@ export function pageNavigated() {
   }
 }
 
+async function requestActiveProfileForFill(): Promise<unknown> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null
+    return await chrome.runtime.sendMessage({ action: 'loadActiveProfileForFill' })
+  } catch {
+    return null
+  }
+}
+
 export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_clicked_button') {
   resetSkippedAccountPasswordNote()
   // No fill without a user click. A detection-triggered call must not write, count or
@@ -272,7 +283,17 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
   try {
     const startTime = Date.now()
     const stored = await chrome.storage.local.get(null)
-    const personalInfo = await openStoredPersonalInfo(stored.personalInfo)
+    // Current company and title come from get_profile, the same rows the popup
+    // shows. The personalInfo mirror and resumeUploadJob parse are leftover
+    // copies and are not used when that read succeeds, including after the
+    // work history was cleared.
+    const personalInfo = await openStoredPersonalInfo(
+      await loadFillPersonalInfo({
+        mirror: stored.personalInfo,
+        parsedResume: stored.resumeUploadJob,
+        requestActive: requestActiveProfileForFill,
+      }),
+    )
     const customResponses = stored.customResponses || {}
     const reviewHighlightEnabled = stored.reviewHighlightEnabled ?? true
 
@@ -363,6 +384,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     const onIcims = window.location.hostname.toLowerCase().includes('icims.com')
 
     for (const input of inputsToFill) {
+      try {
       attemptedCount++
       const fieldText = constructFieldText(input)
       const snapshot = captureFieldSnapshot(input)
@@ -422,6 +444,14 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       }
 
       unfilledInputs.push(input)
+      } catch (error) {
+        // One field whose pattern attribute is not a valid regular expression
+        // must not abort the rest of the fill.
+        if (!isPagePatternError(error)) console.error('[autofill] field skipped', error)
+        if (!fillRecords.some((record) => record.input === input) && !unfilledInputs.includes(input)) {
+          unfilledInputs.push(input)
+        }
+      }
     }
 
     lastFillRecords = fillRecords

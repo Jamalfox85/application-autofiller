@@ -1,8 +1,8 @@
 // The `activeProfile` mirror in chrome.storage.local, plus the small pure helpers the popup,
 // content script and service worker share. Supabase (`profiles.active_profile_id`) is the
-// source of truth; the popup rewrites this mirror on open and on every swap. The content
-// script keeps reading `personalInfo` / `customResponses` exactly as before, so fill code
-// doesn't change.
+// source of truth; the popup rewrites this mirror on open and on every swap. A fill asks
+// the service worker for get_profile and uses that result. `personalInfo` is the offline
+// copy, refreshed from that read so the next fill does not keep an older resume parse.
 //
 // Pure: no supabase-js, no chrome globals at import time (callers pass the storage area).
 
