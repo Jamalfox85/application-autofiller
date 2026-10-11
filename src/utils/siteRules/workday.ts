@@ -5,12 +5,14 @@ import {
   hasSavedWorkdayApplicationAccount,
   hasWorkdayAccountCredentials,
   isWorkdayApplyHost,
+  workdaySavedPasswordLocked,
 } from './workdayAccount.ts'
 import {
   publishMissingWorkdayAccountNotice,
   readPersonalInfoForWorkday,
 } from './workdayAccountNotice.ts'
 import { openStoredPersonalInfo } from '../../lib/openStoredPersonalInfo.ts'
+import { noteSkippedAccountPassword } from '../../lib/accountPasswordFill.ts'
 import {
   findWorkdaySectionAddButton,
   isWorkdayAccountCreationForm,
@@ -217,12 +219,18 @@ export default function workdayConfig(): SiteRule {
             (isWorkdayAccountCreationForm(document) || isWorkdaySignInForm(document))
           ) {
             const latest = await readPersonalInfoForWorkday(personalInfo)
-            if (!hasSavedWorkdayApplicationAccount(latest)) {
-              await publishMissingWorkdayAccountNotice()
-            }
-            if (!hasWorkdayAccountCredentials(latest)) {
+            if (workdaySavedPasswordLocked(latest)) {
+              noteSkippedAccountPassword()
+              accountCredentialsMissing = true
+            } else if (!hasWorkdayAccountCredentials(latest)) {
+              if (!hasSavedWorkdayApplicationAccount(latest)) {
+                await publishMissingWorkdayAccountNotice()
+              }
               accountCredentialsMissing = true
             } else {
+              if (!hasSavedWorkdayApplicationAccount(latest)) {
+                await publishMissingWorkdayAccountNotice()
+              }
               accountInputHandled = true
               console.log('✓ Account form loaded, filling account details')
               await handleAccountInput(latest)
@@ -466,6 +474,10 @@ export default function workdayConfig(): SiteRule {
           if (accountInputHandled) return
           const opened = await openStoredPersonalInfo(next)
           if (accountInputHandled) return
+          if (workdaySavedPasswordLocked(opened)) {
+            noteSkippedAccountPassword()
+            return
+          }
           if (!hasWorkdayAccountCredentials(opened)) return
           if (!isWorkdayAccountCreationForm(document) && !isWorkdaySignInForm(document)) return
           accountCredentialsMissing = false
@@ -594,13 +606,27 @@ const fieldHandlers: Array<{
       const kind = workdayAccountCredentialKind(input)
       if (!kind || input.tagName !== 'INPUT') return false
       const latest = await readPersonalInfoForWorkday(personalInfo)
+      const account = getWorkdayAccount(latest)
+      const passwordLocked = workdaySavedPasswordLocked(latest)
+      // A sealed password that did not open is not a filled field. Counting it
+      // made the toast say Autofill completed while the box stayed blank.
+      if (passwordLocked && (kind === 'password' || kind === 'verifyPassword')) {
+        noteSkippedAccountPassword()
+        return 'skip'
+      }
       // Legacy accountEmail / accountPassword can still fill. The notice is
       // specifically a missing Application Accounts row for this Workday login.
-      if (!hasSavedWorkdayApplicationAccount(latest)) {
+      if (!hasSavedWorkdayApplicationAccount(latest) && !passwordLocked) {
         await publishMissingWorkdayAccountNotice()
       }
-      if (!hasWorkdayAccountCredentials(latest)) return true
-      const account = getWorkdayAccount(latest)
+      if (!hasWorkdayAccountCredentials(latest)) {
+        if (passwordLocked && kind === 'email' && account.email) {
+          await fillWorkdayAccountValue(input as HTMLInputElement, account.email)
+          return true
+        }
+        if (passwordLocked) return 'skip'
+        return true
+      }
       const value = kind === 'email' ? account.email : account.password
       if (!value) return true
       await fillWorkdayAccountValue(input as HTMLInputElement, value)
@@ -2051,6 +2077,10 @@ const handleAccountInput = async (personalInfo: PersonalInfo | null | undefined)
   try {
     console.log('Starting account input fill...')
     const latest = await readPersonalInfoForWorkday(personalInfo)
+    if (workdaySavedPasswordLocked(latest)) {
+      noteSkippedAccountPassword()
+      return
+    }
     if (!hasSavedWorkdayApplicationAccount(latest)) {
       await publishMissingWorkdayAccountNotice()
     }

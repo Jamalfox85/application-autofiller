@@ -3,9 +3,57 @@
 // the personalInfo mirror, so a copy of the saved profile does not include the
 // key. Each extension realm (popup, worker, content script) has its own memory
 // cache; the session record is what they share.
+//
+// Session storage is trusted-contexts only until the service worker calls
+// openAccountKeySession(). That lets the content-script isolated world read the
+// key. Page JavaScript still has no chrome.storage. The raw key is not written
+// to the DOM and is not logged.
 import { importAccountKeyFromBase64 } from './accountSecrets.ts'
 
 export const ACCOUNT_KEY_SESSION_STORAGE_KEY = 'accountCryptoKey'
+
+// Content scripts are the "untrusted" contexts in this API. The page's main
+// world is not one of them and cannot call chrome.storage.
+export const ACCOUNT_KEY_SESSION_ACCESS_LEVEL = 'TRUSTED_AND_UNTRUSTED_CONTEXTS' as const
+
+let sessionAccess: Promise<void> | null = null
+
+// Called on every service-worker start, before the key is written. A restart
+// re-evaluates the worker, so this runs again. Safe to call more than once.
+export function openAccountKeySession(): Promise<void> {
+  if (!sessionAccess) {
+    sessionAccess = grantContentScriptSessionAccess().then(
+      () => undefined,
+      () => {
+        sessionAccess = null
+      },
+    )
+  }
+  return sessionAccess
+}
+
+export function resetAccountKeySessionAccessForTests(): void {
+  sessionAccess = null
+}
+
+async function grantContentScriptSessionAccess(): Promise<void> {
+  const session = chrome.storage?.session as
+    | {
+        setAccessLevel?: (options: {
+          accessLevel: typeof ACCOUNT_KEY_SESSION_ACCESS_LEVEL
+        }) => Promise<void> | void
+      }
+    | undefined
+  if (typeof session?.setAccessLevel !== 'function') return
+  try {
+    await session.setAccessLevel({ accessLevel: ACCOUNT_KEY_SESSION_ACCESS_LEVEL })
+  } catch {
+    // Older Chrome keeps session storage limited to the popup and the worker.
+    // Fills then keep legacy plaintext, or skip a sealed password. The next
+    // worker start tries again.
+    throw new Error('session access level unavailable')
+  }
+}
 
 interface StoredAccountKey {
   userId: string
