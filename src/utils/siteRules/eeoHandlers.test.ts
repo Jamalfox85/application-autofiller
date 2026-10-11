@@ -11,10 +11,35 @@ function handlerFor(text: string) {
   return entry.handle
 }
 
-test('EEO dropdowns are skipped, not set, when the vault has no value', async () => {
+test('EEO dropdowns stay blank when the vault has no value and the field is not required', async () => {
   for (const text of ['gender', 'hispanicethnicityareyouhispanic', 'identifymyraceas', 'veteranstatus', 'disability']) {
     assert.equal(await handlerFor(text)(input, text, blank, ''), 'skip', text)
   }
+})
+
+test('EEO stays blank when answers are turned off', async () => {
+  const off = { ...blank, eeoAnswersEnabled: false, gender: 'male', raceEthnicity: 'white' }
+  for (const text of ['gender', '4033065002raceandethnicity', 'veteranstatus', 'disability']) {
+    assert.equal(await handlerFor(text)(input, text, off, ''), 'skip', text)
+  }
+})
+
+test('a race and ethnicity combobox is the race handler, not an unhandled dropdown', () => {
+  const race = reactSelectEeoFieldHandlers.find((h) => h.match(input, '4033065002raceandethnicity'))
+  const legacy = reactSelectEeoFieldHandlers.find((h) => h.match(input, 'identifymyraceas'))
+  const otherInput = {
+    classList: { contains: (token: string) => token === 'select__input' },
+  } as unknown as HTMLInputElement
+  const other = reactSelectEeoFieldHandlers.find((h) => h.match(otherInput, 'anything'))
+  assert.equal(race, legacy)
+  assert.notEqual(race, other)
+})
+
+test('the hispanic yes/no question stays on its own handler', () => {
+  const hispanic = reactSelectEeoFieldHandlers.find((h) => h.match(input, 'hispanicethnicityareyouhispanic'))
+  const race = reactSelectEeoFieldHandlers.find((h) => h.match(input, 'identifymyraceas'))
+  assert.ok(hispanic)
+  assert.notEqual(hispanic, race)
 })
 
 test('unhandled react-select dropdowns are owned without counting as filled', async () => {

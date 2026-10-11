@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>EEO dropdown fixture</title>
+  </head>
+  <body>
+    <form id="application-form">
+      <div id="demographic-section">
+        <!-- Required comboboxes. The menu stays closed until mouseup or a non-Enter keyup.
+             Clicking the flyout does nothing. A pointer commit flashes, then React drops it.
+             Enter on the highlighted row locks the label. An empty input event wipes an
+             unlocked or just-locked choice, which is the clear-after-commit bug. -->
+        <div class="select" id="wrap-gender"></div>
+        <div class="select" id="wrap-race"></div>
+        <div class="select" id="wrap-veteran"></div>
+        <div class="select" id="wrap-disability"></div>
+        <div class="select" id="wrap-gender-identity"></div>
+        <div class="select" id="wrap-lgbtq"></div>
+      </div>
+    </form>
+    <script>
+      const DECLINE = "I don\u2019t wish to answer"
+      const FIELDS = [
+        {
+          wrap: 'wrap-gender',
+          id: '4033064002',
+          label: 'Gender',
+          required: true,
+          options: ['Male', 'Female', DECLINE],
+        },
+        {
+          wrap: 'wrap-race',
+          id: '4033065002',
+          label: 'Race and Ethnicity',
+          required: true,
+          options: [
+            'American Indian or Alaska Native',
+            DECLINE,
+            'Asian',
+            'Black or African American',
+            'Hispanic or Latino',
+            'Native Hawaiian or Other Pacific Islander',
+            'Two or More Races',
+            'White',
+          ],
+        },
+        {
+          wrap: 'wrap-veteran',
+          id: '4033066002',
+          label: 'Veteran Status',
+          required: true,
+          options: [
+            'I am not a protected veteran',
+            'I identify as one or more of the classifications of a protected veteran',
+            DECLINE,
+          ],
+        },
+        {
+          wrap: 'wrap-disability',
+          id: '4033067002',
+          label: 'Disability Status',
+          required: true,
+          options: [
+            'Yes, I have a disability, or have had one in the past',
+            'No, I do not have a disability and have not had one in the past',
+            DECLINE,
+          ],
+        },
+        {
+          wrap: 'wrap-gender-identity',
+          id: '4033068002',
+          label: 'Gender Identity (optional)',
+          required: false,
+          options: ['Man', 'Woman', 'Non-binary or third gender', 'Genderqueer', DECLINE],
+        },
+        {
+          wrap: 'wrap-lgbtq',
+          id: '4033070002',
+          label: 'I consider myself a member of the LGBTQ+ community. (optional)',
+          required: false,
+          options: ['Yes', 'No', DECLINE],
+        },
+      ]
+
+      for (const field of FIELDS) {
+        const root = document.getElementById(field.wrap)
+        root.dataset.clicks = '0'
+        root.dataset.commit = ''
+        root.dataset.wiped = ''
+        root.innerHTML =
+          '<div class="select__container">' +
+          '<label id="' + field.id + '-label" for="' + field.id + '">' + field.label +
+          (field.required ? '<span aria-hidden="true">*</span>' : '') +
+          '</label>' +
+          '<div class="select__control"><div class="select__value-container">' +
+          '<div class="select__placeholder">Select...</div>' +
+          '<input id="' + field.id + '" class="select__input" type="text" role="combobox" ' +
+          'aria-expanded="false" aria-autocomplete="list" aria-required="' + (field.required ? 'true' : 'false') + '" />' +
+          '</div><button type="button" aria-label="Toggle flyout" tabindex="-1"></button></div>' +
+          '<div class="select__menu" hidden><div id="react-select-' + field.id + '-listbox" role="listbox"></div></div>' +
+          (field.required ? '<input required tabindex="-1" aria-hidden="true" class="required-input" value="" />' : '') +
+          '</div>'
+
+        const input = document.getElementById(field.id)
+        const menu = root.querySelector('.select__menu')
+        const listbox = document.getElementById('react-select-' + field.id + '-listbox')
+        const placeholder = root.querySelector('.select__placeholder')
+        const requiredInput = root.querySelector('input[required]')
+        const button = root.querySelector('button')
+        let focusIndex = -1
+        let epoch = 0
+        let commitSource = ''
+
+        function visible() {
+          return Array.from(listbox.querySelectorAll('[role="option"]'))
+        }
+
+        function fold(value) {
+          return (value || '').toLowerCase().replace(/[\u2018\u2019\u2032]/g, "'")
+        }
+
+        function show(term) {
+          focusIndex = -1
+          input.setAttribute('aria-activedescendant', '')
+          listbox.innerHTML = ''
+          const needle = fold(term)
+          const items = field.options.filter((label) => !needle || fold(label).includes(needle))
+          items.forEach((label, index) => {
+            const option = document.createElement('div')
+            option.setAttribute('role', 'option')
+            option.id = 'react-select-' + field.id + '-option-' + index
+            option.textContent = label
+            listbox.append(option)
+          })
+        }
+
+        function setOpen(open) {
+          input.setAttribute('aria-expanded', open ? 'true' : 'false')
+          menu.hidden = !open
+          if (open) show((input.value || '').trim().toLowerCase())
+          else listbox.innerHTML = ''
+        }
+
+        function paint(label) {
+          const existing = root.querySelector('.select__single-value')
+          if (existing) existing.remove()
+          if (!label) {
+            placeholder.hidden = false
+            if (requiredInput) requiredInput.value = ''
+            root.dataset.commit = ''
+            return
+          }
+          placeholder.hidden = true
+          const chosen = document.createElement('div')
+          chosen.className = 'select__single-value'
+          chosen.textContent = label
+          placeholder.parentElement.insertBefore(chosen, placeholder)
+          if (requiredInput) requiredInput.value = label
+          input.value = ''
+          root.dataset.commit = commitSource
+        }
+
+        button.addEventListener('click', (event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        })
+
+        root.addEventListener('mouseup', () => {
+          setOpen(input.getAttribute('aria-expanded') !== 'true')
+        })
+
+        input.addEventListener('keyup', (event) => {
+          if (event.code === 'Escape' || event.code === 'Tab') {
+            setOpen(false)
+            return
+          }
+          if (event.code === 'Enter') return
+          if (input.getAttribute('aria-expanded') !== 'true') setOpen(true)
+        })
+
+        input.addEventListener('input', () => {
+          if (input.getAttribute('aria-expanded') === 'true') {
+            show((input.value || '').trim().toLowerCase())
+          }
+          if (input.value === '' && root.dataset.commit === 'keyboard') {
+            root.dataset.wiped = '1'
+            commitSource = ''
+            paint('')
+          }
+        })
+
+        input.addEventListener('keydown', (event) => {
+          if (event.code === 'ArrowDown') {
+            const options = visible()
+            if (!options.length || input.getAttribute('aria-expanded') !== 'true') return
+            focusIndex = Math.min(focusIndex + 1, options.length - 1)
+            options.forEach((option, index) => {
+              option.classList.toggle('select__option--is-focused', index === focusIndex)
+            })
+            input.setAttribute('aria-activedescendant', options[focusIndex].id)
+            return
+          }
+          if (event.code !== 'Enter') return
+          if (input.getAttribute('aria-expanded') !== 'true') return
+          const options = visible()
+          if (focusIndex < 0 || !options[focusIndex]) return
+          epoch += 1
+          commitSource = 'keyboard'
+          paint(options[focusIndex].textContent || '')
+          setOpen(false)
+        })
+
+        listbox.addEventListener('mousedown', (event) => {
+          const option = event.target.closest('[role="option"]')
+          if (!option || input.getAttribute('aria-expanded') !== 'true') return
+          root.dataset.clicks = String(Number(root.dataset.clicks || '0') + 1)
+          const token = ++epoch
+          commitSource = 'pointer'
+          paint(option.textContent || '')
+          window.setTimeout(() => {
+            if (token !== epoch || commitSource !== 'pointer') return
+            paint('')
+          }, 30)
+        })
+
+        input.addEventListener('focusout', () => setOpen(false))
+      }
+    </script>
+  </body>
+</html>
