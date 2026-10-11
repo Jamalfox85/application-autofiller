@@ -7,6 +7,11 @@ import { siteRules } from '../utils/siteRules/index.ts'
 import { isWorkdayApplyHost } from '../utils/siteRules/workdayAccount.ts'
 import { fillWorkdayApplicationQuestions, fillWorkdayWorkExperience } from '../utils/siteRules/workday.ts'
 import { beginLeverFill, readLeverEeoTelemetry } from '../utils/siteRules/lever.ts'
+import { isWorkableApplyPage } from '../utils/siteRules/workable.ts'
+import {
+  workableApplicationFailed,
+  WORKABLE_PAGE_FAILED_MESSAGE,
+} from '../utils/siteRules/workablePage.ts'
 import {
   presentFillFailure,
   showAutofillNotification,
@@ -515,16 +520,23 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     // A saved password that is waiting on "Fill password" matched. The prompt is
     // the UI. "No matching fields found" is for a page that had nothing to fill.
     const awaitingPassword = filledCount === 0 && isSavedPasswordPromptOpen()
+    const workablePageFailed =
+      filledCount > 0 &&
+      typeof document !== 'undefined' &&
+      isWorkableApplyPage() &&
+      workableApplicationFailed(document)
 
     return {
-      success: filledCount > 0,
+      success: filledCount > 0 && !workablePageFailed,
       code: awaitingPassword ? 'awaiting_password' : undefined,
       fieldsCount: filledCount,
       totalCount: attemptedCount,
       unfilledCount: unfilledInputs.length,
       elapsedMs: Date.now() - startTime,
       roleGuess: guessJobTitle(),
-      message: filledCount > 0 ? `Filled ${filledCount} fields` : awaitingPassword ? '' : 'No matching fields found',
+      message: workablePageFailed
+        ? WORKABLE_PAGE_FAILED_MESSAGE
+        : filledCount > 0 ? `Filled ${filledCount} fields` : awaitingPassword ? '' : 'No matching fields found',
       paywall,
       fillCount,
       fillsRemaining,
