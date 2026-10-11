@@ -3,6 +3,7 @@
 // not by Greenhouse ids or Ashby data-field-path. DOM-free so the rules can be
 // unit tested against the labels those pages actually render.
 
+import { experienceForFill } from '../../lib/sync/profileRows.ts'
 import { leverProfileUrl } from '../profileUrl.ts'
 
 export type LeverProfile = {
@@ -969,7 +970,7 @@ export function leverPlan(
   if (linkPlan) return linkPlan
 
   if (repeatKey === 'company' || repeatKey === 'title') {
-    const entry = info.experience?.[index]
+    const entry = experienceForFill(info.experience)[index]
     if (!entry) return index > 0 ? { action: 'claim' } : null
     const value = clean(repeatKey === 'company' ? entry.companyName : entry.jobTitle)
     if (!value) return null
@@ -1077,7 +1078,8 @@ function datePlan(
   optionTexts: string[],
 ): LeverPlan | null {
   const education = key === 'eduStart' || key === 'eduEnd'
-  const entry = education ? info.education?.[index] : info.experience?.[index]
+  const experience = experienceForFill(info.experience)
+  const entry = education ? info.education?.[index] : experience[index]
   if (!entry) return index > 0 ? { action: 'claim' } : null
   const source = education
     ? key === 'eduStart'
@@ -1086,10 +1088,10 @@ function datePlan(
         ? ''
         : info.education?.[index]?.graduationYear
     : key === 'expStart'
-      ? info.experience?.[index]?.startDate
-      : info.experience?.[index]?.present
+      ? experience[index]?.startDate
+      : experience[index]?.present
         ? ''
-        : info.experience?.[index]?.endDate
+        : experience[index]?.endDate
   if (!source) return null
   const type = fieldType(field)
   const month = monthName(source)

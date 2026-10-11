@@ -4,9 +4,11 @@ import { cloneDefaultPersonalInfo } from '../personalInfoDefaults.ts'
 import { normalizeParsedResume } from '../parsedResume.ts'
 import { mergeParsedResumeIntoProfile } from '../../utils/resumeParsing.ts'
 import {
+  currentExperience,
   customResponsesToDbRows,
   dbRowsToCustomResponses,
   dbRowsToProfile,
+  experienceForFill,
   preserveServerWhenResumeParseOmits,
   profileToDbRows,
 } from './profileRows.ts'
@@ -137,6 +139,71 @@ test('a resume parse that lacks phone, street, and ZIP does not null them in sav
   assert.equal('address' in blank.profile, false)
   assert.equal('zip' in blank.profile, false)
   assert.equal('skills' in blank.children, false)
+})
+
+test('current company is the present role, otherwise the latest end or start date', () => {
+  const older = {
+    companyName: 'American Reading Company',
+    jobTitle: 'Full Stack Developer',
+    startDate: '2016-01',
+    endDate: '2019-06',
+    present: false,
+  }
+  const mid = {
+    companyName: 'Northwind Labs',
+    jobTitle: 'Developer',
+    startDate: '2019-07',
+    endDate: '2023-03',
+    present: false,
+  }
+  const current = {
+    companyName: 'Acme Software',
+    jobTitle: 'Product Engineer',
+    startDate: '2023-04',
+    endDate: '',
+    present: true,
+  }
+  assert.equal(currentExperience([older, mid, current])?.companyName, 'Acme Software')
+  assert.equal(currentExperience([older, mid])?.companyName, 'Northwind Labs')
+  assert.equal(
+    currentExperience([
+      { companyName: 'Early', startDate: '2018-01', endDate: '', present: false },
+      { companyName: 'Later', startDate: '2021-05', endDate: '', present: false },
+    ])?.companyName,
+    'Later',
+  )
+  // A later start with no end date is more recent than an earlier end date.
+  assert.equal(
+    currentExperience([
+      { companyName: 'Ended', startDate: '2016-01', endDate: '2019-06', present: false },
+      { companyName: 'Open', startDate: '2024-01', endDate: '', present: false },
+    ])?.companyName,
+    'Open',
+  )
+  // The present flag wins even when another role has a later end date.
+  assert.equal(
+    currentExperience([
+      { companyName: 'Ended Later', startDate: '2024-01', endDate: '2025-01', present: false },
+      { companyName: 'Still Here', startDate: '2020-01', endDate: '', present: true },
+    ])?.companyName,
+    'Still Here',
+  )
+  assert.equal(
+    currentExperience([
+      { companyName: 'First', present: true, startDate: '2020-01' },
+      { companyName: 'Second', present: true, startDate: '2020-01' },
+    ])?.companyName,
+    'First',
+  )
+  assert.equal(currentExperience([]), undefined)
+  assert.equal(currentExperience(undefined), undefined)
+
+  const saved = [older, current]
+  const ordered = experienceForFill(saved)
+  assert.equal(ordered[0]?.companyName, 'Acme Software')
+  assert.equal(ordered[1]?.companyName, 'American Reading Company')
+  assert.equal(saved[0]?.companyName, 'American Reading Company')
+  assert.equal(experienceForFill(undefined).length, 0)
 })
 
 test('a GPA the numeric(3,2) column cannot hold is dropped instead of failing the save', async () => {

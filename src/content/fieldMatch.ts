@@ -1,3 +1,4 @@
+import { currentExperience } from '../lib/sync/profileRows.ts'
 import { FIELD_PATTERNS } from '../utils/fieldPatterns.ts'
 import { matchCustomResponse } from '../utils/customResponses.ts'
 import { coerceFillText } from '../utils/fillValue.ts'
@@ -402,7 +403,7 @@ const EXPERIENCE_FIELDS: Array<{ patternKey: keyof typeof FIELD_PATTERNS; dataKe
 ]
 
 function matchExperienceField(fieldText: string, personalInfo: PersonalInfo) {
-  const latestExperience = personalInfo.experience[0]
+  const latestExperience = currentExperience(personalInfo.experience)
   if (!latestExperience) return
 
   for (const { patternKey, dataKey } of EXPERIENCE_FIELDS) {

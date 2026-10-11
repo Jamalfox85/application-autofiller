@@ -9,6 +9,8 @@
 // left alone — attaching the file is not the same as letting Jobvite parse it
 // into the form.
 
+import { experienceForFill } from '../../lib/sync/profileRows.ts'
+
 export type JobviteSection = 'apply' | 'eeo' | 'ofccp' | 'prescreen'
 
 export type JobviteOption = {
@@ -1072,7 +1074,7 @@ export function jobvitePlan(
   }
 
   if (kind === 'company' || kind === 'title' || kind === 'expDescription' || kind === 'expStart' || kind === 'expEnd') {
-    const entry = info.experience?.[index]
+    const entry = experienceForFill(info.experience)[index]
     if (!entry) return skip()
     if (kind === 'company') return textPlan(entry.companyName)
     if (kind === 'title') return textPlan(entry.jobTitle)

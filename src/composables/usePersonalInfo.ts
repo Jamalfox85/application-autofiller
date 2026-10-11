@@ -176,6 +176,10 @@ export function usePersonalInfo() {
   // Writes the local mirror first (so autofill and a reopened popup see the change even if
   // the network call is slow or fails), then saves the loaded profile via save_profile.
   // Throws if the Supabase write fails — callers decide how loudly to surface that.
+  // save_profile replaces work_experience with this snapshot. If memory was filled from
+  // a stale chrome.storage mirror (get_profile missed, then the user saved), cleared
+  // rows come back. Do not add a "mirror older than the server write" guard here until
+  // it can tell that case from an edit the user just made.
   const savePersonalInfo = async (updatedInfo?: PersonalInfo, opts?: { fromResumeParse?: boolean }) => {
     if (!memoryValid) return
     const epoch = mirrorEpoch()

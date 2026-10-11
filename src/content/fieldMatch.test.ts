@@ -126,6 +126,33 @@ test('work authorization answers come from the vault, not the field text', () =>
   assert.equal(spons?.matchedValue, 'no')
 })
 
+test('current company and title use the present role, not the first saved job', () => {
+  const info = profile({
+    experience: [
+      {
+        id: 1,
+        companyName: 'American Reading Company',
+        jobTitle: 'Full Stack Developer',
+        startDate: '2016-01',
+        endDate: '2019-06',
+        present: false,
+        description: '',
+      },
+      {
+        id: 2,
+        companyName: 'Acme Software',
+        jobTitle: 'Product Engineer',
+        startDate: '2023-04',
+        endDate: '',
+        present: true,
+        description: '',
+      },
+    ],
+  })
+  assert.equal(matchFieldToData('currentcompany', info, [])?.matchedValue, 'Acme Software')
+  assert.equal(matchFieldToData('jobtitle', info, [])?.matchedValue, 'Product Engineer')
+})
+
 test('a short job title field still maps to the current title', () => {
   const info = profile({
     experience: [
