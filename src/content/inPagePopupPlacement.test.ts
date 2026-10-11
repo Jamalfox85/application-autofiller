@@ -8,9 +8,9 @@ const stack = readFileSync(new URL('./toastStack.ts', import.meta.url), 'utf8')
 const popup = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 const shell = readFileSync(new URL('../assets/style.css', import.meta.url), 'utf8')
 
-test('in-page toasts, confirmation, and prompt sit in the bottom-right stack', () => {
+test('in-page toasts, confirmation, and prompt sit in the top-right stack', () => {
+  assert.match(stack, /top:\s*20px/)
   assert.match(stack, /right:\s*20px/)
-  assert.match(stack, /bottom:\s*20px/)
   assert.match(stack, /flex-direction:\s*column/)
   assert.match(stack, /gap:\s*8px/)
   assert.match(notifications, /mountInToastStack/)
@@ -20,7 +20,7 @@ test('in-page toasts, confirmation, and prompt sit in the bottom-right stack', (
   assert.doesNotMatch(notifications, /bottom:\s*24px/)
 })
 
-test('in-page fill paywall card joins the bottom-right stack', () => {
+test('in-page fill paywall card joins the top-right stack', () => {
   assert.match(paywall, /mountInToastStack\(card\)/)
   assert.doesNotMatch(paywall, /align-items:\s*center/)
   assert.doesNotMatch(paywall, /justify-content:\s*center/)

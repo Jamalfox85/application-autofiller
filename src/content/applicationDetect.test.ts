@@ -378,7 +378,10 @@ test('a Greenhouse prompt removed by hydration is put back, and a dismissed one 
   renderAutofillPrompt(document)
   const prompt = connectedAutofillPrompt(document)
   assert.ok(prompt)
+  // The stack hangs off <html>, so a rebuilt <body> no longer takes the prompt with it.
   document.body.replaceWith(document.createElement('body'))
+  assert.equal(prompt.isConnected, true)
+  document.getElementById('gofillr-toast-stack')?.remove()
   assert.equal(prompt.isConnected, false)
   scheduleAutofillPromptRestore(prompt, (fn) => fn())
   assert.equal(prompt.isConnected, true)
