@@ -109,6 +109,8 @@ export interface FillHistoryEntry {
   // mirror). Name is a snapshot so history still reads right after a rename or delete.
   profileId?: string | null
   profileName?: string | null
+  // False for a fill recorded while Pro. Absent on older rows, which count.
+  countedTowardFreeQuota?: boolean
 }
 
 // Shape returned by POST /resume/parse (see src/lib/api.ts for the request contract).

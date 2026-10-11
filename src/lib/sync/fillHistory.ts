@@ -39,6 +39,7 @@ export async function fetchFillHistoryFromDb(userId: string): Promise<FillHistor
     totalCount: typeof r.total_count === 'number' ? r.total_count : 0,
     profileId: typeof r.profile_id === 'string' ? r.profile_id : null,
     profileName: typeof r.profile_name === 'string' ? r.profile_name : null,
+    countedTowardFreeQuota: r.counted_toward_free_quota !== false,
   }))
   // Rows already duplicated in the database (the migration that deletes them is not applied
   // yet) must not show up twice, and must not be inserted again.
@@ -64,7 +65,32 @@ export function fillHistoryRow(
     total_count: e.totalCount,
     profile_id: profileId,
     profile_name: e.profileName || null,
+    counted_toward_free_quota: e.countedTowardFreeQuota !== false,
   }
+}
+
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('code' in error)) return ''
+  return String((error as { code?: unknown }).code ?? '')
+}
+
+function errorMessage(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('message' in error)) return ''
+  return String((error as { message?: unknown }).message ?? '')
+}
+
+// The column ships in a migration the founder applies separately. Until then,
+// PostgREST rejects the insert; retry without the field so History is not lost.
+export function isMissingFreeQuotaColumn(error: unknown): boolean {
+  const code = errorCode(error)
+  if (code === '42703' || code === 'PGRST204') return true
+  return errorMessage(error).includes('counted_toward_free_quota')
+}
+
+function withoutFreeQuotaColumn(row: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...row }
+  delete next.counted_toward_free_quota
+  return next
 }
 
 export async function insertFillHistoryToDb(
@@ -73,16 +99,35 @@ export async function insertFillHistoryToDb(
   knownProfileIds?: ReadonlySet<string> | null,
 ): Promise<void> {
   if (!entries.length) return
-  const rows = dedupeFillHistory(entries).map((e) => fillHistoryRow(userId, e, knownProfileIds))
-  const { error } = await supabase.from('fill_history').insert(rows)
+  let rows = dedupeFillHistory(entries).map((e) => fillHistoryRow(userId, e, knownProfileIds))
+  const insert = (batch: Record<string, unknown>[]) => supabase.from('fill_history').insert(batch)
+
+  let { error } = await insert(rows)
   if (!error) return
+  if (isMissingFreeQuotaColumn(error)) {
+    rows = rows.map(withoutFreeQuotaColumn)
+    ;({ error } = await insert(rows))
+    if (!error) return
+  }
+  // 23503: profile_id points at a profile that was deleted. The name snapshot is enough.
+  if (errorCode(error) === '23503') {
+    rows = rows.map((row) => ({ ...row, profile_id: null }))
+    ;({ error } = await insert(rows))
+    if (!error) return
+  }
   // 23505: a unique index on (user_id, occurred_at, site) rejected a row that is already
   // stored. The batch is one statement, so Postgres kept none of it. Retry row by row so
   // one duplicate does not drop the rest.
-  if ((error as { code?: string }).code !== '23505') throw error
+  if (errorCode(error) !== '23505') throw error
   for (const row of rows) {
-    const { error: rowError } = await supabase.from('fill_history').insert(row)
-    if (rowError && (rowError as { code?: string }).code !== '23505') throw rowError
+    const { error: rowError } = await insert([row])
+    if (!rowError || errorCode(rowError) === '23505') continue
+    if (errorCode(rowError) === '23503') {
+      const { error: retry } = await insert([{ ...row, profile_id: null }])
+      if (retry && errorCode(retry) !== '23505') throw retry
+      continue
+    }
+    throw rowError
   }
 }
 

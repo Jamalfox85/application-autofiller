@@ -9,6 +9,9 @@ export interface FillQuotaRecord {
   firstFillEver: boolean
   greenhouseFillEver: boolean
   softPaywallShownForWeek: boolean
+  // GoFillr user this counter belongs to. Absent on a signed-out counter and on
+  // records saved before the count was per account.
+  accountId?: string
 }
 
 // Local calendar date, then the ISO week of that date. Week 1 is the week
@@ -20,6 +23,50 @@ export function calendarWeekKey(date: Date): string {
   const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1))
   const week = Math.ceil(((utc.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
   return `${utc.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+export function quotaAccountId(stored: unknown): string | null {
+  if (!stored || typeof stored !== 'object') return null
+  const id = (stored as { accountId?: unknown }).accountId
+  return typeof id === 'string' && id.length > 0 ? id : null
+}
+
+// Monday 00:00 local through the next Monday 00:00 local. This is the window
+// calendarWeekKey treats as one ISO week, including a week that crosses a year
+// or a daylight-saving change. free_fills_this_week counts rows in this range.
+export function localWeekRange(now: Date): { start: Date; end: Date } {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+  const weekday = start.getDay() || 7
+  start.setDate(start.getDate() - (weekday - 1))
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7, 0, 0, 0, 0)
+  return { start, end }
+}
+
+export interface FreeFillRow {
+  occurredAt: number
+  site: string | null
+  countedTowardFreeQuota?: boolean
+}
+
+// Mirrors free_fills_this_week: Pro rows are out, and two stored copies of the
+// same fill (same instant and site) count once. A missing site matches a null site.
+export function countFreeFillsInRange(rows: readonly FreeFillRow[], start: Date, end: Date): number {
+  const startMs = start.getTime()
+  const endMs = end.getTime()
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (row.countedTowardFreeQuota === false) continue
+    if (row.occurredAt < startMs || row.occurredAt >= endMs) continue
+    seen.add(`${row.occurredAt}\0${row.site ?? ''}`)
+  }
+  return seen.size
+}
+
+export function clearedFillQuota(current: FillQuotaRecord): FillQuotaRecord {
+  return emptyQuota(current.week, {
+    firstFillEver: current.firstFillEver,
+    greenhouseFillEver: current.greenhouseFillEver,
+  })
 }
 
 export function emptyQuota(week: string, lifetime?: Pick<FillQuotaRecord, 'firstFillEver' | 'greenhouseFillEver'>): FillQuotaRecord {
@@ -36,13 +83,16 @@ function asRecord(value: unknown): FillQuotaRecord | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Partial<FillQuotaRecord>
   if (typeof record.week !== 'string' || record.week.length === 0) return null
-  return {
+  const parsed: FillQuotaRecord = {
     week: record.week,
     successfulFills: typeof record.successfulFills === 'number' ? record.successfulFills : 0,
     firstFillEver: record.firstFillEver === true,
     greenhouseFillEver: record.greenhouseFillEver === true,
     softPaywallShownForWeek: record.softPaywallShownForWeek === true,
   }
+  const owner = quotaAccountId(value)
+  if (owner) parsed.accountId = owner
+  return parsed
 }
 
 function lifetimeFlags(value: unknown): Pick<FillQuotaRecord, 'firstFillEver' | 'greenhouseFillEver'> | undefined {
@@ -65,8 +115,11 @@ function lifetimeFlags(value: unknown): Pick<FillQuotaRecord, 'firstFillEver' | 
 export function normalizeQuota(stored: unknown, now: Date): FillQuotaRecord {
   const parsed = asRecord(stored)
   const week = calendarWeekKey(now)
+  const owner = quotaAccountId(stored)
   if (!parsed || parsed.week !== week) {
-    return emptyQuota(week, lifetimeFlags(stored))
+    const fresh = emptyQuota(week, lifetimeFlags(stored))
+    if (owner) fresh.accountId = owner
+    return fresh
   }
   return parsed
 }
@@ -74,13 +127,64 @@ export function normalizeQuota(stored: unknown, now: Date): FillQuotaRecord {
 export function mergeQuotaRecords(local: unknown, synced: unknown, now: Date): FillQuotaRecord {
   const a = normalizeQuota(local, now)
   const b = normalizeQuota(synced, now)
-  return {
+  const aOwner = a.accountId ?? null
+  const bOwner = b.accountId ?? null
+  // chrome.storage.sync can still hold the previous account after this profile
+  // cleared its copy. That copy must not refill the counter.
+  const syncIsOtherAccount = Boolean(bOwner && aOwner !== bOwner)
+  const accountId = syncIsOtherAccount ? aOwner : aOwner || bOwner
+  const merged: FillQuotaRecord = {
     week: a.week,
-    successfulFills: Math.max(a.successfulFills, b.successfulFills),
+    successfulFills: syncIsOtherAccount ? a.successfulFills : Math.max(a.successfulFills, b.successfulFills),
     firstFillEver: a.firstFillEver || b.firstFillEver,
     greenhouseFillEver: a.greenhouseFillEver || b.greenhouseFillEver,
-    softPaywallShownForWeek: a.softPaywallShownForWeek || b.softPaywallShownForWeek,
+    softPaywallShownForWeek: syncIsOtherAccount
+      ? a.softPaywallShownForWeek
+      : a.softPaywallShownForWeek || b.softPaywallShownForWeek,
   }
+  if (accountId) merged.accountId = accountId
+  return merged
+}
+
+// Signed-in read. A counter stamped for someone else, or an unstamped counter
+// left by a different billing user, contributes no fills. Lifetime "ever filled"
+// flags still survive. The result is stamped for the reader.
+export function mergeQuotaForAccount(
+  local: unknown,
+  synced: unknown,
+  readerAccountId: string,
+  now: Date,
+  billingUserId?: string | null,
+): FillQuotaRecord {
+  const adopt = (stored: unknown): unknown => {
+    if (stored == null) return stored
+    const owner = quotaAccountId(stored)
+    const quota = normalizeQuota(stored, now)
+    const foreignOwner = Boolean(owner && owner !== readerAccountId)
+    const foreignBilling = Boolean(
+      !owner && billingUserId && billingUserId !== readerAccountId && quota.successfulFills > 0,
+    )
+    if (foreignOwner || foreignBilling) return clearedFillQuota(quota)
+    return { ...quota, accountId: readerAccountId }
+  }
+  const merged = mergeQuotaRecords(adopt(local), adopt(synced), now)
+  merged.accountId = readerAccountId
+  return merged
+}
+
+// The database count is a floor. A device that filled while offline stays ahead
+// until those rows sync; it never moves backward to a smaller server total.
+export function mergeServerFillCount(local: FillQuotaRecord, serverCount: number | null): FillQuotaRecord {
+  if (serverCount == null || !Number.isFinite(serverCount) || serverCount < 0) return local
+  const count = Math.floor(serverCount)
+  const next: FillQuotaRecord = {
+    ...local,
+    successfulFills: Math.max(local.successfulFills, count),
+  }
+  // The soft nudge is once per week. A count that already passed 10 on another
+  // device does not show "10 of 25" again on this one.
+  if (count >= SOFT_GATE_AT) next.softPaywallShownForWeek = true
+  return next
 }
 
 export function fillsRemaining(count: number): number {

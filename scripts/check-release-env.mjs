@@ -1,9 +1,12 @@
 // Release guard: the shipped extension must talk to the production resume API,
 // and must not be stamped as the test analytics channel.
 // Fails the build if VITE_RESUME_API_URL is unset or points at localhost / a loopback address,
+// if VITE_RESUME_API_KEY is unset, empty, or the placeholder your-resume-api-key,
 // or if VITE_BUILD_CHANNEL=test.
 // Dev opt-in for a local API: `npm run build:dev` (sets GOFILLR_ALLOW_LOCAL_API=1 and adds localhost to dist/manifest.json).
+// That opt-in skips the API key requirement the same way it allows a localhost URL.
 // VITE_BUILD_CHANNEL=test is rejected for that build too. Unpacked installs report test without the variable.
+// Never print VITE_RESUME_API_KEY. Error text names the variable only.
 import { existsSync, readFileSync } from 'node:fs'
 import { viteBuildChannel } from './vite-build-channel.mjs'
 
@@ -41,10 +44,31 @@ export function checkBuildChannel(value) {
   return null
 }
 
-const problem = checkResumeApiUrl(env.VITE_RESUME_API_URL, env.GOFILLR_ALLOW_LOCAL_API === '1')
+// Same string src/services/billing/proApiContract.ts treats as "no key".
+// Returned text must not include the candidate value.
+const RESUME_API_KEY_PLACEHOLDER = 'your-resume-api-key'
+
+export function checkResumeApiKey(value, allowMissing = false) {
+  if (allowMissing) return null
+  const key = (value ?? '').trim()
+  if (!key) return 'VITE_RESUME_API_KEY is unset'
+  if (key === RESUME_API_KEY_PLACEHOLDER) return 'VITE_RESUME_API_KEY is a placeholder'
+  return null
+}
+
+const allowLocal = env.GOFILLR_ALLOW_LOCAL_API === '1'
+const problem = checkResumeApiUrl(env.VITE_RESUME_API_URL, allowLocal)
 if (problem) {
   console.error(`\nRelease build blocked: ${problem}.`)
   console.error('Set VITE_RESUME_API_URL=https://api-production-5aca1.up.railway.app/api/v1')
+  console.error('For local API development use: npm run build:dev\n')
+  process.exit(1)
+}
+
+const keyProblem = checkResumeApiKey(env.VITE_RESUME_API_KEY, allowLocal)
+if (keyProblem) {
+  console.error(`\nRelease build blocked: ${keyProblem}.`)
+  console.error('Set VITE_RESUME_API_KEY in the environment or .env. Do not commit it.')
   console.error('For local API development use: npm run build:dev\n')
   process.exit(1)
 }

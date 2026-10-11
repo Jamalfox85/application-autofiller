@@ -21,6 +21,7 @@ import { handleMatchScoreMessage } from './src/services/matchScoreWorker.js'
 import { ensureAccountKeyInSession, openAccountKeySession } from './src/services/accountKeyWorker.js'
 import { deliverIcimsAutofill } from './src/utils/siteRules/icimsFrameAutofill.js'
 import { loadSavedResumeForWorker } from './src/utils/siteRules/bamboohrResumeWorker.js'
+import { syncRecordedFill } from './src/services/billing/syncRecordedFill.js'
 import {
   SUBMITTED_APPLICATIONS_KEY,
   calendarWeekKey,
@@ -755,12 +756,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               patch.fillHistory = fillHistory
             }
             chrome.storage.local.set(patch, () => {
-              try {
-                sendResponse({ success: true })
-              } catch {
-                // The popup is already gone. The row is still in storage.
+              const finish = () => {
+                try {
+                  sendResponse({ success: true })
+                } catch {
+                  // The popup is already gone. The row is still in storage.
+                }
+                resolve()
               }
-              resolve()
+              // Local History is the row the popup reads. The database copy is what
+              // another device counts. Cap the wait so a slow insert cannot hold the
+              // fill-history lock or the toast.
+              const recorded = patch.fillHistory && patch.fillHistory[0]
+              if (!recorded) {
+                finish()
+                return
+              }
+              const syncing = syncRecordedFill(recorded).catch((error) => {
+                console.error('[history] could not sync fill', error)
+              })
+              const timer = new Promise((done) => setTimeout(done, 1500))
+              Promise.race([syncing, timer]).then(finish)
             })
           } catch (error) {
             // Resolving releases the fill-history lock. Leaving this rejected would hold it.
