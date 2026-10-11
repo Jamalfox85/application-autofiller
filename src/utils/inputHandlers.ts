@@ -209,6 +209,261 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Job-board comboboxes keep menuIsOpen in component state. Clicking the flyout does not
+// open it, and writing the search box only hides "Select..." until a later clear puts the
+// placeholder back. Commit with focus, mouseup/ArrowDown, option click or keyboard, blur,
+// then read the visible label after a short delay and retry if React dropped the choice.
+// An empty input event after a good commit is what clears it, so a stuck label is left alone.
+const STICKY_READBACK_MS = 250
+
+export async function fillStickyReactSelect(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  value: string | string[],
+  selectId?: string,
+): Promise<boolean> {
+  const values = (Array.isArray(value) ? value : [value]).map((entry) => entry.trim()).filter(Boolean)
+  if (values.length === 0) return false
+
+  try {
+    if (isSelectElement(input)) {
+      const choices = Array.from(input.options).filter((option) => !selectOptionIsPlaceholder(option))
+      const match = pickStickyOption(choices, values)
+      const Option = viewOf(input).HTMLOptionElement
+      if (!Option || !(match instanceof Option)) return false
+      const previous = input.value
+      const setter = Object.getOwnPropertyDescriptor(viewOf(input).HTMLSelectElement.prototype, 'value')?.set
+      if (setter) setter.call(input, match.value)
+      else input.value = match.value
+      const tracker = (input as HTMLSelectElement & { _valueTracker?: { setValue: (value: string) => void } })
+        ._valueTracker
+      if (tracker) tracker.setValue(previous)
+      const EventCtor = viewOf(input).Event
+      input.dispatchEvent(new EventCtor('input', { bubbles: true }))
+      input.dispatchEvent(new EventCtor('change', { bubbles: true }))
+      return input.value === match.value
+    }
+    if (!isInputElement(input)) return false
+
+    if (stickyLabelMatches(displayedStickyLabel(input), values)) return true
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const chosen =
+        attempt % 2 === 1
+          ? await commitStickyByKeyboard(input, values, selectId)
+          : await commitStickyByClick(input, values, selectId)
+      await delay(STICKY_READBACK_MS)
+      const shown = displayedStickyLabel(input)
+      if (chosen && shown && sameStickyLabel(shown, chosen)) return true
+      if (stickyLabelMatches(shown, values)) return true
+    }
+
+    if (!displayedStickyLabel(input)) closeReactSelectMenu(input)
+    return false
+  } catch (error) {
+    console.error('[fillStickyReactSelect] Error:', error)
+    return false
+  }
+}
+
+function isSelectElement(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): input is HTMLSelectElement {
+  return typeof HTMLSelectElement === 'function' && input instanceof HTMLSelectElement
+}
+
+function isInputElement(
+  input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+): input is HTMLInputElement {
+  return typeof HTMLInputElement === 'function' && input instanceof HTMLInputElement
+}
+
+function viewOf(node: Node): Window {
+  return (node.ownerDocument?.defaultView as Window | null) ?? window
+}
+
+function sameStickyLabel(a: string, b: string): boolean {
+  return normStickyLabel(a) === normStickyLabel(b)
+}
+
+function normStickyLabel(value: string): string {
+  return value
+    .replace(/[\u2018\u2019\u2032]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function stickyLabelMatches(shown: string, values: string[]): boolean {
+  if (!shown) return false
+  const label = normStickyLabel(shown)
+  return values.some((value) => {
+    const query = normStickyLabel(value)
+    if (!query) return false
+    if (label === query) return true
+    // A long alias may be the start of the option sentence. A short one ("No", "Man")
+    // must not count, or an unrelated row that shares that prefix looks selected.
+    return query.length >= 8 && label.startsWith(query)
+  })
+}
+
+function displayedStickyLabel(input: HTMLInputElement): string {
+  const root = input.closest('.select')
+  if (!root) return ''
+  const single = root.querySelector('.select__single-value')
+  const singleText = (single?.textContent || '').replace(/\s+/g, ' ').trim()
+  if (singleText) return singleText
+  const multi = root.querySelector('.select__multi-value__label')
+  return (multi?.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+function visibleStickyOptions(input: HTMLInputElement, selectId?: string): HTMLElement[] {
+  return collectOwnedReactOptions(input, selectId).filter((option) => {
+    if (option.hidden) return false
+    return !isPlaceholderOption(option.textContent || '')
+  })
+}
+
+// Exact label wins across every alias before a prefix match, so "Male" is not
+// "Female" and a short "No" is not typed when the full sentence is in the list.
+function pickStickyOption(options: HTMLElement[], queries: string[]): HTMLElement | null {
+  if (options.length === 0) return null
+  const labels = options.map((option) => normStickyLabel(optionLabel(option)))
+  for (const query of queries) {
+    const wanted = normStickyLabel(query)
+    if (!wanted) continue
+    const exact = labels.indexOf(wanted)
+    if (exact >= 0) return options[exact]
+  }
+  for (const query of queries) {
+    const wanted = normStickyLabel(query)
+    if (!wanted) continue
+    let best = -1
+    let bestLen = Infinity
+    labels.forEach((label, index) => {
+      if (label.startsWith(wanted) && label.length < bestLen) {
+        best = index
+        bestLen = label.length
+      }
+    })
+    if (best >= 0) return options[best]
+  }
+  for (const query of queries) {
+    const wanted = normStickyLabel(query)
+    if (wanted.length < 4) continue
+    const hit = labels.findIndex((label) => label.includes(wanted))
+    if (hit >= 0) return options[hit]
+  }
+  return null
+}
+
+async function openStickyMenu(input: HTMLInputElement, selectId?: string) {
+  input.focus()
+  const Focus = viewOf(input).FocusEvent
+  input.dispatchEvent(new Focus('focus', { bubbles: true }))
+  openGreenhouseMenu(input)
+  await delay(150)
+  if (input.getAttribute('aria-expanded') === 'true' || visibleStickyOptions(input, selectId).length > 0) {
+    return
+  }
+  openReactSelect(input)
+  await delay(150)
+}
+
+function blurSticky(input: HTMLInputElement) {
+  const Focus = viewOf(input).FocusEvent
+  input.dispatchEvent(new Focus('blur', { bubbles: false }))
+  input.dispatchEvent(new Focus('focusout', { bubbles: true }))
+  input.blur()
+}
+
+function dispatchStickyKey(target: HTMLElement, type: 'keydown' | 'keyup', key: string) {
+  const Ctor = viewOf(target).KeyboardEvent
+  target.dispatchEvent(
+    new Ctor(type, {
+      key,
+      code: stickyKeyCode(key),
+      bubbles: true,
+      cancelable: true,
+    }),
+  )
+}
+
+function stickyKeyCode(key: string): string {
+  if (key === ' ') return 'Space'
+  if (/^[a-zA-Z]$/.test(key)) return `Key${key.toUpperCase()}`
+  return key
+}
+
+async function commitStickyByClick(
+  input: HTMLInputElement,
+  values: string[],
+  selectId?: string,
+): Promise<string | null> {
+  await openStickyMenu(input, selectId)
+  const match = pickStickyOption(visibleStickyOptions(input, selectId), values)
+  if (!match) return null
+  const label = optionLabel(match)
+  commitReactOption(match)
+  blurSticky(input)
+  return label
+}
+
+async function commitStickyByKeyboard(
+  input: HTMLInputElement,
+  values: string[],
+  selectId?: string,
+): Promise<string | null> {
+  await openStickyMenu(input, selectId)
+  const initial = pickStickyOption(visibleStickyOptions(input, selectId), values)
+  if (!initial) return null
+  const label = optionLabel(initial)
+  await typeStickyQuery(input, label)
+  await delay(40)
+  const match = pickStickyOption(visibleStickyOptions(input, selectId), [label, ...values])
+  if (!match) return null
+  if (input.getAttribute('aria-expanded') !== 'true') {
+    openGreenhouseMenu(input)
+    await delay(40)
+  }
+  // Enter while the menu is closed submits the application. Only confirm a row
+  // that is actually highlighted.
+  if (input.getAttribute('aria-expanded') !== 'true') return null
+  const armed = await moveHighlightTo(input, match)
+  if (!armed || input.getAttribute('aria-expanded') !== 'true') return null
+  dispatchStickyKey(input, 'keydown', 'Enter')
+  dispatchStickyKey(input, 'keyup', 'Enter')
+  blurSticky(input)
+  return optionLabel(match)
+}
+
+async function typeStickyQuery(input: HTMLInputElement, text: string) {
+  input.focus()
+  let current = ''
+  for (const char of text) {
+    dispatchStickyKey(input, 'keydown', char)
+    current += char
+    setReactInputValue(input, current)
+    dispatchStickyKey(input, 'keyup', char)
+  }
+}
+
+function stickyHighlighted(input: HTMLInputElement, option: HTMLElement): boolean {
+  const active = input.getAttribute('aria-activedescendant')
+  if (active && option.id && active === option.id) return true
+  return option.classList.contains('select__option--is-focused')
+}
+
+async function moveHighlightTo(input: HTMLInputElement, option: HTMLElement): Promise<boolean> {
+  for (let step = 0; step < 24; step++) {
+    if (stickyHighlighted(input, option)) return true
+    dispatchStickyKey(input, 'keydown', 'ArrowDown')
+    dispatchStickyKey(input, 'keyup', 'ArrowDown')
+    if (stickyHighlighted(input, option)) return true
+    await delay(40)
+  }
+  return stickyHighlighted(input, option)
+}
+
 function openReactSelect(input: HTMLInputElement) {
   input.focus()
   const root = input.closest('.select') || input.parentElement
