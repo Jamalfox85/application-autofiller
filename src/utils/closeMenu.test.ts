@@ -7,7 +7,7 @@ const w = dom.window as unknown as Record<string, unknown>
 for (const k of ['window', 'document', 'KeyboardEvent', 'FocusEvent', 'MouseEvent', 'InputEvent', 'Event', 'HTMLInputElement', 'HTMLSelectElement', 'HTMLTextAreaElement']) {
   Object.defineProperty(globalThis, k, { value: k === 'window' ? dom.window : w[k], configurable: true, writable: true })
 }
-const { closeReactSelectMenu } = await import('./inputHandlers.ts')
+const { closeReactSelectMenu, setSelectValue } = await import('./inputHandlers.ts')
 import { currentLocationQueries, pickCurrentLocationOption } from './siteRules/greenhouseFields.ts'
 
 test('a failed react-select fill clears the query and sends Escape, blur and focusout', () => {
@@ -21,6 +21,20 @@ test('a failed react-select fill clears the query and sends Escape, blur and foc
   assert.equal(input.value, '')
   assert.deepEqual(seen, ['Escape', 'focusout'])
   assert.equal(toggled, true, 'flyout toggled because the menu stayed expanded')
+})
+
+test('a blank Select option is not chosen because the desired value contains an empty string', () => {
+  const select = dom.window.document.createElement('select')
+  const placeholder = dom.window.document.createElement('option')
+  placeholder.value = ''
+  placeholder.text = 'Select'
+  const canada = dom.window.document.createElement('option')
+  canada.value = 'Canada'
+  canada.text = 'Canada'
+  select.append(placeholder, canada)
+  dom.window.document.body.append(select)
+  assert.equal(setSelectValue(select, 'united_states', 'country'), false)
+  assert.equal(select.value, '')
 })
 
 test('Current Location tries city+state, city, then the state', () => {

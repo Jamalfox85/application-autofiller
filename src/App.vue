@@ -35,6 +35,10 @@ import PaywallDialog from './components/PaywallDialog.vue'
 import ProFeatures from './components/ProFeatures.vue'
 import ProfilesModal from './components/ProfilesModal.vue'
 import { fetchBillingState, openProCheckout, type BillingState } from '@/services/billing/client'
+import {
+  PURCHASE_VERIFY_FAILED_COPY,
+  PURCHASE_VERIFY_NOTICE_KEY,
+} from '@/services/billing/profilePlan'
 import { ENTITLEMENT_KEY } from '@/services/billing/entitlementStore'
 import {
   gateCanFinish,
@@ -72,7 +76,7 @@ const { loadPersonalInfo, savePersonalInfo, loadedProfileId } = usePersonalInfo(
 const { customResponses } = useCustomResponses()
 const profilesStore = useProfiles()
 const { notification, showNotification } = useNotification()
-const { fillHistory, loadFillHistory } = useFillHistory()
+const { fillHistory, loadFillHistory, rereadFillHistoryMirror } = useFillHistory()
 const { status: authStatus, isSigningIn, signInError, initAuth, signIn, signOut } = useAuth()
 
 // State
@@ -300,6 +304,19 @@ const runDetection = async () => {
       detection.value = NOT_DETECTED
       return
     }
+    // The active tab is this extension page (popup.html opened as a tab). Injecting
+    // the content script into it closes the tab. Detection belongs on the job page.
+    let selfId: number | undefined
+    try {
+      const self = await chrome.tabs.getCurrent()
+      selfId = self?.id
+    } catch {
+      selfId = undefined
+    }
+    if (typeof selfId === 'number' && selfId === tabId) {
+      detection.value = NOT_DETECTED
+      return
+    }
     detection.value = await detectWithRetry({
       ask: async () => {
         const frames = await chrome.scripting.executeScript({
@@ -424,16 +441,18 @@ const startParsedReview = async () => {
 }
 
 const handleOnboardingFinish = async (profile?: any) => {
-  // Every Welcome exit lands here, including Skip and the parse-wait fallback. Those paths
-  // used to skip completeProfileSetupSession, which left Match Score gated off.
+  // Every Welcome exit lands here, including Skip and the parse-wait fallback. Show the
+  // dashboard immediately. Awaiting setup completion first looks like Skip did nothing,
+  // and the popup tab can close before the view changes.
+  welcomeFile.value = null
+  activeView.value = 'main'
+  if (profile) publishPersonalInfo(profile)
   try {
     await completeProfileSetupSession()
   } catch (error) {
     console.error('Failed to mark profile setup complete', error)
   }
-  welcomeFile.value = null
   if (profile) {
-    publishPersonalInfo(profile)
     try {
       await savePersonalInfo(profile)
     } catch (error) {
@@ -446,7 +465,6 @@ const handleOnboardingFinish = async (profile?: any) => {
     // wrote the profile server-side) — pull whatever Supabase has now.
     adoptLoadedPersonalInfo(await loadPersonalInfo(profilesStore.activeMirror.value))
   }
-  activeView.value = 'main'
   await detectApplication()
 }
 
@@ -582,6 +600,11 @@ const onIcimsNoticeStored = (
 
 const handleSignOut = async () => {
   await signOut()
+  try {
+    await chrome.action.setBadgeText({ text: '' })
+  } catch {
+    // The toolbar badge is optional. Sign-out still finishes.
+  }
   profilesStore.reset()
   showProfiles.value = false
   gateResolved.value = false
@@ -746,6 +769,36 @@ const onEntitlementStored = (
 
 const onPopupFocus = () => {
   void refreshBilling()
+  void presentPurchaseVerifyNotice()
+  void rereadFillHistoryMirror()
+}
+
+// Receipt failures store a fixed sentence, never the install key. Showing it
+// must not throw into popup startup.
+let purchaseNoticeRead: Promise<void> | null = null
+const presentPurchaseVerifyNotice = () => {
+  if (purchaseNoticeRead) return purchaseNoticeRead
+  purchaseNoticeRead = (async () => {
+    try {
+      const data = await chrome.storage.local.get(PURCHASE_VERIFY_NOTICE_KEY)
+      if (data[PURCHASE_VERIFY_NOTICE_KEY] !== PURCHASE_VERIFY_FAILED_COPY) return
+      showNotification(PURCHASE_VERIFY_FAILED_COPY, 'error')
+      await chrome.storage.local.remove(PURCHASE_VERIFY_NOTICE_KEY)
+    } catch {
+      // A 400 from billing/plan must not take down the popup.
+    }
+  })().finally(() => {
+    purchaseNoticeRead = null
+  })
+  return purchaseNoticeRead
+}
+
+const onPurchaseVerifyNotice = (
+  changes: { [key: string]: chrome.storage.StorageChange },
+  areaName: string,
+) => {
+  if (areaName !== 'local' || changes[PURCHASE_VERIFY_NOTICE_KEY]?.newValue == null) return
+  void presentPurchaseVerifyNotice()
 }
 
 onMounted(async () => {
@@ -756,9 +809,12 @@ onMounted(async () => {
   chrome.storage.onChanged.addListener(onIcimsNoticeStored)
   chrome.storage.onChanged.addListener(onPersonalInfoStored)
   chrome.storage.onChanged.addListener(onEntitlementStored)
+  chrome.storage.onChanged.addListener(onPurchaseVerifyNotice)
   window.addEventListener('focus', onPopupFocus)
+  void presentPurchaseVerifyNotice()
   if (supabaseConfigError) return
   await initAuth()
+  await presentPurchaseVerifyNotice()
   if (authStatus.value === 'signed-in') {
     await loadAppState()
   } else if (authStatus.value === 'signed-out') {

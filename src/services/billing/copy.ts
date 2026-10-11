@@ -1,12 +1,18 @@
 // Conversion-locked paywall copy. Do not paraphrase. Apostrophes and dashes are
 // the typographic characters from the locked strings.
+// softContinueFreeLabel inserts how many free fills are left this week. At the
+// soft gate (fill 10 of 25) that number is 15.
+
+export function softContinueFreeLabel(fillsLeft: number): string {
+  const left = Number.isFinite(fillsLeft) ? Math.max(0, Math.trunc(fillsLeft)) : 0
+  return `Continue free (${left} fills left this week)`
+}
 
 export const PAYWALL_COPY = {
   soft: {
     title: 'You\u2019ve used 10 of 25 free fills this week',
-    body: 'Go Pro for unlimited autofills, plus score matching and up to 5 profiles.',
+    body: 'Go Pro for unlimited autofills.',
     primary: 'Upgrade to Pro \u2014 $5.99/mo',
-    secondary: 'Continue free (15 fills left)',
     tertiary: 'See annual \u2014 $49/yr',
   },
   hard: {

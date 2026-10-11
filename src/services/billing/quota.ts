@@ -138,7 +138,9 @@ export function applySuccessfulFill(
 
   // Soft nudge once the week reaches fill #10. Never on fill #1. Never on Workday.
   // The fill is already committed; dismissing the nudge does not block it.
-  // Copy is the locked "#10 / 15 left" creative, so we show it once per week.
+  // Copy is the locked "10 of 25" title and "N fills left this week" continue
+  // label. The count is the fills still left after this fill (15 at fill 10).
+  // Shown once per week.
   const showSoft =
     !wasFirstEver &&
     ats !== 'workday' &&

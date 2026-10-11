@@ -32,11 +32,38 @@ function dropFillHistoryMemory() {
   fillHistory.value = []
 }
 
+async function rereadFillHistoryMirror() {
+  const stored = await readStoredHistory()
+  if (stored === undefined) return
+  if (stored === null) {
+    dropFillHistoryMemory()
+    return
+  }
+  storageRevision += 1
+  fillHistory.value = stored
+}
+
 function watchFillHistoryStorage() {
   if (watching || typeof chrome === 'undefined' || !chrome.storage?.onChanged) return
   watching = true
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !Object.prototype.hasOwnProperty.call(changes, MIRROR_KEY)) return
+    if (area !== 'local') return
+    const keys = Object.keys(changes)
+    const mirrorChanged = Object.prototype.hasOwnProperty.call(changes, MIRROR_KEY)
+    // chrome.storage.local.clear() sometimes notifies with an empty change set, so the
+    // open popup keeps the list it had before the clear. Re-read storage instead.
+    const bulkClear =
+      keys.length === 0 ||
+      (!mirrorChanged && keys.every((key) => changes[key]?.newValue == null))
+    const profileCleared =
+      !mirrorChanged &&
+      Object.prototype.hasOwnProperty.call(changes, 'personalInfo') &&
+      changes.personalInfo?.newValue == null
+    if (bulkClear || profileCleared) {
+      void rereadFillHistoryMirror()
+      return
+    }
+    if (!mirrorChanged) return
     const update = fillHistoryFromStorageChange(changes[MIRROR_KEY].newValue)
     if (update === 'cleared') {
       dropFillHistoryMemory()
@@ -127,5 +154,6 @@ export function useFillHistory() {
     fillHistory,
     loadFillHistory,
     clearFillHistory,
+    rereadFillHistoryMirror,
   }
 }

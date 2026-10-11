@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { PAYWALL_COPY } from './copy.ts'
+import { PAYWALL_COPY, softContinueFreeLabel } from './copy.ts'
 import {
   applySuccessfulFill,
   calendarWeekKey,
   decideFill,
   decideFillWithRefresh,
   emptyQuota,
+  fillsRemaining,
   mergeQuotaRecords,
   type FillQuotaRecord,
 } from './quota.ts'
@@ -19,13 +20,16 @@ import {
   proPurchasedProps,
   softPaywallShownProps,
 } from './paidEvents.ts'
-import { postBillingPlan } from './billingPlan.ts'
+import { billingPlanBody, postBillingPlan } from './billingPlan.ts'
 import {
+  PURCHASE_VERIFY_FAILED_COPY,
   clearPendingProfilePlan,
   flushPendingProfilePlan,
+  purchaseVerifyCopy,
   syncProPlanAfterPurchase,
   type PendingPlanStore,
 } from './profilePlan.ts'
+import { PLAN_REFRESH_PATH, postPlanRefresh } from './planRefresh.ts'
 import { PRO_RESUME_PATHS, PROD_RESUME_API_URL, postProResume, proResumeHeaders, resumeApiBaseUrl, summarizeProData } from './proApiContract.ts'
 import {
   EXTENSION_PAY_EXTENSION_ID,
@@ -141,13 +145,16 @@ test('pro fills do not consume the free counter', () => {
 
 test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.soft.title, 'You\u2019ve used 10 of 25 free fills this week')
-  assert.equal(
-    PAYWALL_COPY.soft.body,
-    'Go Pro for unlimited autofills, plus score matching and up to 5 profiles.',
-  )
+  assert.equal(PAYWALL_COPY.soft.body, 'Go Pro for unlimited autofills.')
   assert.equal(PAYWALL_COPY.soft.primary, 'Upgrade to Pro \u2014 $5.99/mo')
-  assert.equal(PAYWALL_COPY.soft.secondary, 'Continue free (15 fills left)')
+  assert.equal(softContinueFreeLabel(fillsRemaining(SOFT_GATE_AT)), 'Continue free (15 fills left this week)')
+  assert.equal(softContinueFreeLabel(4), 'Continue free (4 fills left this week)')
   assert.equal(PAYWALL_COPY.soft.tertiary, 'See annual \u2014 $49/yr')
+  const popup = readFileSync('src/components/PaywallDialog.vue', 'utf8')
+  const onPage = readFileSync('src/content/fillPaywall.ts', 'utf8')
+  assert.match(popup, /softContinueFreeLabel\(counts\(\)\.fillsRemaining\)/)
+  assert.match(onPage, /softContinueFreeLabel\(ctx\.fillsRemaining\)/)
+  assert.doesNotMatch(`${popup}\n${onPage}`, /Continue free \(15 fills left\)/)
   assert.equal(PAYWALL_COPY.hard.title, 'You\u2019ve hit your free fill limit')
   assert.equal(
     PAYWALL_COPY.hard.body,
@@ -159,7 +166,7 @@ test('locked paywall copy and mixpanel names', () => {
   assert.equal(PAYWALL_COPY.resumeAi.cta, 'Upgrade to Pro')
   assert.equal(PAYWALL_COPY.multiProfile.title, 'Up to 5 profiles, each with its own resume, are a Pro feature.')
   assert.equal(PAYWALL_COPY.lockedProfile.title, 'Resubscribe to use this profile again.')
-  const paywallText = JSON.stringify(PAYWALL_COPY).toLowerCase()
+  const paywallText = `${JSON.stringify(PAYWALL_COPY)} ${softContinueFreeLabel(15)}`.toLowerCase()
   assert.equal(paywallText.includes('match score'), false)
   assert.equal(paywallText.includes('ats score'), false)
   for (const ats of ['workday', 'greenhouse', 'lever', 'ashby', 'icims', 'bamboohr', 'jobvite', 'workable']) {
@@ -331,6 +338,7 @@ test('purchase posts billing/plan and does not update profiles.plan', async () =
     store: pending.store,
     token: 'user-jwt',
     apiKey: 'live-key',
+    extpayApiKey: 'install-key',
     baseUrl: 'https://api.example.com/api/v1/',
     fetchImpl: async (url, init) => {
       calls.push({ url: String(url), init: init ?? {} })
@@ -345,13 +353,14 @@ test('purchase posts billing/plan and does not update profiles.plan', async () =
   const headers = calls[0].init.headers as Record<string, string>
   assert.equal(headers.Authorization, 'Bearer user-jwt')
   assert.equal(headers['X-API-Key'], 'live-key')
-  assert.equal(calls[0].init.body, JSON.stringify({ plan: 'pro' }))
+  assert.equal(calls[0].init.body, JSON.stringify({ plan: 'pro', extpay_api_key: 'install-key' }))
 
   const kept = memoryPlanStore()
   const failed = await syncProPlanAfterPurchase({
     store: kept.store,
     token: 'user-jwt',
     apiKey: 'live-key',
+    extpayApiKey: 'install-key',
     baseUrl: 'https://api.example.com/api/v1',
     fetchImpl: async () => new Response(JSON.stringify({ success: false }), { status: 503 }),
   })
@@ -409,9 +418,223 @@ test('purchase posts billing/plan and does not update profiles.plan', async () =
   assert.doesNotMatch(planWrite, /from\('profiles'\)/)
   const worker = readFileSync('src/services/extensionPayWorker.ts', 'utf8')
   assert.match(worker, /syncProPlanAfterPurchase/)
+  assert.match(worker, /readExtPayApiKey/)
   assert.match(worker, /writeEntitlement/)
   assert.doesNotMatch(worker, /writeProfilePlan/)
   assert.doesNotMatch(worker, /from\('profiles'\)/)
+})
+
+test('plan sync sends the ExtPay receipt on upgrade and refresh, not to Mixpanel', async () => {
+  const installKey = 'install-key-not-for-analytics'
+  const calls: Array<{ url: string; body: string }> = []
+  const fetchImpl: typeof fetch = async (url, init) => {
+    calls.push({ url: String(url), body: String(init?.body ?? '') })
+    const path = String(url)
+    if (path.endsWith('/billing/plan/refresh')) {
+      return new Response(JSON.stringify({ success: true, data: { plan: 'pro', verified: true, changed: true } }), {
+        status: 200,
+      })
+    }
+    return new Response(JSON.stringify({ success: true, data: { plan: 'pro' } }), { status: 200 })
+  }
+
+  const direct = await postBillingPlan({
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    baseUrl: 'https://api.example.com/api/v1',
+    extpayApiKey: installKey,
+    fetchImpl,
+  })
+  assert.deepEqual(direct, { ok: true })
+  assert.deepEqual(JSON.parse(calls[0].body), billingPlanBody(installKey))
+
+  const upgrade = memoryPlanStore()
+  const synced = await syncProPlanAfterPurchase({
+    store: upgrade.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    extpayApiKey: installKey,
+    baseUrl: 'https://api.example.com/api/v1',
+    fetchImpl,
+  })
+  assert.deepEqual(synced, { ok: true })
+  assert.deepEqual(JSON.parse(calls[1].body), { plan: 'pro', extpay_api_key: installKey })
+
+  const queued = memoryPlanStore('pro')
+  const flushed = await flushPendingProfilePlan({
+    store: queued.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    extpayApiKey: installKey,
+    baseUrl: 'https://api.example.com/api/v1',
+    fetchImpl,
+  })
+  assert.deepEqual(flushed, { ok: true })
+  assert.deepEqual(JSON.parse(calls[2].body), { plan: 'pro', extpay_api_key: installKey })
+  assert.equal(queued.read(), undefined)
+
+  const refresh = await postPlanRefresh({
+    token: 'user-jwt',
+    extpayApiKey: installKey,
+    baseUrl: 'https://api.example.com/api/v1',
+    apiKey: 'live-key',
+    fetchImpl,
+  })
+  assert.equal(refresh.ok, true)
+  assert.equal(calls[3].url, `https://api.example.com/api/v1${PLAN_REFRESH_PATH}`)
+  assert.deepEqual(JSON.parse(calls[3].body), { extpay_api_key: installKey })
+
+  const purchased = proPurchasedProps({
+    ctx: { distinctId: 'd', userId: 'u', extensionVersion: '2.0.0', buildChannel: 'draft' },
+    plan: 'annual',
+    price: 49,
+    source: 'popup',
+    fillCountAtPurchase: 3,
+  })
+  const encoded = JSON.stringify(purchased)
+  assert.equal(encoded.includes(installKey), false)
+  assert.equal(encoded.includes('extpay_api_key'), false)
+  assert.equal('extpay_api_key' in purchased, false)
+
+  const paidEvents = readFileSync('src/services/billing/paidEvents.ts', 'utf8')
+  const trackPaid = readFileSync('src/services/billing/trackPaid.ts', 'utf8')
+  const mixpanel = readFileSync('src/services/mixpanel.ts', 'utf8')
+  assert.doesNotMatch(paidEvents, /extpay_api_key/)
+  assert.doesNotMatch(trackPaid, /extpay_api_key/)
+  assert.doesNotMatch(mixpanel, /extpay_api_key/)
+
+  const worker = readFileSync('src/services/extensionPayWorker.ts', 'utf8')
+  const trackPurchase = worker.slice(worker.indexOf('async function trackPurchase'), worker.indexOf('async function syncExtPayUser'))
+  assert.doesNotMatch(trackPurchase, /extpay_api_key/)
+  assert.doesNotMatch(trackPurchase, /extensionpay_api_key/)
+  assert.match(worker, /readExtPayApiKey\(\{/)
+  assert.match(worker, /syncProPlanAfterPurchase\(\{ extpayApiKey \}\)/)
+
+  const popup = readFileSync('src/App.vue', 'utf8')
+  assert.match(popup, /PURCHASE_VERIFY_FAILED_COPY/)
+  assert.match(popup, /presentPurchaseVerifyNotice/)
+  const profiles = readFileSync('src/composables/useProfiles.ts', 'utf8')
+  assert.match(profiles, /readExtPayApiKey/)
+  assert.match(profiles, /postPlanRefresh/)
+})
+
+test('a rejected ExtensionPay receipt stays free and does not crash the popup', async () => {
+  const installKey = 'install-key'
+  const notices: string[] = []
+  const publishNotice = async (message: string) => {
+    notices.push(message)
+  }
+
+  let posts = 0
+  const rejected = memoryPlanStore()
+  const unpaid = await syncProPlanAfterPurchase({
+    store: rejected.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    extpayApiKey: installKey,
+    baseUrl: 'https://api.example.com/api/v1',
+    publishNotice,
+    fetchImpl: async (url) => {
+      posts += 1
+      const path = String(url)
+      if (path.endsWith('/billing/plan/refresh')) {
+        return new Response(
+          JSON.stringify({ success: true, data: { plan: 'free', verified: true, changed: false } }),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify({ error: 'extensionpay purchase was not verified' }), { status: 403 })
+    },
+  })
+  assert.equal(unpaid.ok, false)
+  if (!unpaid.ok) {
+    assert.equal(unpaid.reason, 'purchase_not_verified')
+    assert.equal(unpaid.notice, PURCHASE_VERIFY_FAILED_COPY)
+  }
+  assert.equal(rejected.read(), undefined)
+  assert.equal(posts, 2)
+  assert.deepEqual(notices, [PURCHASE_VERIFY_FAILED_COPY])
+  assert.equal(JSON.stringify(notices).includes(installKey), false)
+  assert.equal(purchaseVerifyCopy('http_400'), PURCHASE_VERIFY_FAILED_COPY)
+  assert.equal(purchaseVerifyCopy('http_503'), PURCHASE_VERIFY_FAILED_COPY)
+
+  const missingReceipt = memoryPlanStore()
+  let missingPosts = 0
+  const blocked = await syncProPlanAfterPurchase({
+    store: missingReceipt.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    extpayApiKey: '   ',
+    baseUrl: 'https://api.example.com/api/v1',
+    publishNotice,
+    fetchImpl: async () => {
+      missingPosts += 1
+      return new Response('no')
+    },
+  })
+  assert.equal(blocked.ok, false)
+  if (!blocked.ok) assert.equal(blocked.reason, 'receipt_required')
+  assert.equal(missingPosts, 0)
+  assert.equal(missingReceipt.read(), 'pro')
+
+  const receiptRequired = memoryPlanStore()
+  const http400 = await syncProPlanAfterPurchase({
+    store: receiptRequired.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    extpayApiKey: installKey,
+    baseUrl: 'https://api.example.com/api/v1',
+    publishNotice,
+    fetchImpl: async (url) => {
+      if (String(url).endsWith('/billing/plan/refresh')) {
+        return new Response(JSON.stringify({ error: 'extensionpay receipt is required' }), { status: 400 })
+      }
+      return new Response(JSON.stringify({ error: 'extensionpay receipt is required' }), { status: 400 })
+    },
+  })
+  assert.equal(http400.ok, false)
+  if (!http400.ok) assert.equal(http400.reason, 'receipt_required')
+  assert.equal(receiptRequired.read(), undefined)
+
+  const transient = memoryPlanStore()
+  const http503 = await syncProPlanAfterPurchase({
+    store: transient.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    extpayApiKey: installKey,
+    baseUrl: 'https://api.example.com/api/v1',
+    publishNotice,
+    fetchImpl: async () => new Response(JSON.stringify({ error: 'could not verify extensionpay receipt' }), { status: 503 }),
+  })
+  assert.equal(http503.ok, false)
+  if (!http503.ok) assert.equal(http503.reason, 'could_not_verify')
+  assert.equal(transient.read(), 'pro')
+
+  const recovered = memoryPlanStore()
+  const viaRefresh = await syncProPlanAfterPurchase({
+    store: recovered.store,
+    token: 'user-jwt',
+    apiKey: 'live-key',
+    extpayApiKey: installKey,
+    baseUrl: 'https://api.example.com/api/v1',
+    fetchImpl: async (url) => {
+      if (String(url).endsWith('/billing/plan/refresh')) {
+        return new Response(
+          JSON.stringify({ success: true, data: { plan: 'pro', verified: true, changed: true } }),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify({ error: 'could not verify extensionpay receipt' }), { status: 503 })
+    },
+  })
+  assert.deepEqual(viaRefresh, { ok: true })
+  assert.equal(recovered.read(), undefined)
+
+  const popup = readFileSync('src/App.vue', 'utf8')
+  const present = popup.slice(popup.indexOf('const presentPurchaseVerifyNotice'), popup.indexOf('const onPurchaseVerifyNotice'))
+  assert.match(present, /catch/)
+  assert.match(present, /PURCHASE_VERIFY_FAILED_COPY/)
+  assert.doesNotMatch(present, /extpay_api_key/)
 })
 
 test('home screen upgrade sits beside autofill and uses paywall checkout', () => {
