@@ -1,6 +1,6 @@
-// Keyboard-command delivery for the signed-out mirror path. The popup Autofill
-// control stays behind Google sign-in; Ctrl+Shift+F only needs personalInfo in
-// chrome.storage.local, which the content script reads itself.
+// Keyboard-command delivery. Sends {action:'autofill'} and reinjects content.js
+// when the tab has no listener. The content script shows the sign-in or empty
+// profile toast when the page cannot be filled.
 
 export type AutofillMessage = { action: 'autofill' }
 

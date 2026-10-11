@@ -1,5 +1,9 @@
 import { autofillPage, undoLastFill } from './autofill.ts'
 import {
+  EMPTY_PROFILE_FILL_MESSAGE,
+  SIGN_IN_TO_FILL_MESSAGE,
+} from '../utils/fillValue.ts'
+import {
   dismissAutofillPrompt,
   markAutofillPromptClosed,
   renderAutofillPrompt,
@@ -48,15 +52,30 @@ function createToast(accentColor: string, title: string, subtitle?: string) {
 
 function showToast(toast: HTMLElement) {
   mountInToastStack(toast)
+  let dismissed = false
+
+  const reveal = () => {
+    if (dismissed) return
+    toast.style.opacity = '1'
+    toast.style.transform = 'translateY(0)'
+  }
 
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      toast.style.opacity = '1'
-      toast.style.transform = 'translateY(0)'
-    })
+    requestAnimationFrame(reveal)
   })
 
+  // Job pages rebuild <body> and drop the node while it is still fading in.
+  // Put it back so a shortcut that cannot fill is not silent.
+  for (const delayMs of [300, 1200, 2500]) {
+    setTimeout(() => {
+      if (dismissed || toast.isConnected) return
+      mountInToastStack(toast)
+      reveal()
+    }, delayMs)
+  }
+
   setTimeout(() => {
+    dismissed = true
     toast.style.opacity = '0'
     toast.style.transform = 'translateY(20px)'
     setTimeout(() => toast.remove(), 300)
@@ -185,8 +204,74 @@ export function showAutofillNotification(summary?: { fieldsCount?: number; total
   })
 }
 
-export function showErrorNotification(message: string) {
-  showToast(createToast('#b05454', 'GoFillr', message))
+export function showErrorNotification(
+  message: string,
+  action?: { label: string; run: () => void },
+) {
+  const toast = createToast('#b05454', 'GoFillr', message)
+  if (action) {
+    const button = toast.ownerDocument.createElement('button')
+    button.type = 'button'
+    button.dataset.action = 'sign-in'
+    button.textContent = action.label
+    button.style.cssText = `
+      border: none;
+      background: #7c3aed;
+      color: white;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      flex-shrink: 0;
+    `
+    button.addEventListener('click', () => {
+      action.run()
+      toast.remove()
+    })
+    toast.appendChild(button)
+  }
+  showToast(toast)
+}
+
+async function startGoogleSignInFromToast(): Promise<void> {
+  try {
+    const response = (await chrome.runtime.sendMessage({ action: 'signInWithGoogle' })) as
+      | { ok?: boolean; error?: string }
+      | undefined
+    if (response && response.ok === false) {
+      showErrorNotification(response.error || 'Sign-in failed. Please try again.')
+    }
+  } catch {
+    showErrorNotification('Sign-in failed. Please try again.')
+  }
+}
+
+// Shortcut, popup-driven, and in-page fills all land here when the page cannot
+// be filled. Signed out gets the sign-in toast (with the same Sign in action
+// the popup already uses). Signed in with an empty profile keeps the empty
+// profile copy. Either way the page shows a toast — the shortcut has no popup.
+export function presentFillFailure(result: { code?: string; message?: string } | null | undefined): void {
+  const code = result?.code
+  const message =
+    (typeof result?.message === 'string' && result.message) ||
+    (code === 'signed_out'
+      ? SIGN_IN_TO_FILL_MESSAGE
+      : code === 'empty_profile'
+        ? EMPTY_PROFILE_FILL_MESSAGE
+        : '')
+  if (!message) return
+  if (code === 'signed_out') {
+    showErrorNotification(message, {
+      label: 'Sign in',
+      run: () => {
+        void startGoogleSignInFromToast()
+      },
+    })
+    return
+  }
+  showErrorNotification(message)
 }
 
 export function showAutofillPrompt() {
@@ -229,7 +314,7 @@ export function showAutofillPrompt() {
         void showFillPaywall('soft', result)
       }
     } else {
-      showErrorNotification(result.message)
+      presentFillFailure(result)
     }
   })
 }

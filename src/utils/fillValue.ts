@@ -8,6 +8,25 @@ const BANNED_FILL_TEXT = /^(?:undefined|null|nan)(?:\s+(?:undefined|null|nan))*$
 export const EMPTY_PROFILE_FILL_MESSAGE =
   'Your GoFillr profile is empty. Add your name, email, and phone, then try again.'
 
+export const SIGN_IN_TO_FILL_MESSAGE = 'Sign in to GoFillr to fill this application'
+
+export type FillRefusal = {
+  code: 'signed_out' | 'empty_profile'
+  message: string
+}
+
+// Signed out cannot fill, even when a previous account's mirror is still in
+// storage. Signed in with nothing to write keeps the empty-profile message.
+export function refuseAutofill(input: { signedIn: boolean; personalInfo: unknown }): FillRefusal | null {
+  if (!input.signedIn) {
+    return { code: 'signed_out', message: SIGN_IN_TO_FILL_MESSAGE }
+  }
+  if (!profileHasAutofillData(input.personalInfo)) {
+    return { code: 'empty_profile', message: EMPTY_PROFILE_FILL_MESSAGE }
+  }
+  return null
+}
+
 export function coerceFillText(value: unknown): string | null {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return null

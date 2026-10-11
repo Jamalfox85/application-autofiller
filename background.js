@@ -792,10 +792,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true
 })
 
-// Keyboard shortcut. Signed-out on purpose: the popup Autofill button is behind
-// Google sign-in, and mirror-only smoke seeds chrome.storage.local.personalInfo
-// then uses this command. The content script reads that mirror and does not
-// check a session.
+// Keyboard shortcut. The content script fills only for a signed-in account with
+// profile data. Signed out, or signed in with nothing to fill, it shows a page
+// toast (the shortcut has no popup) instead of failing quietly.
 if (chrome.commands) {
   chrome.commands.onCommand.addListener((command) => {
     if (command !== 'autofill-page') return

@@ -46,7 +46,7 @@ import {
   resumeReviewPending,
   signedInPopupScreen,
 } from '@/services/profileSetupGate'
-import { completeProfileSetupSession, getProfileSetupCompletedAt } from '@/services/profileSetupSession'
+import { completeProfileSetupSession, readSetupCompletedAtForAccount } from '@/services/profileSetupSession'
 import { applyEntitlementToBilling, entitlementFromStorage, fillQuotaNote } from '@/services/billing/proUnlock'
 import {
   WORKDAY_ACCOUNT_NOTICE_KEY,
@@ -58,7 +58,12 @@ import {
 } from '@/utils/siteRules/icimsAccountNotice.ts'
 import { collectFrameDetections, detectWithRetry, NOT_DETECTED } from '@/utils/detectionRetry.ts'
 import { isIcimsCandidateHost } from '@/utils/siteRules/icimsAccount.ts'
-import { EMPTY_PROFILE_FILL_MESSAGE, profileHasAutofillData } from '@/utils/fillValue.ts'
+import {
+  EMPTY_PROFILE_FILL_MESSAGE,
+  SIGN_IN_TO_FILL_MESSAGE,
+  profileHasAutofillData,
+  refuseAutofill,
+} from '@/utils/fillValue.ts'
 import { completePersonalInfo } from '@/lib/personalInfoDefaults.ts'
 import { openStoredPersonalInfo } from '@/lib/openStoredPersonalInfo.ts'
 import type { PersonalInfo } from '@/types'
@@ -349,12 +354,18 @@ const scanCurrentPageManually = async () => {
 const autofillCurrentPage = async () => {
   if (autofillState.value !== 'idle') return
 
-  // An empty profile cannot fill anything. Say so now instead of scanning the
-  // page and returning with no explanation.
+  // Signed out: the profile mirror was wiped with the session. Say so here, in
+  // the same banner as every other popup notice. The sign-in screen under it
+  // is the action. A signed-in empty profile still gets the empty-profile copy.
+  if (authStatus.value !== 'signed-in') {
+    showNotification(SIGN_IN_TO_FILL_MESSAGE, 'error')
+    return
+  }
   try {
     const stored = await chrome.storage.local.get('personalInfo')
-    if (!profileHasAutofillData(stored.personalInfo)) {
-      showNotification(EMPTY_PROFILE_FILL_MESSAGE, 'error')
+    const refusal = refuseAutofill({ signedIn: true, personalInfo: stored.personalInfo })
+    if (refusal) {
+      showNotification(refusal.message || EMPTY_PROFILE_FILL_MESSAGE, 'error')
       return
     }
   } catch {
@@ -670,7 +681,7 @@ const loadAppState = async () => {
   }
   let setupCompletedAt: number | null = null
   try {
-    setupCompletedAt = await getProfileSetupCompletedAt()
+    setupCompletedAt = await readSetupCompletedAtForAccount(chrome.storage.local, userId)
   } catch (error) {
     console.error('Failed to read profile setup completion', error)
   }

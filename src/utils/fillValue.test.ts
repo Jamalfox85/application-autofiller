@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { coerceFillText, profileHasAutofillData } from './fillValue.ts'
+import {
+  EMPTY_PROFILE_FILL_MESSAGE,
+  SIGN_IN_TO_FILL_MESSAGE,
+  coerceFillText,
+  profileHasAutofillData,
+  refuseAutofill,
+} from './fillValue.ts'
 
 test('missing profile values are not the words undefined or null', () => {
   assert.equal(coerceFillText(undefined), null)
@@ -77,4 +83,30 @@ test('skills count, and a row id or a blank list does not', () => {
     }),
     true,
   )
+})
+
+test('signed out asks for sign-in; a signed-in empty profile stays the empty-profile message', () => {
+  assert.equal(SIGN_IN_TO_FILL_MESSAGE, 'Sign in to GoFillr to fill this application')
+  assert.equal(
+    EMPTY_PROFILE_FILL_MESSAGE,
+    'Your GoFillr profile is empty. Add your name, email, and phone, then try again.',
+  )
+
+  const signedOut = refuseAutofill({ signedIn: false, personalInfo: {} })
+  assert.deepEqual(signedOut, { code: 'signed_out', message: SIGN_IN_TO_FILL_MESSAGE })
+  // A leftover mirror from the previous account is not a reason to fill while signed out.
+  const leftover = refuseAutofill({
+    signedIn: false,
+    personalInfo: { firstName: 'Ada', email: 'ada@example.com', phone: '5550100' },
+  })
+  assert.equal(leftover?.code, 'signed_out')
+  assert.equal(leftover?.message, SIGN_IN_TO_FILL_MESSAGE)
+  assert.doesNotMatch(leftover?.message ?? '', /empty/)
+
+  const empty = refuseAutofill({
+    signedIn: true,
+    personalInfo: { email: 'me@example.com', phoneCountryCode: '+1' },
+  })
+  assert.deepEqual(empty, { code: 'empty_profile', message: EMPTY_PROFILE_FILL_MESSAGE })
+  assert.equal(refuseAutofill({ signedIn: true, personalInfo: { firstName: 'Ada' } }), null)
 })

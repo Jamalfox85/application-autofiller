@@ -12,7 +12,14 @@ import {
   resolvePopupView,
   signedInPopupScreen,
 } from './profileSetupGate.ts'
-import { getProfileSetupCompletedAt, skipProfileSetup, startProfileSetupSession } from './profileSetupSession.ts'
+import { SIGN_OUT_LOCAL_KEYS } from '../lib/signOutLocal.ts'
+import {
+  decideSetupCompletion,
+  getProfileSetupCompletedAt,
+  readSetupCompletedAtForAccount,
+  skipProfileSetup,
+  startProfileSetupSession,
+} from './profileSetupSession.ts'
 
 function memoryStorage(initial: Record<string, unknown> = {}) {
   const data: Record<string, unknown> = { ...initial }
@@ -240,6 +247,121 @@ test('Welcome Skip and loadAppState both go through the setup-completion gate', 
 })
 
 import { resumeReviewPending } from './profileSetupGate.ts'
+
+function sessionFor(userId: string): string {
+  const body = Buffer.from(JSON.stringify({ sub: userId })).toString('base64url')
+  return JSON.stringify({
+    access_token: `hdr.${body}.sig`,
+    refresh_token: 'refresh',
+    expires_at: 4_000_000_000,
+    user: { id: userId },
+  })
+}
+
+test('onboarding completion follows the signed-in account', async () => {
+  const sessionKey = 'sb-project-auth-token'
+  const userA = 'user-a'
+  const saved = { ...cloneDefaultPersonalInfo(), firstName: 'Ada', lastName: 'Lovelace' }
+  const { storage, data } = memoryStorage({
+    [sessionKey]: sessionFor(userA),
+    [PERSONAL_INFO_KEY]: saved,
+  })
+
+  await skipProfileSetup(storage)
+  const stamp = data.profileSetupCompletedAt as { at: number; userId: string }
+  assert.equal(stamp.userId, userA)
+  assert.equal(typeof stamp.at, 'number')
+  assert.equal(await getProfileSetupCompletedAt(storage), stamp.at)
+  data[sessionKey] = sessionFor('user-b')
+  assert.equal(await getProfileSetupCompletedAt(storage), null)
+  delete data[sessionKey]
+  assert.equal(await getProfileSetupCompletedAt(storage), null)
+  data[sessionKey] = sessionFor(userA)
+  assert.equal(await getProfileSetupCompletedAt(storage), stamp.at)
+  // Skip still opens the dashboard for this account, including an empty profile.
+  assert.equal(
+    resolvePopupView({
+      personalInfo: { ...cloneDefaultPersonalInfo(), email: 'ada@example.com' },
+      profileCount: 1,
+      setupCompletedAt: stamp.at,
+    }),
+    'main',
+  )
+
+  // Sign-out wipes the profile mirror and the stamp. The session goes with it.
+  for (const key of SIGN_OUT_LOCAL_KEYS) delete data[key]
+  delete data[sessionKey]
+  assert.equal(await getProfileSetupCompletedAt(storage), null)
+  assert.equal('profileSetupCompletedAt' in data, false)
+  assert.equal('personalInfo' in data, false)
+
+  // Same account signs back in. The stamp is gone; the saved profile still skips Welcome.
+  data[sessionKey] = sessionFor(userA)
+  assert.equal(await readSetupCompletedAtForAccount(storage, userA), null)
+  assert.equal(
+    resolvePopupView({ personalInfo: saved, profileCount: 1, setupCompletedAt: null }),
+    'main',
+  )
+  const pending = gateCanFinish({
+    personalInfo: cloneDefaultPersonalInfo(),
+    profileCount: 1,
+    setupCompletedAt: null,
+    personalInfoLoaded: false,
+  })
+  assert.equal(pending.resolved, false)
+  const loaded = gateCanFinish({
+    personalInfo: saved,
+    profileCount: 1,
+    setupCompletedAt: null,
+    personalInfoLoaded: true,
+  })
+  assert.equal(loaded.view, 'main')
+  assert.equal(loaded.resolved, true)
+
+  // A different account must not inherit the previous stamp, even if it survived sign-out.
+  data.profileSetupCompletedAt = { at: stamp.at, userId: userA }
+  const other = { ...cloneDefaultPersonalInfo(), email: 'other@example.com' }
+  assert.equal(await readSetupCompletedAtForAccount(storage, 'user-b'), null)
+  assert.equal('profileSetupCompletedAt' in data, false)
+  assert.equal(
+    resolvePopupView({ personalInfo: other, profileCount: 1, setupCompletedAt: null }),
+    'welcome',
+  )
+})
+
+test('a legacy completion stamp binds to the account that still has the profile mirror', async () => {
+  const legacyAt = 1_700_000_000_000
+  const kept = memoryStorage({
+    profileSetupCompletedAt: legacyAt,
+    [PERSONAL_INFO_KEY]: { ...cloneDefaultPersonalInfo(), firstName: 'Ada' },
+  })
+  assert.equal(await readSetupCompletedAtForAccount(kept.storage, 'user-a'), legacyAt)
+  assert.deepEqual(kept.data.profileSetupCompletedAt, { at: legacyAt, userId: 'user-a' })
+
+  const leftover = memoryStorage({ profileSetupCompletedAt: legacyAt })
+  assert.equal(await readSetupCompletedAtForAccount(leftover.storage, 'user-b'), null)
+  assert.equal('profileSetupCompletedAt' in leftover.data, false)
+  assert.equal(
+    decideSetupCompletion({
+      stored: { at: legacyAt, userId: 'user-a' },
+      userId: 'user-a',
+      personalInfoPresent: false,
+    }).action,
+    'use',
+  )
+})
+
+test('sign-out still wipes the local profile and also the onboarding stamp', () => {
+  assert.ok(SIGN_OUT_LOCAL_KEYS.includes('personalInfo'))
+  assert.ok(SIGN_OUT_LOCAL_KEYS.includes('activeProfile'))
+  assert.ok(SIGN_OUT_LOCAL_KEYS.includes('profileSetupCompletedAt'))
+  assert.ok(SIGN_OUT_LOCAL_KEYS.includes('profileSetupSession'))
+  const auth = readFileSync(new URL('../composables/useAuth.ts', import.meta.url), 'utf8')
+  assert.match(auth, /SIGN_OUT_LOCAL_KEYS/)
+  assert.match(auth, /chrome\.storage\.local\.remove\(\[\.\.\.SIGN_OUT_LOCAL_KEYS\]\)/)
+  const app = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  assert.match(app, /readSetupCompletedAtForAccount\(/)
+})
 
 test('a resume on file does not skip the review step while an upload is pending', () => {
   const now = Date.now()

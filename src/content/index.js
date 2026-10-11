@@ -8,6 +8,7 @@ import {
   readAutofillTriggerForSubmission,
 } from './autofill.ts'
 import {
+  presentFillFailure,
   showAutofillNotification,
   showAutofillPrompt,
   showErrorNotification,
@@ -87,7 +88,7 @@ function onRuntimeMessage(request, _sender, sendResponse) {
         showAutofillNotification(result)
         if (onPagePaywall && result.paywall === 'soft') void showFillPaywall('soft', result)
       } else {
-        showErrorNotification(result.message)
+        presentFillFailure(result)
       }
       sendResponse(result)
     })
@@ -130,7 +131,7 @@ async function resumeAutofillAfterPro() {
     if (result.paywall === 'soft') void showFillPaywall('soft', result)
     return
   }
-  if (result.message) showErrorNotification(result.message)
+  presentFillFailure(result)
 }
 
 let hasShownPopup = false

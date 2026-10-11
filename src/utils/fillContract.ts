@@ -4,7 +4,12 @@ export type AutofillContractEvent = 'autofill_attempted' | 'autofill_succeeded' 
 
 /** Stable snake_case reasons for autofill_failed. Only set on failed events. */
 export type AutofillFailureReason =
-  'empty_profile' | 'no_fillable_fields' | 'no_matching_fields' | 'error' | 'page_unreachable'
+  | 'signed_out'
+  | 'empty_profile'
+  | 'no_fillable_fields'
+  | 'no_matching_fields'
+  | 'error'
+  | 'page_unreachable'
 
 export type AutofillContractProps = {
   ats: string
