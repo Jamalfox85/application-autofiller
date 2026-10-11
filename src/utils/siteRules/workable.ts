@@ -4,6 +4,7 @@ import {
   isWorkableApplyHost,
   type AtsPageContext,
 } from '../ats.ts'
+import { experienceForFill } from '../../lib/sync/profileRows.ts'
 import { setReactInputValue } from '../inputHandlers.ts'
 import {
   compareWorkableFill,
@@ -48,9 +49,12 @@ let fillTask: Promise<void> | null = null
 let fillTaskGeneration = -1
 let generationInfo: WorkableProfile | null = null
 let generationInfoGeneration = -1
-const outcomes = new WeakMap<HTMLElement, { generation: number; result: true | 'skip' }>()
+let commitTimer: ReturnType<typeof setTimeout> | null = null
+let outcomes = new WeakMap<HTMLElement, { generation: number; result: true | 'skip' }>()
 
 export function resetWorkableFormWatch() {
+  if (commitTimer != null) clearTimeout(commitTimer)
+  commitTimer = null
   seenFillableCount = null
   fillGeneration = 0
   completedGeneration = -1
@@ -58,6 +62,9 @@ export function resetWorkableFormWatch() {
   fillTaskGeneration = -1
   generationInfo = null
   generationInfoGeneration = -1
+  // Outcomes are keyed by element and generation. Reusing generation 1 after a
+  // reset must not replay the previous fill's skip on that same node.
+  outcomes = new WeakMap()
 }
 
 export default function workableConfig(): SiteRule {
@@ -122,43 +129,16 @@ async function runWorkableFill(doc: Document, personalInfo: WorkableProfile, gen
   generationInfo = info
   generationInfoGeneration = generation
   const saved = profileSavedResume(info)
-
-  const items: Array<{ input: HTMLElement; field: WorkableField; row: number; order: number }> = []
-  const forms = doc.querySelectorAll(FORM_ROOT)
-  let order = 0
-  for (let i = 0; i < forms.length; i++) {
-    const controls = forms[i].querySelectorAll('input, textarea, select')
-    for (let j = 0; j < controls.length; j++) {
-      const input = controls[j] as HTMLElement
-      const field = describeWorkableField(input)
-      items.push({ input, field, row: rowIndex(input, field.group), order })
-      order += 1
-    }
-  }
-  items.sort(compareWorkableFill)
-
-  let revealedExperience = false
-  let revealedEducation = false
-  const reveal = (nextPhase: ReturnType<typeof workablePhase> | 'end') => {
-    const next = nextPhase === 'end' ? WORKABLE_PHASE_END : phaseRank(nextPhase)
-    if (!revealedExperience && next > phaseRank('experience')) {
-      revealedExperience = true
-      clickAddSection(doc, 'experience', info.experience?.length ?? 0)
-    }
-    if (!revealedEducation && next > phaseRank('education')) {
-      revealedEducation = true
-      clickAddSection(doc, 'education', info.education?.length ?? 0)
-    }
+  const addedAtSaved: Record<SectionGroup, number | null> = { experience: null, education: null }
+  const rememberAdd = (group: SectionGroup) => {
+    addedAtSaved[group] = savedGroupCount(doc, group)
   }
 
-  for (const item of items) {
-    reveal(workablePhase(item.field))
-    const plan = workablePlan(item.field, info, item.row)
-    const result: true | 'skip' =
-      plan.action === 'skip' ? 'skip' : writeWorkablePlan(item.input, plan, saved) ? true : 'skip'
-    outcomes.set(item.input, { generation, result })
-  }
-  reveal('end')
+  writeVisibleControls(doc, info, saved, generation, true, rememberAdd)
+  // Add can mount an editor during the pass above. Fill that editor before
+  // the deferred Update, and do not click Add a second time for it.
+  writeVisibleControls(doc, info, saved, generation, false, rememberAdd)
+  scheduleSectionCommit(doc, info, saved, generation, addedAtSaved)
 }
 
 const WORKABLE_PHASE_END = 99
@@ -173,18 +153,114 @@ function phaseRank(phase: ReturnType<typeof workablePhase>): number {
   return 6
 }
 
-function clickAddSection(
+type SectionGroup = 'education' | 'experience'
+
+function sectionRows(info: WorkableProfile, group: SectionGroup): number {
+  if (group === 'experience') return experienceForFill(info.experience).length
+  return info.education?.length ?? 0
+}
+
+function writeVisibleControls(
   doc: Document,
-  group: 'education' | 'experience',
-  profileRows: number,
+  info: WorkableProfile,
+  saved: SavedResume | null,
+  generation: number,
+  revealSections: boolean,
+  rememberAdd: (group: SectionGroup) => void,
 ) {
-  if (profileRows <= 0) return
-  if (editorCount(doc, group) >= profileRows) return
-  const section = doc.querySelector(`[data-ui="application-form"] [data-ui="${group}"]`)
+  const items: Array<{ input: HTMLElement; field: WorkableField; row: number; order: number }> = []
+  const forms = doc.querySelectorAll(FORM_ROOT)
+  let order = 0
+  for (let i = 0; i < forms.length; i++) {
+    const controls = forms[i].querySelectorAll('input, textarea, select')
+    for (let j = 0; j < controls.length; j++) {
+      const input = controls[j] as HTMLElement
+      if (isDatePopupControl(input)) continue
+      const field = describeWorkableField(input)
+      items.push({ input, field, row: rowIndex(input, field.group), order })
+      order += 1
+    }
+  }
+  items.sort(compareWorkableFill)
+
+  let revealedExperience = false
+  let revealedEducation = false
+  const reveal = (nextPhase: ReturnType<typeof workablePhase> | 'end') => {
+    if (!revealSections) return
+    const next = nextPhase === 'end' ? WORKABLE_PHASE_END : phaseRank(nextPhase)
+    if (!revealedExperience && next > phaseRank('experience')) {
+      revealedExperience = true
+      if (clickAddSection(doc, 'experience', sectionRows(info, 'experience'))) rememberAdd('experience')
+    }
+    if (!revealedEducation && next > phaseRank('education')) {
+      revealedEducation = true
+      if (clickAddSection(doc, 'education', sectionRows(info, 'education'))) rememberAdd('education')
+    }
+  }
+
+  for (const item of items) {
+    if (generation !== fillGeneration) return
+    const seen = outcomes.get(item.input)
+    if (seen && seen.generation === generation) continue
+    reveal(workablePhase(item.field))
+    const plan = workablePlan(item.field, info, item.row)
+    const result: true | 'skip' =
+      plan.action === 'skip' ? 'skip' : writeWorkablePlan(item.input, plan, saved) ? true : 'skip'
+    outcomes.set(item.input, { generation, result })
+  }
+  reveal('end')
+}
+
+// Workable applies Update from React state. A blur in the same turn as the
+// value write reads state that has not flushed yet and wipes the row, and it
+// leaves the month popup open. Close and Update on a later turn, once.
+function scheduleSectionCommit(
+  doc: Document,
+  info: WorkableProfile,
+  saved: SavedResume | null,
+  generation: number,
+  addedAtSaved: Record<SectionGroup, number | null>,
+) {
+  if (commitTimer != null) clearTimeout(commitTimer)
+  const attempted = new Set<Element>()
+  const groups: SectionGroup[] = ['experience', 'education']
+  const limit = Math.min(8, sectionRows(info, 'experience') + sectionRows(info, 'education') + 1)
+  const step = (left: number) => {
+    commitTimer = null
+    if (generation !== fillGeneration || left < 0) return
+    try {
+      closeOpenDatePickers(doc)
+      commitOpenEditors(doc, attempted)
+      let grew = false
+      for (let i = 0; i < groups.length; i++) {
+        const group = groups[i]
+        const remembered = addedAtSaved[group]
+        const savedRows = savedGroupCount(doc, group)
+        if (remembered != null && savedRows <= remembered) continue
+        const before = editorCount(doc, group)
+        const clicked = clickAddSection(doc, group, sectionRows(info, group))
+        if (!clicked) continue
+        addedAtSaved[group] = savedRows
+        if (editorCount(doc, group) > before) grew = true
+      }
+      if (!grew) return
+      writeVisibleControls(doc, info, saved, generation, false, () => {})
+    } catch {
+      return
+    }
+    commitTimer = setTimeout(() => step(left - 1), 0)
+  }
+  commitTimer = setTimeout(() => step(limit), 0)
+}
+
+function clickAddSection(doc: Document, group: SectionGroup, profileRows: number): boolean {
+  if (profileRows <= 0) return false
+  if (editorCount(doc, group) + savedGroupCount(doc, group) >= profileRows) return false
+  const section = sectionElement(doc, group)
   const button = section?.querySelector('button[data-ui="add-section"]')
-  if (!button || button.tagName !== 'BUTTON') return
+  if (!button || button.tagName !== 'BUTTON') return false
   const control = button as HTMLButtonElement
-  if (control.disabled) return
+  if (control.disabled) return false
   if (
     isWorkableAdvanceControl({
       dataUi: control.getAttribute('data-ui'),
@@ -195,15 +271,82 @@ function clickAddSection(
       label: control.textContent,
     })
   ) {
-    return
+    return false
   }
   control.click()
+  return true
 }
 
-function editorCount(doc: Document, group: 'education' | 'experience'): number {
-  const section = doc.querySelector(`[data-ui="application-form"] [data-ui="${group}"]`)
+function sectionElement(doc: Document, group: SectionGroup): Element | null {
+  return doc.querySelector(`[data-ui="application-form"] [data-ui="${group}"]`)
+}
+
+function editorCount(doc: Document, group: SectionGroup): number {
+  const section = sectionElement(doc, group)
   if (!section) return 0
   return section.querySelectorAll('[data-ui="editor"]').length
+}
+
+// A saved education/experience card is [data-ui="group"]. The edit control is
+// not in the DOM until its menu opens, so the card itself is the row count.
+function savedGroupCount(doc: Document, group: SectionGroup): number {
+  const section = sectionElement(doc, group)
+  if (!section) return 0
+  return section.querySelectorAll('[data-ui="group"]').length
+}
+
+function savedGroupCountIn(section: Element): number {
+  return section.querySelectorAll('[data-ui="group"]').length
+}
+
+function commitOpenEditors(doc: Document, attempted: Set<Element>) {
+  const groups: SectionGroup[] = ['experience', 'education']
+  for (let i = 0; i < groups.length; i++) {
+    const section = sectionElement(doc, groups[i])
+    if (!section) continue
+    const editors = section.querySelectorAll('[data-ui="editor"]')
+    for (let j = 0; j < editors.length; j++) {
+      const editor = editors[j]
+      if (attempted.has(editor)) continue
+      if (!editorReadyToSave(editor, groups[i])) continue
+      const button = editor.querySelector('button[data-ui="save-section"]')
+      if (!button || button.tagName !== 'BUTTON') continue
+      const control = button as HTMLButtonElement
+      if (control.disabled) continue
+      if (
+        isWorkableAdvanceControl({
+          dataUi: control.getAttribute('data-ui'),
+          type: control.type,
+        }) ||
+        isWorkableResumeAutofillControl({
+          dataUi: control.getAttribute('data-ui'),
+          label: control.textContent,
+        })
+      ) {
+        continue
+      }
+      attempted.add(editor)
+      closeOpenDatePickers(editor)
+      control.click()
+    }
+  }
+}
+
+function editorReadyToSave(editor: Element, group: SectionGroup): boolean {
+  const name = group === 'experience' ? 'title' : 'school'
+  const field = editor.querySelector(`input[name="${name}"]`)
+  if (!field || field.tagName !== 'INPUT') return false
+  return (field as HTMLInputElement).value.trim().length > 0
+}
+
+function closeOpenDatePickers(root: ParentNode) {
+  if (!root.querySelector('.react-datepicker, .react-datepicker-popper, .react-datepicker__tab-loop')) return
+  const inputs = root.querySelectorAll('input[name="start_date"], input[name="end_date"]')
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i]
+    if (input.tagName !== 'INPUT') continue
+    closeWorkableDatePicker(input as HTMLInputElement)
+  }
 }
 
 function insideWorkableForm(input: HTMLElement): boolean {
@@ -216,12 +359,22 @@ function countWorkableFillable(): number {
     const forms = document.querySelectorAll(FORM_ROOT)
     let total = 0
     for (let i = 0; i < forms.length; i++) {
-      total += forms[i].querySelectorAll('input, textarea, select').length
+      const controls = forms[i].querySelectorAll('input, textarea, select')
+      for (let j = 0; j < controls.length; j++) {
+        // An open month/year popup mounts inputs inside the form. Counting them
+        // would schedule another fill, which focuses the date again.
+        if (isDatePopupControl(controls[j])) continue
+        total += 1
+      }
     }
     return total
   } catch {
     return 0
   }
+}
+
+function isDatePopupControl(el: Element): boolean {
+  return !!el.closest('.react-datepicker, .react-datepicker__tab-loop, .react-datepicker-popper')
 }
 
 function controlType(input: HTMLElement): string {
@@ -266,7 +419,7 @@ function rowIndex(input: HTMLElement, group: WorkableGroup | null | undefined): 
   if (!section || !editor) return -1
   const editors = section.querySelectorAll('[data-ui="editor"]')
   for (let i = 0; i < editors.length; i++) {
-    if (editors[i] === editor) return i
+    if (editors[i] === editor) return savedGroupCountIn(section) + i
   }
   return -1
 }
@@ -527,8 +680,52 @@ function writeWorkableMonthYear(input: HTMLInputElement, value: string): boolean
     input.dispatchEvent(new KeyboardEventCtor('keyup', { key: char, bubbles: true }))
   }
   dispatch(input, 'change')
-  dispatch(input, 'blur')
+  // Leave the popup for the deferred close. Blurring here, before React flushes
+  // the typed month, makes Workable revert the field.
   return input.value === expected
+}
+
+// A synthetic Escape without keyCode does not close react-datepicker, and a
+// real blur reverts the month. Moving focus with mousedown keeps the value.
+function closeWorkableDatePicker(input: HTMLInputElement) {
+  const view = input.ownerDocument?.defaultView
+  if (!view) return
+  const editor = input.closest('[data-ui="editor"]')
+  const host = editor?.querySelector(
+    'input[name="title"], input[name="school"], input[name="company"], input[name="field_of_study"], textarea',
+  )
+  if (host && host !== input && host.tagName) {
+    const MouseEventCtor = view.MouseEvent ?? MouseEvent
+    try {
+      host.dispatchEvent(new MouseEventCtor('mousedown', { bubbles: true, cancelable: true }))
+    } catch {
+      // The node can be in a document whose events cannot be constructed.
+    }
+    try {
+      if (typeof (host as HTMLElement).focus === 'function') (host as HTMLElement).focus()
+    } catch {
+      // Detached jsdom nodes can refuse focus.
+    }
+    if (!input.ownerDocument?.querySelector('.react-datepicker, .react-datepicker-popper')) return
+  }
+  const KeyboardEventCtor = view.KeyboardEvent ?? KeyboardEvent
+  try {
+    const event = new KeyboardEventCtor('keydown', {
+      key: 'Escape',
+      code: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    })
+    try {
+      Object.defineProperty(event, 'keyCode', { get: () => 27 })
+      Object.defineProperty(event, 'which', { get: () => 27 })
+    } catch {
+      // keyCode is non-configurable in some realms. The key name is still set.
+    }
+    input.dispatchEvent(event)
+  } catch {
+    // Ignore a document that cannot construct a keyboard event.
+  }
 }
 
 function clickChoice(input: HTMLInputElement) {

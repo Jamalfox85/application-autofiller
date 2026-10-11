@@ -860,6 +860,13 @@ test('formChanged refills only when the Workable form gains controls', () => {
     assert.equal(rule.formChanged?.([]), false)
     dom.window.document
       .querySelector('[data-ui="application-form"]')
+      ?.insertAdjacentHTML(
+        'beforeend',
+        '<div class="react-datepicker"><input id="popup" /><div class="react-datepicker__tab-loop"><input id="loop" /></div></div>',
+      )
+    assert.equal(rule.formChanged?.([]), false)
+    dom.window.document
+      .querySelector('[data-ui="application-form"]')
       ?.insertAdjacentHTML('beforeend', '<div data-ui="editor"><input id="c" /></div>')
     assert.equal(rule.formChanged?.([]), true)
     assert.equal(rule.formChanged?.([]), false)
@@ -1005,6 +1012,102 @@ test('month/year datepicker text sticks and requiring work authorization selects
   assert.equal(clicks.includes('custom-yes'), false)
   assert.equal(clicks.includes('custom-no'), false)
   assert.equal(workableMaySubmit(), false)
+})
+
+test('open month pickers close and education and experience rows are saved', async () => {
+  resetWorkableFormWatch()
+  const dom = new JSDOM(`<!doctype html><body>
+    <form data-ui="application-form">
+      <input data-ui="firstname" id="firstname" />
+      <div data-ui="experience" id="experience"></div>
+      <div data-ui="education" id="education"></div>
+    </form>
+  </body>`)
+  const doc = dom.window.document
+  const clicks: string[] = []
+  let serial = 0
+  const mount = (group: 'experience' | 'education', section: HTMLElement) => {
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.setAttribute('data-ui', 'add-section')
+    button.id = `add-${group}`
+    button.textContent = '+ Add'
+    button.addEventListener('click', () => {
+      clicks.push(`add-${group}`)
+      serial += 1
+      const id = `${group}-${serial}`
+      const editor = doc.createElement('div')
+      editor.setAttribute('data-ui', 'editor')
+      const fieldName = group === 'experience' ? 'title' : 'school'
+      editor.innerHTML = `
+        <input name="${fieldName}" id="name-${id}" />
+        <input name="start_date" id="start-${id}" placeholder="MM/YYYY" />
+        <input name="end_date" id="end-${id}" placeholder="MM/YYYY" />
+        <button type="button" data-ui="save-section" id="save-${id}">Update</button>
+        <button type="button" data-ui="cancel-section" id="cancel-${id}">Cancel</button>
+      `
+      section.appendChild(editor)
+      for (const inputId of [`start-${id}`, `end-${id}`]) {
+        const input = doc.getElementById(inputId) as HTMLInputElement
+        input.addEventListener('focus', () => {
+          if (input.nextElementSibling?.classList.contains('react-datepicker')) return
+          const popup = doc.createElement('div')
+          popup.className = 'react-datepicker'
+          const extra = doc.createElement('input')
+          extra.className = 'popup-input'
+          popup.appendChild(extra)
+          input.after(popup)
+        })
+        input.addEventListener('keydown', (event) => {
+          const keyCode = (event as KeyboardEvent).keyCode
+          const popup = input.nextElementSibling
+          if (keyCode === 27 && popup?.classList.contains('react-datepicker')) popup.remove()
+        })
+      }
+      doc.getElementById(`name-${id}`)?.addEventListener('mousedown', () => {
+        editor.querySelectorAll('.react-datepicker').forEach((node) => node.remove())
+      })
+      doc.getElementById(`save-${id}`)?.addEventListener('click', () => {
+        clicks.push(`save-${id}`)
+        const card = doc.createElement('div')
+        card.setAttribute('data-ui', 'group')
+        card.dataset.label = (doc.getElementById(`name-${id}`) as HTMLInputElement).value
+        card.dataset.start = (doc.getElementById(`start-${id}`) as HTMLInputElement).value
+        card.dataset.end = (doc.getElementById(`end-${id}`) as HTMLInputElement).value
+        editor.remove()
+        section.appendChild(card)
+      })
+      doc.getElementById(`cancel-${id}`)?.addEventListener('click', () => clicks.push(`cancel-${id}`))
+    })
+    section.appendChild(button)
+  }
+  mount('experience', doc.getElementById('experience') as HTMLElement)
+  mount('education', doc.getElementById('education') as HTMLElement)
+
+  const rule = workableConfig()
+  assert.equal(await rule.apply(doc.getElementById('firstname') as HTMLInputElement, '', profile as PersonalInfo), true)
+  for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+
+  const expCards = doc.querySelectorAll('[data-ui="experience"] [data-ui="group"]')
+  const eduCards = doc.querySelectorAll('[data-ui="education"] [data-ui="group"]')
+  assert.equal(expCards.length, 2)
+  assert.equal((expCards[0] as HTMLElement).dataset.label, 'Engineer')
+  assert.equal((expCards[0] as HTMLElement).dataset.start, '03/2018')
+  assert.equal((expCards[0] as HTMLElement).dataset.end, '')
+  assert.equal((expCards[1] as HTMLElement).dataset.label, 'Mathematician')
+  assert.equal((expCards[1] as HTMLElement).dataset.start, '01/2014')
+  assert.equal((expCards[1] as HTMLElement).dataset.end, '02/2018')
+  assert.equal(eduCards.length, 1)
+  assert.equal((eduCards[0] as HTMLElement).dataset.label, 'University of London')
+  assert.equal((eduCards[0] as HTMLElement).dataset.start, '01/2010')
+  assert.equal((eduCards[0] as HTMLElement).dataset.end, '06/2014')
+  assert.equal(doc.querySelector('[data-ui="editor"]'), null)
+  assert.equal(doc.querySelector('.react-datepicker'), null)
+  assert.equal(clicks.filter((id) => id.startsWith('cancel-')).length, 0)
+  assert.equal(clicks.filter((id) => id === 'add-experience').length, 2)
+  assert.equal(clicks.filter((id) => id === 'add-education').length, 1)
+  assert.equal(clicks.filter((id) => id.startsWith('save-')).length, 3)
+  resetWorkableFormWatch()
 })
 
 const RESUME_FORM = `<!doctype html><body>
