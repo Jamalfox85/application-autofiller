@@ -11,6 +11,7 @@ const SCORE_SURFACE_SELECTOR = [
   '.ashby-job-posting-description',
   '[data-ui="job-description"]',
   '[data-qa="job-description"]',
+  '.jv-job-detail-description',
 ].join(', ')
 
 type SurfaceDocument = {

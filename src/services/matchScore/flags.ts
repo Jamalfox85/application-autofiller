@@ -11,10 +11,12 @@
 // Workable: [data-ui="job-description"] on the overview, else the widget accounts
 // response. www.workable.com/api/accounts now redirects there.
 // iCIMS: .iCIMS_JobContent on the job content frame. The shell document does not
-// contain it. Jobvite, BambooHR, and Workday stay off: captured apply/job pages
-// have no description body, and no unauthenticated posting host is confirmed.
+// contain it.
+// Jobvite: .jv-job-detail-description on the job page. The apply form does not
+// have it. BambooHR and Workday stay off: captured pages have no description
+// body, and no unauthenticated posting host is confirmed.
 
-const DEFAULT_ON = new Set(['greenhouse', 'ashby', 'lever', 'workable', 'icims'])
+const DEFAULT_ON = new Set(['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite'])
 
 function flagString(read: () => unknown): string | undefined {
   try {

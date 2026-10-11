@@ -83,10 +83,10 @@ function fixturePage(file: string, href: string): ExtractPage {
 test('feature flags default on for proven extractors and off for the rest', () => {
   assert.equal(matchScoreEnabled(), true)
   assert.equal(matchScoreEnabled('false'), false)
-  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable', 'icims']) {
+  for (const ats of ['greenhouse', 'ashby', 'lever', 'workable', 'icims', 'jobvite']) {
     assert.equal(atsExtractorEnabled(ats), true, ats)
   }
-  for (const ats of ['jobvite', 'bamboohr', 'workday']) {
+  for (const ats of ['bamboohr', 'workday']) {
     assert.equal(atsExtractorEnabled(ats), false, ats)
   }
   assert.equal(atsExtractorEnabled('greenhouse', 'false'), false)
@@ -377,6 +377,29 @@ test('iCIMS reads the job content frame and not the shell, login, or candidate d
     assert.equal(await extractIcims(page), null, page.href)
     assert.equal(await extractJobDescription('icims', page, fetchPosting), null, page.href)
   }
+  assert.equal(calls, 0)
+})
+
+test('Jobvite job page reads the description and the apply form does not', async () => {
+  let calls = 0
+  const fetchPosting = async () => {
+    calls += 1
+    return '{}'
+  }
+  const job = fixturePage('jobvite-job.html', 'https://jobs.jobvite.com/uplight/job/oPTRAfwT')
+  assert.equal(job.document?.querySelector('form'), null)
+  assert.equal(matchScoreSurfaceReady(job.document, job.href), true)
+  const extraction = await extractJobDescription('jobvite', job, fetchPosting)
+  assert.equal(extraction?.source, 'dom')
+  assert.equal(extraction?.text, 'Description\nUplight builds energy software.\nOwn the data platform.')
+  assert.equal(extraction?.text.includes('Software Engineer'), false)
+
+  const apply = fixturePage('jobvite-application.html', 'https://jobs.jobvite.com/uplight/job/oPTRAfwT/apply')
+  assert.equal(matchScoreSurfaceReady(apply.document, apply.href), true)
+  assert.equal(await extractJobDescription('jobvite', apply, fetchPosting), null)
+  const board = fixturePage('jobvite-board.html', 'https://jobs.jobvite.com/uplight')
+  assert.equal(matchScoreSurfaceReady(board.document, board.href), false)
+  assert.equal(await extractJobDescription('jobvite', board, fetchPosting), null)
   assert.equal(calls, 0)
 })
 
