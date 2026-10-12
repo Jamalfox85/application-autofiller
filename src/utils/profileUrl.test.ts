@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { leverProfileUrl, normalizeProfileUrl } from './profileUrl.ts'
+import { leverProfileUrl, linkedinProfileUrl, normalizeProfileUrl } from './profileUrl.ts'
 
 describe('profile URLs', () => {
   it('adds https when a profile link is constructed without a scheme', () => {
@@ -25,5 +25,21 @@ describe('profile URLs', () => {
     assert.equal(leverProfileUrl('http://github.com/ada/repo'), 'https://github.com/ada/repo')
     assert.equal(leverProfileUrl('http://portfolio.example/ada'), 'http://portfolio.example/ada')
     assert.equal(leverProfileUrl(''), '')
+  })
+})
+
+describe('LinkedIn links', () => {
+  it('writes linkedin.com links as https://www.linkedin.com', () => {
+    assert.equal(linkedinProfileUrl('linkedin.com/in/ada'), 'https://www.linkedin.com/in/ada')
+    assert.equal(linkedinProfileUrl('https://linkedin.com/in/ada'), 'https://www.linkedin.com/in/ada')
+    assert.equal(linkedinProfileUrl('http://www.linkedin.com/in/ada/'), 'https://www.linkedin.com/in/ada/')
+    assert.equal(linkedinProfileUrl('www.linkedin.com/in/ada'), 'https://www.linkedin.com/in/ada')
+    assert.equal(linkedinProfileUrl('https://LinkedIn.com/in/ada?trk=x'), 'https://www.linkedin.com/in/ada?trk=x')
+  })
+  it('leaves country hosts, other sites and empty values alone', () => {
+    assert.equal(linkedinProfileUrl('https://uk.linkedin.com/in/ada'), 'https://uk.linkedin.com/in/ada')
+    assert.equal(linkedinProfileUrl('github.com/ada'), 'https://github.com/ada')
+    assert.equal(linkedinProfileUrl(''), '')
+    assert.equal(linkedinProfileUrl(null), '')
   })
 })

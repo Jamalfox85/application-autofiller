@@ -25,6 +25,7 @@ const snapshot = {
 test('normalizeParsedResume splits the name and maps structured address parts', () => {
   const out = normalizeParsedResume({ name: 'Jane Q Doe', ...snapshot })
   assert.equal(out.firstName, 'Jane')
+  assert.equal(out.linkedin, 'https://www.linkedin.com/in/janedoe')
   assert.equal(out.middleName, 'Q')
   assert.equal(out.lastName, 'Doe')
   assert.equal(out.phone, '555-0100')

@@ -2,6 +2,7 @@
 // (`candidate_profiles` + child tables). No supabase-js import, so node:test can load it.
 // See ./profile.ts for the read/write calls and ./shared.ts for the overall sync model.
 import { cloneDefaultPersonalInfo } from '../personalInfoDefaults.ts'
+import { linkedinProfileUrl } from '../../utils/profileUrl.ts'
 import { normalizeParsedResume, splitName } from '../parsedResume.ts'
 import type { CustomResponse, Education, Experience, PersonalInfo } from '../../types/index.ts'
 
@@ -316,7 +317,9 @@ export function dbRowsToProfile(rows: {
     state: str(p.state),
     zip: str(p.zip),
     country: str(p.country),
-    linkedin: str(p.linkedin),
+    // Saved before the www form: shown and filled as https://www.linkedin.com/...,
+    // and stored that way on the next save.
+    linkedin: linkedinProfileUrl(str(p.linkedin)),
     website: str(p.website),
     github: str(p.github),
     resumeFileName: str(p.resume_file_name),

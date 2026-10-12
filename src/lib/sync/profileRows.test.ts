@@ -76,6 +76,15 @@ test('an empty resume is omitted so a save cannot clear a stored file', () => {
   assert.equal(withResume.profile.resume_file_path, `u/${PROFILE}/resume.pdf`)
 })
 
+test('a LinkedIn link saved without www comes back as https://www.linkedin.com', () => {
+  const rows = profileToDbRows({ ...filled(), linkedin: 'https://linkedin.com/in/ada' }, PROFILE)
+  assert.equal(rows.profile.linkedin, 'https://linkedin.com/in/ada')
+  const info = dbRowsToProfile({ profile: { ...rows.profile, id: PROFILE, name: 'Primary' }, ...rows.children })
+  assert.equal(info.linkedin, 'https://www.linkedin.com/in/ada')
+  // GitHub keeps its own address.
+  assert.equal(info.github, filled().github)
+})
+
 test('get_profile rows map back to PersonalInfo and custom responses', () => {
   const rows = profileToDbRows(filled(), PROFILE)
   const info = dbRowsToProfile({

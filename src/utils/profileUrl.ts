@@ -20,6 +20,25 @@ export function normalizeProfileUrl(value: string | null | undefined): string {
   return `https://${trimmed.replace(/^\/+/, '')}`
 }
 
+// LinkedIn's own address is www.linkedin.com, and some application forms only
+// accept that form. A linkedin.com link (or an http one) is written as
+// https://www.linkedin.com/...; country hosts (uk.linkedin.com) and every other
+// site are left as entered.
+export function linkedinProfileUrl(value: string | null | undefined): string {
+  const url = normalizeProfileUrl(value)
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    if (host !== 'linkedin.com' && host !== 'www.linkedin.com') return url
+    parsed.protocol = 'https:'
+    parsed.hostname = 'www.linkedin.com'
+    return parsed.href
+  } catch {
+    return url
+  }
+}
+
 // Hosted application URL fields. Scheme-less values get https. http on the
 // profile hosts we construct (github.com, linkedin.com) is rewritten to https.
 // Any other full URL is left exactly as entered.

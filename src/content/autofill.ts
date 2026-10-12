@@ -1,3 +1,4 @@
+import { linkedinProfileUrl } from '../utils/profileUrl.ts'
 import { matchFieldToData } from './fieldMatch.ts'
 import { embeddedIcimsFillableFields } from '../utils/siteRules/icimsFrameAutofill.js'
 import { icimsSelectNeedsFill } from '../utils/siteRules/icimsFields.ts'
@@ -310,6 +311,10 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
         requestActive: requestActiveProfileForFill,
       }),
     )
+    // A LinkedIn link saved before the www form, including in the local mirror.
+    if (personalInfo && typeof personalInfo.linkedin === 'string' && personalInfo.linkedin) {
+      personalInfo.linkedin = linkedinProfileUrl(personalInfo.linkedin)
+    }
     const customResponses = stored.customResponses || {}
     const reviewHighlightEnabled = stored.reviewHighlightEnabled ?? true
 

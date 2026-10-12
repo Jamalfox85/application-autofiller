@@ -1,7 +1,7 @@
 // Pure mapping from the resume API's parsed shape to the app's ParsedResumeData. No
 // supabase import, so node:test and the profile row mapper can load it.
 import { canadaProvinces, ukRegions, usStates } from '../utils/locationLists.ts'
-import { normalizeProfileUrl } from '../utils/profileUrl.ts'
+import { linkedinProfileUrl, normalizeProfileUrl } from '../utils/profileUrl.ts'
 import type { Education, Experience, ParsedResumeData } from '../types/index.ts'
 
 // ---------------------------------------------------------------------------
@@ -299,7 +299,7 @@ function normalizeUrl(value: string): string {
 
 function normalizeLinkedin(value: string): string {
   if (!value) return ''
-  if (/^https?:\/\//i.test(value)) return value
-  if (/^(www\.)?linkedin\.com/i.test(value)) return `https://${value}`
-  return `https://linkedin.com/${value.replace(/^\/+/, '')}`
+  if (/^https?:\/\//i.test(value)) return linkedinProfileUrl(value)
+  if (/^(www\.)?linkedin\.com/i.test(value)) return linkedinProfileUrl(value)
+  return linkedinProfileUrl(`linkedin.com/${value.replace(/^\/+/, '')}`)
 }
