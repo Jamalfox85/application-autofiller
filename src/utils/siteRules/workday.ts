@@ -26,6 +26,7 @@ import {
   matchingOptionText,
   workdayExperiencePanelIsBlank,
   workdayInputInExperiencePanel,
+  workdayEducationYear,
   workdayPanelMatchesExperience,
   nextWorkdayFormSignature,
   workdayAccountCredentialKind,
@@ -456,8 +457,7 @@ export default function workdayConfig(): SiteRule {
       // only knows the first profile job, so letting it through copies that job
       // into every empty row.
       if (workdayInputInExperiencePanel(input)) return 'skip'
-      // Education From / To years stay blank. Experience dates are a different
-      // panel and are still filled from the profile.
+      // From / To are written by the education section handler.
       if (workdayInputIsEducationYear(input)) return 'skip'
       // School or University is a single-select prompt. The closed box can show
       // the profile name while Workday still has no selected school. Field of
@@ -465,7 +465,11 @@ export default function workdayConfig(): SiteRule {
       if (workdayElementIsSchool(input, fieldText)) {
         const school = profileSchoolName(input, personalInfo)
         if (!school) return 'skip'
-        const selected = await selectWorkdayPromptQuery(input, school, undefined, { pillPrompt: true })
+        // Queued with the education handler. Run alongside its Field of Study step,
+        // this attempt missed the pill and cleared the school the handler had typed.
+        const selected = await inEducationQueue(() =>
+          selectWorkdayPromptQuery(input, school, undefined, { pillPrompt: true }),
+        )
         return selected ? true : 'skip'
       }
       // A degree that already shows the chosen label must not be typed again.
@@ -482,7 +486,7 @@ export default function workdayConfig(): SiteRule {
         }
         const button = degreeButtonFor(input)
         if (button) {
-          const label = await selectWorkdayListedDegree(button, degree)
+          const label = await inEducationQueue(() => selectWorkdayListedDegree(button, degree))
           return label ? true : 'skip'
         }
         const select = degreeSelectFor(input)
@@ -2393,23 +2397,44 @@ async function fillEducationSection(section: Element, education: PersonalInfo['e
     await fillWorkdayInput(gpaInput, education.gpa)
     console.log('✓ Filled GPA')
   }
+
+  await fillEducationYear(section, 'firstYearAttended', education.startYear)
+  await fillEducationYear(section, 'lastYearAttended', education.graduationYear)
+}
+
+// From and To (Actual or Expected) are year-only boxes. A year already on the
+// row is the person's; only an empty box is written.
+async function fillEducationYear(section: Element, metadataId: string, value: string | null | undefined) {
+  const year = workdayEducationYear(value)
+  if (!year) return
+  const scope = fieldScope(section, metadataId)
+  if (!scope) return
+  const input = workdayDatePartInput(scope, 'year')
+  if (!input || input.value.trim()) return
+  await fillWorkdayInput(input, year)
 }
 
 let educationFillQueue: Promise<unknown> = Promise.resolve()
 
-// One row per profile education. An empty Education 1 is filled in place.
-// Add is only for a later education when no blank row is left. From / To
-// years are not written.
-export function fillWorkdayEducation(
-  root: ParentNode,
-  personalInfo: PersonalInfo | null | undefined,
-): Promise<number> {
-  const run = educationFillQueue.then(() => fillWorkdayEducationOnce(root, personalInfo))
+// Education rows have two writers: the section handler and the input loop's
+// School / Degree branch. One queue keeps them from typing into the same row at once.
+function inEducationQueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = educationFillQueue.then(task)
   educationFillQueue = run.then(
     () => undefined,
     () => undefined,
   )
   return run
+}
+
+// One row per profile education. An empty Education 1 is filled in place.
+// Add is only for a later education when no blank row is left. From / To
+// years are written only into empty boxes.
+export function fillWorkdayEducation(
+  root: ParentNode,
+  personalInfo: PersonalInfo | null | undefined,
+): Promise<number> {
+  return inEducationQueue(() => fillWorkdayEducationOnce(root, personalInfo))
 }
 
 async function fillWorkdayEducationOnce(

@@ -315,12 +315,27 @@ function workdayPanelElement(node: Element): Element | null {
   return node.closest('[role="group"][aria-labelledby$="-panel"]')
 }
 
-export function workdayInputInExperiencePanel(node: Element): boolean {
+function workdayPanelKind(node: Element): WorkdaySectionKind | null {
   const panel = workdayPanelElement(node)
-  if (!panel) return false
+  if (!panel) return null
   const labelledBy = panel.getAttribute('aria-labelledby') || ''
   const text = headingText(panel, labelledBy) || labelledBy.replace(/-panel$/, '').replace(/-/g, ' ')
-  return workdaySectionKindFromLabel(text) === 'experience'
+  return workdaySectionKindFromLabel(text)
+}
+
+export function workdayInputInExperiencePanel(node: Element): boolean {
+  return workdayPanelKind(node) === 'experience'
+}
+
+export function workdayInputInEducationPanel(node: Element): boolean {
+  return workdayPanelKind(node) === 'education'
+}
+
+// Education From / To are year-only date sections. "2019" and "May 2019" give
+// 2019; anything without a four-digit year is not written.
+export function workdayEducationYear(value: string | null | undefined): string | null {
+  const match = (value || '').match(/\b(19|20)\d{2}\b/)
+  return match ? match[0] : null
 }
 
 function experienceControlValue(panel: ParentNode, metadataId: string): string {

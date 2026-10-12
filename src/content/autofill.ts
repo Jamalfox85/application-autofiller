@@ -5,7 +5,11 @@ import { coerceFillText, refuseAutofill } from '../utils/fillValue.ts'
 import { hasStoredSession } from '../lib/storedSession.ts'
 import { siteRules } from '../utils/siteRules/index.ts'
 import { isWorkdayApplyHost } from '../utils/siteRules/workdayAccount.ts'
-import { fillWorkdayApplicationQuestions, fillWorkdayWorkExperience } from '../utils/siteRules/workday.ts'
+import {
+  fillWorkdayApplicationQuestions,
+  fillWorkdayEducation,
+  fillWorkdayWorkExperience,
+} from '../utils/siteRules/workday.ts'
 import { beginLeverFill, readLeverEeoTelemetry } from '../utils/siteRules/lever.ts'
 import { isWorkableApplyPage } from '../utils/siteRules/workable.ts'
 import {
@@ -363,6 +367,9 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     const questionFills = onWorkday ? await fillWorkdayApplicationQuestions(document, personalInfo) : 0
     // A later click must not append another copy of a job already on My Experience.
     const experienceFills = onWorkday ? await fillWorkdayWorkExperience(document, personalInfo) : 0
+    // Education rows skip the input loop below, so the click fills them here. The
+    // handler is queued with the page-load pass and reuses a row it already filled.
+    const educationFills = onWorkday ? await fillWorkdayEducation(document, personalInfo) : 0
     beginLeverFill()
 
     // The iCIMS career shell counts hidden inputs and has no application fields.
@@ -382,7 +389,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
 
     await reportAttempt()
 
-    if (inputsToFill.length === 0 && questionFills === 0 && experienceFills === 0) {
+    if (inputsToFill.length === 0 && questionFills === 0 && experienceFills === 0 && educationFills === 0) {
       await reportFailed('no_fillable_fields')
       return { success: false, message: 'No fillable fields found' }
     }
@@ -392,7 +399,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
 
     const fillRecords: FillRecord[] = []
     const unfilledInputs: FormField[] = []
-    filledCount += questionFills + experienceFills
+    filledCount += questionFills + experienceFills + educationFills
 
     const onIcims = window.location.hostname.toLowerCase().includes('icims.com')
 

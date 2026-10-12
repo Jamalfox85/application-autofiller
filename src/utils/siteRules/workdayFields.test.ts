@@ -1932,7 +1932,7 @@ test('Adobe school typeahead leaves the field empty when that school is not offe
 
 // Education 1 is already on the page and empty. The school name sitting in the
 // suggestion list is the query, not a pill. Add must not create Education 2.
-// From / To years stay blank even when the profile has them.
+// From / To years are written from the profile into empty boxes.
 function adobeEducationPage(catalog: string[], options?: { delayPanel?: boolean }) {
   const dom = new JSDOM(`<!doctype html><body>
     <div role="group" aria-labelledby="education-section">
@@ -2125,14 +2125,33 @@ test('empty Education 1 is filled in place and the school is a matching pill', a
   assert.equal(input.value, '')
   assert.equal(doc.getElementById('degree')?.textContent, 'Bachelors')
   assert.equal((doc.getElementById('gpa') as HTMLInputElement).value, '3.8')
-  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
-  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
-  assert.notEqual((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
-  assert.notEqual((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
   const again = await fillWorkdayEducation(doc, adobeEducationProfile)
   assert.equal(again, 1)
   assert.equal(adds(), 0)
   assert.equal(doc.getElementById('degree')?.textContent, 'Bachelors')
+})
+
+test('School from the input loop and the education handler at the same time keeps one pill', async () => {
+  const { doc, clicked } = adobeEducationPage(['Kenyon College', 'Kennesaw State University'])
+  const input = doc.getElementById('school-input') as HTMLInputElement
+  const workday = await import('./workday.ts')
+  const rule = workday.default()
+  // Both writers run through one queue. This fixture answers instantly and has
+  // no Field of Study prompt, so it checks the outcome, not the live timing.
+  const [, fromLoop] = await Promise.all([
+    workday.fillWorkdayEducation(doc, adobeEducationProfile),
+    rule.apply(input, 'school or university', adobeEducationProfile),
+  ])
+  assert.equal(fromLoop, true)
+  const pill = doc.querySelector(
+    '#school-pills [data-automation-id="selectedItem"] [data-automation-id="promptOption"]',
+  )
+  assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
+  assert.deepEqual(clicked, ['Kennesaw State University'])
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
 })
 
 test('Education 1 that appears after the add button is not given an Education 2', async () => {
@@ -2145,8 +2164,8 @@ test('Education 1 that appears after the add button is not given an Education 2'
   assert.equal(doc.getElementById('Education-1-panel') != null, true)
   const pill = doc.querySelector('#school-pills [data-automation-id="promptOption"]')
   assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
-  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
-  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
 })
 
 test('a school that is not offered is cleared and does not add Education 2', async () => {
@@ -2159,8 +2178,8 @@ test('a school that is not offered is cleared and does not add Education 2', asy
   assert.equal(iconPressed(), false)
   assert.equal(doc.querySelector('#school-pills [data-automation-id="selectedItem"]'), null)
   assert.equal((doc.getElementById('school-input') as HTMLInputElement).value, '')
-  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
-  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
 })
 
 test('school prompt detection does not claim LinkedIn, degree, or former employee', () => {
@@ -2292,8 +2311,8 @@ test('Cisco education degree select maps Bachelor of Science and keeps GPA', asy
   assert.notEqual(selectedDegreeText(select), 'Bachelors')
   assert.notEqual(selectedDegreeText(select), 'Associate of Science')
   assert.equal((doc.getElementById('gpa') as HTMLInputElement).value, '3.8')
-  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
-  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
   const pill = doc.querySelector('#school-pills [data-automation-id="promptOption"]')
   assert.equal(pill?.getAttribute('data-automation-label'), 'Kennesaw State University')
 })
@@ -2317,8 +2336,8 @@ test('Adobe education degree select maps Bachelor of Science to Bachelors', asyn
   await fillWorkdayEducation(doc, adobeEducationProfile)
   assert.equal(selectedDegreeText(select), 'Bachelors')
   assert.equal((doc.getElementById('gpa') as HTMLInputElement).value, '3.8')
-  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '')
-  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '')
+  assert.equal((doc.getElementById('from-year') as HTMLInputElement).value, '2017')
+  assert.equal((doc.getElementById('to-year') as HTMLInputElement).value, '2020')
 })
 
 test('a degree select that already shows the mapped label is not cleared', async () => {
