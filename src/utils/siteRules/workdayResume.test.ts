@@ -14,6 +14,7 @@ import {
   fileFromWorkdaySavedResume,
   isWorkdayCoverLetterFileInput,
   isWorkdayResumeFileInput,
+  resetWorkdayResumeJobMemory,
   workdayResumeAlreadyPresent,
   workdayResumeFileInput,
 } from './workdayResume.ts'
@@ -532,4 +533,85 @@ test('job-page Apply is clicked and Autofill with Resume is not', () => {
   target?.click()
   assert.deepEqual(clicks, ['apply'])
   assert.equal(workdayApplyChooserTarget(doc, { jobApplyClicked: true }), null)
+})
+
+const JOB_URL =
+  'https://zillow.wd5.myworkdayjobs.com/en-US/Zillow_Group_External/job/Remote-USA/Software-Development-Engineer_P748929-1/apply/applyManually'
+
+function countChanges(input: HTMLInputElement) {
+  const counter = { changes: 0 }
+  input.addEventListener('change', () => {
+    counter.changes += 1
+  })
+  return counter
+}
+
+test('watcher passes that overlap attach the resume once', async () => {
+  resetWorkdayResumeJobMemory()
+  const dom = new JSDOM(DROPZONE_FORM)
+  installDataTransfer(dom.window)
+  const doc = dom.window.document
+  const file = savedFile(dom.window, STORED_BYTES)
+  const counter = countChanges(workdayResumeFileInput(doc)!)
+  let downloads = 0
+  const fill = createWorkdayResumeAttempt(async () => {
+    downloads += 1
+    return file
+  })
+  // Five DOM changes land while the first download is still pending. Before the
+  // in-flight claim this attached five times.
+  const results = await Promise.all([fill(doc), fill(doc), fill(doc), fill(doc), fill(doc)])
+  assert.deepEqual(results, [true, true, true, true, true])
+  assert.equal(counter.changes, 1)
+  assert.equal(downloads, 1)
+})
+
+test('two attaches on the same input at once give it the file once', async () => {
+  resetWorkdayResumeJobMemory()
+  const dom = new JSDOM(DROPZONE_FORM)
+  installDataTransfer(dom.window)
+  const input = workdayResumeFileInput(dom.window.document)!
+  const file = savedFile(dom.window, STORED_BYTES)
+  const counter = countChanges(input)
+  const [first, second] = await Promise.all([
+    attachWorkdaySavedResume(input, file),
+    attachWorkdaySavedResume(input, file),
+  ])
+  assert.deepEqual([first, second].sort(), [false, true])
+  assert.equal(counter.changes, 1)
+})
+
+test('a replacement input on the same Workday job is not given the resume again; another job is', async () => {
+  resetWorkdayResumeJobMemory()
+  const first = new JSDOM(DROPZONE_FORM, { url: JOB_URL })
+  installDataTransfer(first.window)
+  const file = savedFile(first.window, STORED_BYTES)
+  const original = workdayResumeFileInput(first.window.document)!
+  assert.equal(await attachWorkdaySavedResume(original, file), true)
+
+  // Workday cleared and swapped the input before painting the uploaded row.
+  const swapped = new JSDOM(DROPZONE_FORM, { url: `${JOB_URL}?step=2` })
+  installDataTransfer(swapped.window)
+  const replacement = workdayResumeFileInput(swapped.window.document)!
+  const counter = countChanges(replacement)
+  assert.equal(await attachWorkdaySavedResume(replacement, savedFile(swapped.window, STORED_BYTES)), false)
+  assert.equal(counter.changes, 0)
+
+  const other = new JSDOM(DROPZONE_FORM, {
+    url: 'https://workday.wd5.myworkdayjobs.com/en-US/Workday/job/USA-CA-Pleasanton/Senior-Software-Engineer_JR-0107919/apply',
+  })
+  installDataTransfer(other.window)
+  const otherInput = workdayResumeFileInput(other.window.document)!
+  assert.equal(await attachWorkdaySavedResume(otherInput, savedFile(other.window, STORED_BYTES)), true)
+  resetWorkdayResumeJobMemory()
+})
+
+test('a failed attach does not use up the job, so the next try still attaches', async () => {
+  resetWorkdayResumeJobMemory()
+  const dom = new JSDOM(DROPZONE_FORM, { url: JOB_URL })
+  installDataTransfer(dom.window)
+  const input = workdayResumeFileInput(dom.window.document)!
+  assert.equal(await attachWorkdaySavedResume(input, null), false)
+  assert.equal(await attachWorkdaySavedResume(input, savedFile(dom.window, STORED_BYTES)), true)
+  resetWorkdayResumeJobMemory()
 })

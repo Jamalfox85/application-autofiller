@@ -10,6 +10,7 @@
 
 import { assignResumeFile } from './bamboohrFields.ts'
 import { fileFromSavedResumeMessage } from './bamboohrResume.ts'
+import { quotaPageKey } from '../../services/billing/quotaPage.ts'
 
 const PLAIN_FILE_LABEL = /^(upload|choose file|choose a file|select file|select files)$/
 const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, legend, label, [role="heading"], [data-automation-id="formLabel"]'
@@ -203,6 +204,60 @@ const resumeInputsGivenFile = new WeakSet<HTMLInputElement>()
 
 const UPLOADED_RESUME = /successfully uploaded/i
 
+// One attach per job application per tab. Workday swaps the file input after
+// an upload, and the replacement looks unattached until the "Successfully
+// Uploaded" row paints. The key is the application (the same one the weekly
+// count uses, so My Information → My Experience is one job); sessionStorage
+// keeps it across a reload in this tab.
+const JOB_ATTACHED_KEY = 'gofillr.workday.resumeAttached'
+let jobsAttached: Set<string> | null = null
+
+function jobStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
+  try {
+    if (typeof sessionStorage === 'undefined' || !sessionStorage) return null
+    return sessionStorage
+  } catch {
+    return null
+  }
+}
+
+function loadJobsAttached(): Set<string> {
+  if (jobsAttached) return jobsAttached
+  const next = new Set<string>()
+  try {
+    const raw = jobStorage()?.getItem(JOB_ATTACHED_KEY)
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null
+    if (Array.isArray(parsed)) for (const key of parsed) if (typeof key === 'string' && key) next.add(key)
+  } catch {
+    // A corrupt value is ignored; this document still records new attaches.
+  }
+  jobsAttached = next
+  return next
+}
+
+function saveJobsAttached(keys: Set<string>) {
+  jobsAttached = keys
+  try {
+    jobStorage()?.setItem(JOB_ATTACHED_KEY, JSON.stringify([...keys]))
+  } catch {
+    // The in-memory set still blocks a second attach in this document.
+  }
+}
+
+function workdayJobKey(input: HTMLInputElement): string {
+  try {
+    const href = input.ownerDocument?.defaultView?.location?.href || ''
+    return quotaPageKey(href)
+  } catch {
+    return ''
+  }
+}
+
+// Tests start a new document; a real reload does this by loading the script again.
+export function resetWorkdayResumeJobMemory() {
+  jobsAttached = null
+}
+
 function resumeUploadShell(input: HTMLInputElement): Element | null {
   const upload = input.closest('[data-automation-id="file-upload"]')
   if (upload) return upload
@@ -259,8 +314,21 @@ export async function attachWorkdaySavedResume(
   if (resumeInputsGivenFile.has(input)) return false
   if ((input.files?.length ?? 0) > 0) return false
   if (workdayResumeAlreadyPresent(input)) return false
+  const job = workdayJobKey(input)
+  if (job && loadJobsAttached().has(job)) return false
+  // Claim before the first await. Reading the file's bytes yields, and another
+  // caller that checked during that wait used to attach the same file again.
+  resumeInputsGivenFile.add(input)
+  if (job) saveJobsAttached(new Set(loadJobsAttached()).add(job))
   const assigned = await assignResumeFile(input, file)
-  if (assigned) resumeInputsGivenFile.add(input)
+  if (!assigned) {
+    resumeInputsGivenFile.delete(input)
+    if (job) {
+      const keys = new Set(loadJobsAttached())
+      keys.delete(job)
+      saveJobsAttached(keys)
+    }
+  }
   return assigned
 }
 
@@ -308,7 +376,10 @@ export function createWorkdayResumeAttempt(load: () => Promise<File | null>) {
   let done = false
   let tried: HTMLInputElement | null = null
   let pending: Promise<File | null> | null = null
-  return async (root: ParentNode): Promise<boolean> => {
+  // One attempt in flight. A caller that arrives during it waits for that
+  // attempt's answer instead of starting a second attach.
+  let inflight: Promise<boolean> | null = null
+  const attempt = async (root: ParentNode): Promise<boolean> => {
     if (done) return true
     const input = workdayResumeFileInput(root)
     if (input && ((input.files?.length ?? 0) > 0 || workdayResumeAlreadyPresent(input))) {
@@ -329,5 +400,13 @@ export function createWorkdayResumeAttempt(load: () => Promise<File | null>) {
     if (!saved) return false
     done = await attachWorkdaySavedResume(input, saved)
     return done
+  }
+  return (root: ParentNode): Promise<boolean> => {
+    if (done) return Promise.resolve(true)
+    if (inflight) return inflight
+    inflight = attempt(root).finally(() => {
+      inflight = null
+    })
+    return inflight
   }
 }

@@ -145,7 +145,7 @@ export default function workdayConfig(): SiteRule {
       let selfIdNameHandled = false
       let selfIdDateHandled = false
 
-      const observer = new MutationObserver(async () => {
+      const pass = async () => {
         try {
           if (!resumeAttached) {
             if (await fillResume(document)) resumeAttached = true
@@ -434,6 +434,31 @@ export default function workdayConfig(): SiteRule {
         } catch (error) {
           console.error('Error in mutation observer:', error)
         }
+      }
+
+      // One pass at a time. Workday fires many mutations a second while it draws
+      // a page, and overlapping async passes all got past the same "not done yet"
+      // checks (the resume was attached up to five times). A change that lands
+      // during a pass runs one more pass after it, so nothing is missed.
+      let passRunning = false
+      let passQueued = false
+      const runPasses = async () => {
+        if (passRunning) {
+          passQueued = true
+          return
+        }
+        passRunning = true
+        try {
+          do {
+            passQueued = false
+            await pass()
+          } while (passQueued)
+        } finally {
+          passRunning = false
+        }
+      }
+      const observer = new MutationObserver(() => {
+        void runPasses()
       })
 
       observer.observe(document.body, { childList: true, subtree: true })
