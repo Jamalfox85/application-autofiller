@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
-import { linksDialogUploadBase } from '../../lib/linksDialogUpload.ts'
+import {
+  LINKS_DRAFT_KEY,
+  applyLinksDraft,
+  freshLinksDraft,
+  linksDialogUploadBase,
+  linksDiffer,
+  linksDraftFrom,
+  resumeFilledReviewableFields,
+} from '../../lib/linksDialogUpload.ts'
 import {
   LINKEDIN_PREFIX,
   linkedinBoxText,
@@ -55,17 +63,39 @@ let savedTimeout: ReturnType<typeof setTimeout> | undefined
 const resumeUpload = useResumeUpload()
 const resumeUploading = computed(() => resumeUpload.phase.value === 'uploading')
 
+async function readLinksDraft() {
+  try {
+    const stored = await chrome.storage.local.get(LINKS_DRAFT_KEY)
+    return freshLinksDraft(stored[LINKS_DRAFT_KEY])
+  } catch {
+    return null
+  }
+}
+
+async function clearLinksDraft() {
+  try {
+    await chrome.storage.local.remove(LINKS_DRAFT_KEY)
+  } catch {
+    // An old draft expires on its own.
+  }
+}
+
 // Apply a finished upload once the open profile is on screen. No confirmation here, so
 // skills are merged rather than replaced. `fromResumeParse` tells save_profile to omit
 // null columns the parse did not return.
-const applyFinishedUpload = () => {
+const applyFinishedUploadOnce = async () => {
   if (resumeUpload.phase.value !== 'done') return
   if (props.profileReady === false) return
   const parsed = resumeUpload.parsedResume.value
   const fileName = resumeUpload.fileName.value
   const savedPath = resumeUpload.storagePath.value || editableProfile.value.resumeFilePath
-  // Links typed in this dialog and not saved yet stay; the rest is the latest saved profile.
-  const existing = linksDialogUploadBase(completePersonalInfo(props.personalInfo), editableProfile.value)
+  // Links typed in this dialog and not saved yet stay, including ones typed in the
+  // toolbar popup before it closed for the upload tab. The rest is the latest saved profile.
+  const draft = await readLinksDraft()
+  const existing = linksDialogUploadBase(
+    completePersonalInfo(props.personalInfo),
+    applyLinksDraft(editableProfile.value, draft),
+  )
   const base = parsed ? mergeParsedResumeIntoProfile(existing, parsed, fileName) : existing
   editableProfile.value = {
     ...base,
@@ -77,17 +107,37 @@ const applyFinishedUpload = () => {
   // Drop the job before save so this watch cannot apply the same parse twice.
   void resumeUpload.clear()
   if (parsed) {
-    prefilledFromResume.value = true
+    const reviewable = resumeFilledReviewableFields(existing, editableProfile.value)
+    prefilledFromResume.value = reviewable
     emit('save', editableProfile.value, { fromResumeParse: true })
-    emit('review')
+    // Only send the person to review when the resume filled something there.
+    if (reviewable) emit('review')
+  } else if (draft) {
+    emit('save', editableProfile.value)
+  }
+  void clearLinksDraft()
+}
+
+// The watch below fires on every prop change; one apply at a time.
+let applyingUpload = false
+const applyFinishedUpload = async () => {
+  if (applyingUpload) return
+  applyingUpload = true
+  try {
+    await applyFinishedUploadOnce()
+  } finally {
+    applyingUpload = false
   }
 }
 
 watch(
-  [() => resumeUpload.phase.value, () => props.profileReady, () => props.personalInfo],
+  [() => resumeUpload.phase.value, () => props.profileReady, () => props.personalInfo, () => props.show],
   () => {
+    // Applied only while Links & files is open. The dialog stays mounted when hidden,
+    // and applying on popup open raced the profile reload: the reload wrote the old
+    // links back over the save. The popup opens this dialog when an upload finished.
     if (resumeUpload.phase.value === 'done') {
-      applyFinishedUpload()
+      if (props.show) applyFinishedUpload()
     } else if (resumeUpload.phase.value === 'error') {
       resumeError.value = resumeUpload.errorMessage.value
       void resumeUpload.clear()
@@ -97,10 +147,12 @@ watch(
 )
 
 const handleClose = () => {
+  void clearLinksDraft()
   emit('close')
 }
 
 const handleSave = () => {
+  void clearLinksDraft()
   emit('save', editableProfile.value)
   emit('close')
 }
@@ -108,7 +160,17 @@ const handleSave = () => {
 const triggerResumePicker = async () => {
   resumeError.value = ''
   // The popup closes when the native file dialog opens, losing the file. Pick in a tab.
-  if (isToolbarPopup() && !(await pageIsExtensionTab()) && (await openResumeUploadTab())) return
+  if (isToolbarPopup() && !(await pageIsExtensionTab())) {
+    // Closing the popup also drops links typed here and not saved. Keep them first.
+    if (linksDiffer(completePersonalInfo(props.personalInfo), editableProfile.value)) {
+      try {
+        await chrome.storage.local.set({ [LINKS_DRAFT_KEY]: linksDraftFrom(editableProfile.value) })
+      } catch {
+        // Without the draft the upload still runs; the links are typed again.
+      }
+    }
+    if (await openResumeUploadTab()) return
+  }
   resumeInput.value?.click()
 }
 
@@ -191,6 +253,10 @@ watch(
       editableProfile.value = completePersonalInfo(props.personalInfo)
       saved.value = false
       resumeError.value = ''
+      // Links typed before the popup closed for the upload tab come back.
+      void readLinksDraft().then((draft) => {
+        if (draft && props.show) editableProfile.value = applyLinksDraft(editableProfile.value, draft)
+      })
     }
   },
 )

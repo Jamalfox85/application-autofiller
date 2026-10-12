@@ -745,6 +745,9 @@ const loadAppState = async () => {
   }
   await presentWorkdayAccountNotice(true)
   await presentIcimsAccountNotice(true)
+  // A resume picked in the upload tab finishes while the popup is closed. Open where
+  // the person left off; Links & files applies it with any links they had typed.
+  if (activeView.value === 'main' && resumeReviewOwed.value) openDialog('links')
 }
 
 // Lifecycle

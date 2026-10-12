@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { cloneDefaultPersonalInfo } from './personalInfoDefaults.ts'
-import { linksDialogUploadBase } from './linksDialogUpload.ts'
+import {
+  LINKS_DRAFT_TTL_MS,
+  applyLinksDraft,
+  freshLinksDraft,
+  linksDialogUploadBase,
+  linksDiffer,
+  linksDraftFrom,
+  resumeFilledReviewableFields,
+} from './linksDialogUpload.ts'
 import { mergeParsedResumeIntoProfile } from '../utils/resumeParsing.ts'
 import type { PersonalInfo } from '../types/index.ts'
 
@@ -46,4 +54,36 @@ test('the rest of the profile comes from the latest saved copy, not the dialog s
   const base = linksDialogUploadBase(saved, edited)
   assert.equal(base.city, 'Austin')
   assert.equal(base.linkedin, 'https://www.linkedin.com/in/x')
+})
+
+test('a links draft survives the popup closing and comes back onto the saved profile', () => {
+  const saved = profile({ firstName: 'Jordan', linkedin: 'https://www.linkedin.com/in/old', city: 'Austin' })
+  const edited = profile({ ...saved, linkedin: 'https://www.linkedin.com/in/new' })
+  assert.equal(linksDiffer(saved, edited), true)
+  const stored = JSON.parse(JSON.stringify(linksDraftFrom(edited, 1000)))
+  const draft = freshLinksDraft(stored, 1000 + 60_000)
+  const restored = applyLinksDraft(saved, draft)
+  assert.equal(restored.linkedin, 'https://www.linkedin.com/in/new')
+  assert.equal(restored.city, 'Austin')
+  assert.equal(linksDiffer(saved, saved), false)
+})
+
+test('an old or malformed links draft is ignored', () => {
+  assert.equal(freshLinksDraft(linksDraftFrom(profile({}), 0), LINKS_DRAFT_TTL_MS + 1), null)
+  assert.equal(freshLinksDraft({ linkedin: 'x' }), null)
+  assert.equal(freshLinksDraft(null), null)
+})
+
+test('review opens only when the resume filled personal, work or education details', () => {
+  const full = profile({ firstName: 'Jordan', lastName: 'Reyes', city: 'Austin', skills: ['Go'] })
+  // Only skills or the resume file changed: stay on Links.
+  assert.equal(
+    resumeFilledReviewableFields(full, { ...full, skills: ['Go', 'Rust'], resumeFileName: 'new.pdf' } as PersonalInfo),
+    false,
+  )
+  assert.equal(resumeFilledReviewableFields(profile({ firstName: '' }), profile({ firstName: 'Jordan' })), true)
+  assert.equal(
+    resumeFilledReviewableFields(full, { ...full, experience: [{ company: 'Lumenfield Labs' }] } as unknown as PersonalInfo),
+    true,
+  )
 })
