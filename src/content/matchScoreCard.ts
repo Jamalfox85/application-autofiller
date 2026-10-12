@@ -83,6 +83,7 @@ function cardShell(doc: Document): HTMLElement {
     border-radius: 11px;
     box-shadow: 0 18px 44px -14px rgba(0, 0, 0, 0.55);
     font-family: ${FONT};
+    line-height: 1.4;
     color: #ebebee;
     overflow: hidden;
   `

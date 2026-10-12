@@ -29,6 +29,10 @@ export function toastStack(doc: Document = document): HTMLElement {
       align-items: flex-end;
       gap: 8px;
       pointer-events: none;
+      line-height: 1.4;
+      text-align: left;
+      letter-spacing: normal;
+      text-transform: none;
     `
     doc.documentElement.appendChild(stack)
     followVisiblePartOfFrame(stack, doc)

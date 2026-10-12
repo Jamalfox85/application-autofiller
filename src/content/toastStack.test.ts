@@ -26,6 +26,8 @@ test('the Match Score card stays above fill toasts and is not removed with them'
   assert.match(style, /right:\s*20px/)
   assert.doesNotMatch(style, /bottom:/)
   assert.match(style, /max-height:\s*calc\(100vh - 84px\)/)
+  // Hung off <html>, the stack would otherwise inherit the page's line-height.
+  assert.match(style, /line-height:\s*1\.4/)
   assert.equal(stack?.parentElement, doc.documentElement)
   assert.match(style, /gap:\s*8px/)
 })
