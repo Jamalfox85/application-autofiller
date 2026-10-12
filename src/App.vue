@@ -995,7 +995,7 @@ watch(authStatus, (next, previous) => {
       </template>
       <template v-else>
         <span class="footer-note">Synced</span>
-        <a class="footer-link" href="https://www.gofillr.com/help" target="_blank" rel="noopener noreferrer">Help</a>
+        <a class="footer-link" href="https://gofillr.com/help" target="_blank" rel="noopener noreferrer">Help</a>
       </template>
     </footer>
 
