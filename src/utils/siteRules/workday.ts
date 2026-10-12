@@ -27,6 +27,7 @@ import {
   workdayExperiencePanelIsBlank,
   workdayInputInExperiencePanel,
   workdayEducationYear,
+  workdayIsPlainTextField,
   workdayPanelMatchesExperience,
   nextWorkdayFormSignature,
   workdayAccountCredentialKind,
@@ -1769,6 +1770,14 @@ export async function selectWorkdayPromptQuery(
 ): Promise<boolean> {
   const trimmed = query.trim()
   if (!trimmed) return false
+  // A plain text School or Field of Study box has no suggestions to pick. The
+  // pill rules below would call the typed name an unselected query and clear it.
+  if (workdayIsPlainTextField(control)) {
+    const box = control as HTMLInputElement
+    if (cleanVisibleLabel(box.value) === trimmed) return true
+    await fillWorkdayInput(box, trimmed)
+    return cleanVisibleLabel(box.value) === trimmed
+  }
   if (promptSelectionCommitted(control, pick)) return true
   const pillPrompt = !!options?.pillPrompt
   // School suggestions come from this field's input. A prompt icon on Field

@@ -1306,13 +1306,34 @@ export function workdayElementIsDegree(input: Element, fieldText = ''): boolean 
 
 // A prompt with no selected school is still empty when the input shows the
 // profile name. Autofill has to open it again. A committed pill stays as it is.
+const WORKDAY_PROMPT_PARTS =
+  '[data-automation-id="multiSelectContainer"], [data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"], [data-automation-id="selectedItemList"]'
+
+// Some tenants render School or Field of Study as a plain text box: no prompt
+// icon, no suggestion list, no pills. Typed text is the answer there. A prompt
+// field has those parts in its form field, or the box itself is a combobox.
+export function workdayIsPlainTextField(input: Element): boolean {
+  if (input.tagName !== 'INPUT') return false
+  const type = (input.getAttribute('type') || 'text').toLowerCase()
+  if (type !== 'text') return false
+  const role = (input.getAttribute('role') || '').toLowerCase()
+  if (role === 'combobox' || input.hasAttribute('aria-autocomplete')) return false
+  // A box wired to a popup (aria-controls / aria-owns / aria-haspopup / list) is
+  // a suggestion field even when the menu renders outside its form field.
+  for (const attr of ['aria-controls', 'aria-owns', 'aria-haspopup', 'aria-expanded', 'list']) {
+    if (input.hasAttribute(attr)) return false
+  }
+  if ((input.getAttribute('data-automation-id') || '').toLowerCase().includes('search')) return false
+  const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
+  if (!field) return false
+  return !field.querySelector(WORKDAY_PROMPT_PARTS)
+}
+
 export function workdaySchoolPromptNeedsFill(input: Element): boolean {
   if (!workdayElementIsSchool(input)) return false
   const field = input.closest('[data-automation-id^="formField-"], [data-fkit-id]')
   if (!field) return false
-  const backed = field.querySelector(
-    '[data-automation-id="multiSelectContainer"], [data-automation-id="promptIcon"], [data-automation-id="promptSearchButton"], [data-automation-id="selectedItemList"]',
-  )
+  const backed = field.querySelector(WORKDAY_PROMPT_PARTS)
   if (!backed) return false
   const pills = field.querySelectorAll(
     '[data-automation-id="selectedItem"], [data-automation-id="selectedItemLabel"]',

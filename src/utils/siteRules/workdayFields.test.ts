@@ -35,6 +35,8 @@ import {
   workdayElementIsSchool,
   workdayElementIsSource,
   workdaySchoolPromptNeedsFill,
+  workdayIsPlainTextField,
+  workdayEducationYear,
   workdayExperienceLocation,
   workdayFormerEmployeeListboxButton,
   workdayIsCustomSourceField,
@@ -4557,4 +4559,50 @@ test('the content script installs the saved-password confirmation prompt', () =>
   const icims = readFileSync(new URL('./icims.ts', import.meta.url), 'utf8')
   const sync = icims.slice(icims.indexOf('function syncIcimsLogin'), icims.indexOf('function watchIcimsLogin'))
   assert.equal(sync.includes('fillIcimsLoginGate'), false)
+})
+
+test('a plain text School box is told apart from prompt and popup-linked boxes', () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-schoolName"><input id="plain" type="text" data-automation-id="textInputBox" /></div>
+    <div data-automation-id="formField-school"><div data-automation-id="multiSelectContainer"><input id="prompt" /></div></div>
+    <div data-automation-id="formField-schoolItem"><input id="linked" aria-controls="menu" /></div>
+    <div data-automation-id="formField-fieldOfStudy"><input id="combo" role="combobox" /></div>
+    <input id="loose" type="text" />
+  </body>`)
+  const doc = dom.window.document
+  assert.equal(workdayIsPlainTextField(doc.getElementById('plain')!), true)
+  assert.equal(workdayIsPlainTextField(doc.getElementById('prompt')!), false)
+  assert.equal(workdayIsPlainTextField(doc.getElementById('linked')!), false)
+  assert.equal(workdayIsPlainTextField(doc.getElementById('combo')!), false)
+  // Not inside a Workday form field: not something this rule decides.
+  assert.equal(workdayIsPlainTextField(doc.getElementById('loose')!), false)
+})
+
+test('a plain text School box is filled with the school and is not cleared afterwards', async () => {
+  const dom = new JSDOM(`<!doctype html><body>
+    <div data-automation-id="formField-schoolName">
+      <input id="school" type="text" data-automation-id="textInputBox" value="" />
+    </div>
+  </body>`)
+  const previous = { window: globalThis.window, document: globalThis.document }
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document })
+  try {
+    const school = dom.window.document.getElementById('school') as HTMLInputElement
+    const { selectWorkdayPromptQuery } = await import('./workday.ts')
+    assert.equal(await selectWorkdayPromptQuery(school, 'Kennesaw State University', undefined, { pillPrompt: true }), true)
+    assert.equal(school.value, 'Kennesaw State University')
+    // The input loop's later School attempt keeps the text instead of clearing it.
+    assert.equal(await selectWorkdayPromptQuery(school, 'Kennesaw State University', undefined, { pillPrompt: true }), true)
+    assert.equal(school.value, 'Kennesaw State University')
+  } finally {
+    Object.assign(globalThis, previous)
+  }
+})
+
+test('education years use the four-digit year only', () => {
+  assert.equal(workdayEducationYear('2019'), '2019')
+  assert.equal(workdayEducationYear('May 2019'), '2019')
+  assert.equal(workdayEducationYear('2019-05'), '2019')
+  assert.equal(workdayEducationYear(''), null)
+  assert.equal(workdayEducationYear('Spring'), null)
 })
