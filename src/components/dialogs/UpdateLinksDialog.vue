@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
+import { linksDialogUploadBase } from '../../lib/linksDialogUpload.ts'
 import {
   LINKEDIN_PREFIX,
   linkedinBoxText,
@@ -63,7 +64,8 @@ const applyFinishedUpload = () => {
   const parsed = resumeUpload.parsedResume.value
   const fileName = resumeUpload.fileName.value
   const savedPath = resumeUpload.storagePath.value || editableProfile.value.resumeFilePath
-  const existing = completePersonalInfo(props.personalInfo)
+  // Links typed in this dialog and not saved yet stay; the rest is the latest saved profile.
+  const existing = linksDialogUploadBase(completePersonalInfo(props.personalInfo), editableProfile.value)
   const base = parsed ? mergeParsedResumeIntoProfile(existing, parsed, fileName) : existing
   editableProfile.value = {
     ...base,
