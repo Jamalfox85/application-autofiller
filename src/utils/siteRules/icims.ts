@@ -26,7 +26,7 @@ import {
   icimsLocationMenuCommitted,
   planIcimsFill,
 } from './icimsFields.ts'
-import { attachIcimsResumeOnce } from './icimsResumeFile.ts'
+import { attachIcimsResumeOnce, takeIcimsParseRefill } from './icimsResumeFile.ts'
 
 type IcimsRowNode = {
   tagName?: string
@@ -182,6 +182,7 @@ function watchIcimsLogin(personalInfo: PersonalInfo | null | undefined) {
 export default function icimsConfig(): SiteRule {
   return {
     detect: () => window.location.hostname.includes('icims.com'),
+    continueAfterReload: () => (typeof document === 'undefined' ? false : takeIcimsParseRefill(document)),
     onMount: (personalInfo) => {
       const page = readIcimsPage()
       // Auth0 identifier and password steps fill only after Auto-fill or the

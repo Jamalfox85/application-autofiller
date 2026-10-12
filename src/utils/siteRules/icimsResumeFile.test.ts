@@ -6,8 +6,10 @@ import { icimsGateMayAdvance, planIcimsFill, type IcimsControl } from './icimsFi
 import {
   applyIcimsResumeFile,
   loadIcimsSavedResume,
+  ICIMS_PARSE_REFILL_WINDOW_MS,
   resetIcimsResumeAttachMemory,
   resetIcimsSavedResumeCache,
+  takeIcimsParseRefill,
 } from './icimsResumeFile.ts'
 
 const PDF = new TextEncoder().encode('%PDF-1.4 saved-resume')
@@ -836,6 +838,44 @@ test('the live Kemin chooser attaches once, and an accepted reload does not', as
     })
   } finally {
     page.restore()
+  }
+})
+
+test('after the parse reload, the iCIMS form takes the refill note once; the shell and other jobs do not', async () => {
+  const harness = installIcimsHarness()
+  try {
+    const rule = await icimsRule()
+    const first = fileInput('Resume Choose File', resumeDocument())
+    assert.equal(await rule.apply(first.input as unknown as HTMLInputElement, 'resume choose file', person), true)
+
+    // The reloaded documents in the same tab: the career shell has no resume fields.
+    const formDoc = (fields: boolean) => ({
+      defaultView: harness.pageWindow,
+      getElementById: (id: string) => (fields && id === 'PortalProfileFields.Resume' ? { value: 'true' } : null),
+    })
+    assert.equal(takeIcimsParseRefill(formDoc(false)), false)
+    assert.equal(takeIcimsParseRefill(formDoc(true)), true)
+    // Taken once: a later load of the same form does not write over the person's edits.
+    assert.equal(takeIcimsParseRefill(formDoc(true)), false)
+
+    // A note for one posting is not taken by another posting.
+    resetIcimsResumeAttachMemory()
+    resetIcimsSavedResumeCache()
+    harness.location.pathname = '/jobs/13000/other-role/candidate'
+    harness.location.href = `https://${KEMIN_HOST}${harness.location.pathname}${harness.location.search}`
+    const other = fileInput('Resume Choose File', resumeDocument())
+    assert.equal(await rule.apply(other.input as unknown as HTMLInputElement, 'resume', person), true)
+    harness.location.pathname = KEMIN_PATH
+    harness.location.href = `https://${KEMIN_HOST}${KEMIN_PATH}${harness.location.search}`
+    assert.equal(takeIcimsParseRefill(formDoc(true)), false)
+
+    // A note older than the window is dropped.
+    harness.location.pathname = '/jobs/13000/other-role/candidate'
+    harness.location.href = `https://${KEMIN_HOST}${harness.location.pathname}${harness.location.search}`
+    assert.equal(takeIcimsParseRefill(formDoc(true), Date.now() + ICIMS_PARSE_REFILL_WINDOW_MS + 1000), false)
+    assert.equal(takeIcimsParseRefill(formDoc(true)), false)
+  } finally {
+    harness.restore()
   }
 })
 })

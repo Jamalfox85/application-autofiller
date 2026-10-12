@@ -237,6 +237,11 @@ function isSkippableField(input: FormField, includeFilled?: (input: FormField) =
   return false
 }
 
+// One run that may write over values already on the page. iCIMS reloads its form
+// with its own reading of the resume the fill just attached; this run puts the
+// profile back. The resume field itself is left as iCIMS holds it.
+let overwriteFilledThisRun = false
+
 // Set once the user has clicked fill on this page. Only then may a form that grows
 // (Greenhouse education rows) be topped up without another click.
 let userStartedFillOnPage = false
@@ -346,10 +351,11 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
     if (triggerSource === 'user_clicked_button') userStartedFillOnPage = true
 
     const activeSiteRule = siteRules.find((rule) => rule.detect())
+    const includeFilled = (input: FormField) =>
+      (overwriteFilledThisRun && (input as HTMLInputElement).type !== 'file') ||
+      Boolean(activeSiteRule?.includeFilled?.(input))
     const inputs = deepQuerySelectorAll(document, 'input, textarea, select') as FormField[]
-    const fillableInputs = inputs.filter(
-      (input) => !isSkippableField(input, activeSiteRule?.includeFilled),
-    )
+    const fillableInputs = inputs.filter((input) => !isSkippableField(input, includeFilled))
     // Application Questions are Canvas buttons. The input scan does not see
     // them, and the years box is the only input, so a skip there used to report
     // that nothing on the page matched.
@@ -369,7 +375,7 @@ export async function autofillPage(triggerSource: AutofillTriggerSource = 'user_
       window.location.hostname.toLowerCase().includes('icims.com')
     ) {
       embeddedInputs = embeddedIcimsFillableFields(document, (input) =>
-        isSkippableField(input as FormField, activeSiteRule?.includeFilled),
+        isSkippableField(input as FormField, includeFilled),
       ) as FormField[]
     }
     const inputsToFill = fillableInputs.length > 0 ? fillableInputs : embeddedInputs
@@ -814,6 +820,18 @@ async function fillByDefault(
     return true
   }
   return false
+}
+
+// The fill the person started before a site reload, run once more on the reloaded
+// form. It is the same application, so the weekly claim treats it as a repeat.
+export async function continueFillAfterReload() {
+  userStartedFillOnPage = true
+  overwriteFilledThisRun = true
+  try {
+    return await autofillPage('resync')
+  } finally {
+    overwriteFilledThisRun = false
+  }
 }
 
 export function debounceAutofill(autoDetectEnabled: boolean) {

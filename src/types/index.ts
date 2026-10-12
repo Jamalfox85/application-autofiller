@@ -154,6 +154,9 @@ export type SiteRule = {
   // A prefilled control the rule still needs to visit. Other fields with a
   // value stay skipped.
   includeFilled?: (input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement) => boolean
+  // True when this page load continues a fill the person already started, and the
+  // site wrote its own values over that fill during the reload (iCIMS resume parse).
+  continueAfterReload?: () => boolean
 }
 
 export type FieldMatch = (

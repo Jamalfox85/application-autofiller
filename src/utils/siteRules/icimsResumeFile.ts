@@ -118,6 +118,11 @@ export function loadIcimsSavedResume(): Promise<File | null> {
 // The key is the career host plus the job id, so a different posting can still
 // receive the file and a changing eem token does not look like a new job.
 const RESUME_ATTACHED_KEY = 'gofillr.icims.resumeAttached'
+// That reload also writes iCIMS's own reading of the resume over the fields the
+// same fill just wrote. The fill that attached the file leaves this note so the
+// reloaded form can put the profile back once.
+const PARSE_REFILL_KEY = 'gofillr.icims.parseRefill'
+export const ICIMS_PARSE_REFILL_WINDOW_MS = 3 * 60 * 1000
 const JOB_ID = /\/jobs\/(\d+)/i
 const ACCEPTED_RESUME_NAME = /\bresume\d{12,14}\.pdf\b/i
 const STATUS_SELECTOR = 'button, a, input, span, p, label, li, div, [role="button"]'
@@ -569,5 +574,54 @@ export async function attachIcimsResumeOnce(input: FileInputLike): Promise<boole
   rememberIcimsResumeAttached(page.jobKey)
   const attached = await applyIcimsResumeFile(input, await loadIcimsSavedResume())
   if (attached !== true && !assignedFileName(input)) forgetIcimsResumeAttached(page.jobKey)
+  if (attached === true) markIcimsParseRefill(page.jobKey)
   return attached
+}
+
+function markIcimsParseRefill(jobKey: string, now = Date.now()) {
+  if (!jobKey) return
+  const storage = liveStorage()
+  if (!storage) return
+  try {
+    storage.setItem(PARSE_REFILL_KEY, JSON.stringify({ jobKey, at: now }))
+  } catch {
+    // Without the note the parsed values stay; the person can click Auto-fill again.
+  }
+}
+
+// True once, in the reloaded form for the job whose resume this tab just attached.
+// The career shell shares this tab's sessionStorage, so only the document that
+// holds the resume fields may take the note. A stale note is dropped.
+export function takeIcimsParseRefill(doc: ResumeDocument | null, now = Date.now()): boolean {
+  const storage = liveStorage()
+  if (!storage || !doc || typeof doc.getElementById !== 'function') return false
+  let pending: { jobKey?: unknown; at?: unknown } | null = null
+  try {
+    const raw = storage.getItem(PARSE_REFILL_KEY)
+    pending = raw ? (JSON.parse(raw) as { jobKey?: unknown; at?: unknown }) : null
+  } catch {
+    pending = null
+  }
+  if (!pending) return false
+  const clear = () => {
+    try {
+      storage.setItem(PARSE_REFILL_KEY, '')
+    } catch {
+      // Ignore a storage that rejects writes; the window below still expires it.
+    }
+  }
+  const age = typeof pending.at === 'number' ? now - pending.at : -1
+  if (age < 0 || age > ICIMS_PARSE_REFILL_WINDOW_MS) {
+    clear()
+    return false
+  }
+  const holdsResumeFields =
+    readMaybe(() => doc.getElementById?.('PortalProfileFields.Resume_File')) ||
+    readMaybe(() => doc.getElementById?.('PortalProfileFields.Resume'))
+  if (!holdsResumeFields) return false
+  const view = (doc as { defaultView?: unknown }).defaultView
+  const jobKey = jobKeyFromLocations(collectLocations({ ownerDocument: { defaultView: view } }))
+  if (!jobKey || pending.jobKey !== jobKey) return false
+  clear()
+  return true
 }

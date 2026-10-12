@@ -3,6 +3,7 @@
 import {
   autofillPage,
   claimSubmittedApplications,
+  continueFillAfterReload,
   debounceAutofill,
   pageNavigated,
   readAutofillTriggerForSubmission,
@@ -139,6 +140,15 @@ function onRuntimeMessage(request, _sender, sendResponse) {
   }
 }
 
+async function continueFillAfterSiteReload() {
+  const rule = siteRules.find((candidate) => candidate.detect())
+  if (!rule?.continueAfterReload?.()) return
+  // Let the reloaded form finish its own setup before writing over it.
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  const result = await continueFillAfterReload()
+  if (result.success) showAutofillNotification(result)
+}
+
 async function resumeAutofillAfterPro() {
   const result = await autofillPage('user_clicked_button')
   if (result.code === 'hard_cap' || result.paywall === 'hard') {
@@ -193,6 +203,10 @@ async function initialize() {
   // navigate to the apply form without a new document. Watch the URL either way,
   // and watch the DOM for a form that mounts after the first paint.
   installLateFormWatch()
+
+  // iCIMS reloads its form with its own resume parse right after a fill attaches
+  // the file. That reload is part of the same fill, so write the profile back once.
+  void continueFillAfterSiteReload()
 
   // Watch for URL changes (SPA navigation). lastUrl has to live outside the tick;
   // declaring it inside made currentUrl === lastUrl on every pass, so this never ran.

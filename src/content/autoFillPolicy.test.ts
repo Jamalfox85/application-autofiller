@@ -102,3 +102,11 @@ test('a later step does not emit another autofill_succeeded or history row', () 
   const beforeCharge = block.slice(0, chargedAt)
   assert.equal(beforeCharge.includes("trackFillContract('autofill_succeeded'"), false)
 })
+
+test('a site reload that continues a fill writes over the site values once, never the file field', () => {
+  assert.match(index, /void continueFillAfterSiteReload\(\)/)
+  assert.match(index, /rule\?\.continueAfterReload\?\.\(\)/)
+  assert.match(autofill, /overwriteFilledThisRun && \(input as HTMLInputElement\)\.type !== 'file'/)
+  const cont = autofill.slice(autofill.indexOf('export async function continueFillAfterReload'))
+  assert.match(cont, /userStartedFillOnPage = true[\s\S]*autofillPage\('resync'\)[\s\S]*finally \{\s*overwriteFilledThisRun = false/)
+})
