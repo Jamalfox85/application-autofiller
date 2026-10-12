@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { completePersonalInfo } from '../../lib/personalInfoDefaults.ts'
-import { linkedinProfileUrl, normalizeProfileUrl } from '../../utils/profileUrl.ts'
+import {
+  LINKEDIN_PREFIX,
+  linkedinBoxText,
+  linkedinFromBox,
+  normalizeProfileUrl,
+} from '../../utils/profileUrl.ts'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { mergeParsedResumeIntoProfile, profileHasUserData } from '@/utils/resumeParsing'
 import { useResumeUpload } from '@/composables/useResumeUpload'
@@ -126,12 +131,20 @@ const handleResumeChange = (event: Event) => {
 }
 
 function makeLinkModel(key: 'linkedin' | 'website' | 'github') {
+  if (key === 'linkedin') {
+    return computed({
+      get: () => linkedinBoxText(editableProfile.value.linkedin),
+      set: (value: string) => {
+        editableProfile.value.linkedin = linkedinFromBox(value)
+        saved.value = false
+      },
+    })
+  }
   return computed({
     get: () => stripProtocol(editableProfile.value[key] || ''),
     set: (value: string) => {
       const bare = stripProtocol(value)
-      if (!bare) editableProfile.value[key] = ''
-      else editableProfile.value[key] = key === 'linkedin' ? linkedinProfileUrl(bare) : normalizeProfileUrl(bare)
+      editableProfile.value[key] = bare ? normalizeProfileUrl(bare) : ''
       saved.value = false
     },
   })
@@ -252,7 +265,7 @@ onBeforeUnmount(() => clearTimeout(savedTimeout))
             <span v-if="isInvalid(linkedinModel)" class="fs-error">Doesn't look like a URL</span>
           </span>
           <span class="link-input-wrap" :class="{ invalid: isInvalid(linkedinModel) }">
-            <span class="link-prefix">https://</span>
+            <span class="link-prefix">{{ LINKEDIN_PREFIX }}</span>
             <input v-model="linkedinModel" type="text" placeholder="linkedin.com/in/you" />
           </span>
         </label>
